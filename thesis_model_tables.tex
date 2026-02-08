@@ -1,0 +1,84 @@
+\\documentclass{article}
+\\usepackage[margin=2.5cm]{geometry}
+\\usepackage{booktabs}
+\\usepackage{float}
+
+\\begin{document}
+
+\\section*{Prediction Model Results}
+
+\\subsection*{Class distribution in the full dataset}
+
+\\begin{table}[H]
+\\centering
+\\caption{Distribution of 2-month risk categories in the full dataset (N = 4{,}800 visits)}
+\\begin{tabular}{lrr}
+\\toprule
+Risk category & Count & Percentage (\\%) \\\\
+\\midrule
+Low      & 848  & 17.7 \\\\
+Moderate & 2{,}153 & 44.9 \\\\
+High     & 1{,}482 & 30.9 \\\\
+Severe   & 317  & 6.6 \\\\
+\\midrule
+Total    & 4{,}800 & 100.0 \\\\
+\\bottomrule
+\\end{tabular}
+\\end{table}
+
+\\subsection*{Train--test split (by child)}
+
+\\begin{table}[H]
+\\centering
+\\caption{Train--test split by child (no data leakage)}
+\\begin{tabular}{lrr}
+\\toprule
+Set  & Children (N) & Visits (rows) \\\\
+\\midrule
+Training set & 480 (80\\%) & 3{,}840 \\\\
+Test set     & 120 (20\\%) & 960 \\\\
+\\midrule
+Total        & 600 (100\\%) & 4{,}800 \\\\
+\\bottomrule
+\\end{tabular}
+\\end{table}
+
+\\subsection*{Model comparison on the test set}
+
+\\begin{table}[H]
+\\centering
+\\caption{Comparison of candidate models on the test set (N = 960 visits)}
+\\begin{tabular}{lrrrr}
+\\toprule
+Model & Accuracy & F1-macro & Recall High (class 2) & Recall Severe (class 3) \\\\
+\\midrule
+Logistic Regression & 0.760 & 0.728 & 0.797 & 0.518 \\\\
+Random Forest       & 0.760 & 0.743 & 0.777 & 0.643 \\\\
+SVM (RBF)           & 0.450 & 0.176 & 0.043 & 0.000 \\\\
+XGBoost             & 0.760 & 0.744 & 0.771 & 0.661 \\\\
+\\bottomrule
+\\end{tabular}
+\\end{table}
+
+\\subsection*{Per-class performance of the selected XGBoost model}
+
+\\begin{table}[H]
+\\centering
+\\caption{Per-class performance of the selected XGBoost model on the test set}
+\\begin{tabular}{lrrrr}
+\\toprule
+Class (risk level) & Precision & Recall & F1-score & Support \\\\
+\\midrule
+0 (Low)      & 0.84 & 0.68 & 0.75 & 185 \\\\
+1 (Moderate) & 0.74 & 0.79 & 0.76 & 418 \\\\
+2 (High)     & 0.74 & 0.77 & 0.75 & 301 \\\\
+3 (Severe)   & 0.76 & 0.66 & 0.70 & 56 \\\\
+\\midrule
+Macro average    & 0.77 & 0.73 & 0.74 & 960 \\\\
+Weighted average & 0.76 & 0.76 & 0.75 & 960 \\\\
+\\bottomrule
+\\end{tabular}
+\\end{table}
+
+\\end{document}
+

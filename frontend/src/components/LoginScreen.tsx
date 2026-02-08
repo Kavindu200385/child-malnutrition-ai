@@ -1,0 +1,243 @@
+import React, { useState } from 'react';
+import { Shield, Info, Heart, Users, Activity } from 'lucide-react';
+import { UserInfo } from '../App';
+
+interface LoginScreenProps {
+  onLogin: (user: UserInfo) => void;
+}
+
+// Sample login credentials with user details
+const sampleLogins = [
+  { 
+    id: 'PHM-2024-001', 
+    password: 'phm123', 
+    name: 'Mrs. Nimalka Perera',
+    role: 'Public Health Midwife' 
+  },
+  { 
+    id: 'NURSE-2024-015', 
+    password: 'nurse123', 
+    name: 'Ms. Chamari Silva',
+    role: 'Clinic Nurse' 
+  },
+  { 
+    id: 'MOH-2024-003', 
+    password: 'moh123', 
+    name: 'Dr. Sunil Fernando',
+    role: 'MOH Officer' 
+  },
+];
+
+export function LoginScreen({ onLogin }: LoginScreenProps) {
+  const [workerId, setWorkerId] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    
+    // Validate against sample logins
+    const validLogin = sampleLogins.find(
+      login => login.id === workerId && login.password === password
+    );
+
+    if (validLogin) {
+      onLogin({
+        id: validLogin.id,
+        name: validLogin.name,
+        role: validLogin.role
+      });
+    } else {
+      setError('Invalid credentials. Please use one of the demo logins below.');
+    }
+  };
+
+  const fillSampleLogin = (login: typeof sampleLogins[0]) => {
+    setWorkerId(login.id);
+    setPassword(login.password);
+    setError('');
+  };
+
+  return (
+    <div className="min-h-screen flex relative overflow-hidden">
+      {/* Left Side - Background Image with Overlay */}
+      <div className="hidden lg:flex lg:w-3/5 relative">
+        {/* Background Image */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ 
+            backgroundImage: `url('https://images.unsplash.com/photo-1604599730009-fe273616197c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxoZWFsdGhjYXJlJTIwY2xpbmljJTIwbW90aGVyJTIwY2hpbGQlMjBudXRyaXRpb258ZW58MXx8fHwxNzcwMDE2MzQ1fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral')` 
+          }}
+        />
+        {/* Gradient Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-600/90 via-blue-500/80 to-green-500/70" />
+        
+        {/* Content */}
+        <div className="relative z-10 flex flex-col justify-center px-12 text-white">
+          <div className="max-w-lg">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center border-2 border-white/40">
+                <Shield className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-white">CMRAS</h1>
+                <p className="text-blue-100 text-sm">Child Malnutrition Risk Assessment</p>
+              </div>
+            </div>
+            
+            <h2 className="text-4xl font-bold mb-4 leading-tight">
+              Protecting Children's Health Through Early Detection
+            </h2>
+            
+            <p className="text-lg text-blue-50 mb-8">
+              A comprehensive digital system for Sri Lankan healthcare workers to monitor child nutrition, 
+              track growth patterns, and provide timely interventions using WHO standards.
+            </p>
+
+            {/* Features */}
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Activity className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white mb-1">WHO Growth Standards</h3>
+                  <p className="text-sm text-blue-100">Real-time Z-score calculations and comprehensive growth tracking</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Heart className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white mb-1">Early Risk Prediction</h3>
+                  <p className="text-sm text-blue-100">AI-powered forecasting to prevent malnutrition progression</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Users className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white mb-1">Clinical Recommendations</h3>
+                  <p className="text-sm text-blue-100">Personalized guidance for every child's nutritional needs</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-12 pt-8 border-t border-white/20">
+              <p className="text-blue-100 text-sm">
+                Ministry of Health - Sri Lanka
+              </p>
+              <p className="text-blue-200 text-xs mt-1">
+                PHM / MOH Clinic Digital Platform
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Side - Login Form */}
+      <div className="w-full lg:w-2/5 flex items-center justify-center bg-gray-50 p-6 lg:p-12">
+        <div className="w-full max-w-md">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-8 lg:p-10">
+            {/* Header */}
+            <div className="mb-8">
+              <div className="lg:hidden inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-full mb-4">
+                <Shield className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome Back</h2>
+              <p className="text-gray-600">Sign in to access the CMRAS portal</p>
+            </div>
+
+            {/* Login Form */}
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {error && (
+                <div className="bg-red-50 border-2 border-red-300 text-red-900 px-4 py-3 rounded-lg text-sm">
+                  {error}
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="workerId" className="block text-sm font-medium text-gray-900 mb-2">
+                  Health Worker ID
+                </label>
+                <input
+                  type="text"
+                  id="workerId"
+                  value={workerId}
+                  onChange={(e) => setWorkerId(e.target.value)}
+                  className="w-full px-4 py-3 text-base border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  placeholder="Enter your worker ID"
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-900 mb-2">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  id="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 text-base border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  placeholder="Enter your password"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors shadow-md hover:shadow-lg"
+              >
+                Sign In
+              </button>
+            </form>
+
+            {/* Sample Logins */}
+            <div className="mt-6 pt-6 border-t-2 border-gray-200">
+              <div className="flex items-center gap-2 mb-3">
+                <Info className="w-4 h-4 text-blue-600" />
+                <p className="text-sm font-medium text-gray-900">Demo Credentials</p>
+              </div>
+              <div className="space-y-2">
+                {sampleLogins.map((login, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => fillSampleLogin(login)}
+                    className="w-full text-left bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg p-3 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{login.role}</p>
+                        <p className="text-xs text-gray-600">ID: {login.id}</p>
+                      </div>
+                      <span className="text-xs text-blue-600 font-medium">Use →</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6 text-center text-xs text-gray-500">
+              <p>For authorized health workers only</p>
+              <p className="mt-1">Contact system administrator for access</p>
+            </div>
+          </div>
+          
+          {/* Mobile Ministry Info */}
+          <div className="lg:hidden mt-6 text-center">
+            <p className="text-sm text-gray-600">Ministry of Health - Sri Lanka</p>
+            <p className="text-xs text-gray-500 mt-1">PHM / MOH Clinic Portal</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
