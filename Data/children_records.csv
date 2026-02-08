@@ -1,4 +1,0 @@
-Child_ID,Age_months,Sex,Weight_kg,Height_cm,WFA_Z,HFA_Z,WFH_Z,Underweight,Stunting,Wasting,Model_Prediction,Final_Decision,Confidence,Risk_Level
-CH001,20,M,8.2,75.0,-3.123,-3.236,-27.844,Severe Underweight,Severe Stunting,SAM,2,SAM,0.812,
-CH001,20,M,8.2,75.0,-3.123,-3.236,-27.844,Severe Underweight,Severe Stunting,SAM,SAM,SAM,0.812,
-CH001,20,M,8.2,75.0,-3.123,-3.236,-27.844,Severe Underweight,Severe Stunting,SAM,SAM,SAM,0.812,CRITICAL
