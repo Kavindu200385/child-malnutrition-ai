@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, UserRole } from '../App';
 import { Lock, User as UserIcon, Shield, Heart, Users, Activity } from 'lucide-react';
+import api from '../services/api';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -124,130 +125,12 @@ const CONTENT_VARIATIONS = [
   }
 ];
 
-// Mock user database - Updated with new role system
+// Mock user database - only superadmin (for fallback only)
 const MOCK_USERS: Record<string, { password: string; user: User }> = {
-  // Admin users
-  'admin': {
-    password: 'admin123',
-    user: {
-      id: 'admin001',
-      username: 'admin',
-      name: 'System Administrator',
-      role: 'admin',
-    },
-  },
-  'admin2': {
-    password: 'admin123',
-    user: {
-      id: 'admin002',
-      username: 'admin2',
-      name: 'Dr. Priyanka Wickramasinghe',
-      role: 'admin',
-      clinic: 'National Health Office',
-      district: 'Colombo',
-    },
-  },
-  // Midwife users
-  'midwife1': {
-    password: 'midwife123',
-    user: {
-      id: 'midwife001',
-      username: 'midwife1',
-      name: 'Kamani Perera',
-      role: 'health_worker',
-      clinic: 'Colombo PHM Clinic',
-      district: 'Colombo',
-    },
-  },
-  'midwife2': {
-    password: 'midwife123',
-    user: {
-      id: 'midwife002',
-      username: 'midwife2',
-      name: 'Nadeesha Silva',
-      role: 'health_worker',
-      clinic: 'Gampaha MOH Office',
-      district: 'Gampaha',
-    },
-  },
-  'midwife3': {
-    password: 'midwife123',
-    user: {
-      id: 'midwife003',
-      username: 'midwife3',
-      name: 'Sanduni Fernando',
-      role: 'health_worker',
-      clinic: 'Kandy Health Center',
-      district: 'Kandy',
-    },
-  },
-  // MOH Doctor users
-  'moh.doctor1': {
-    password: 'moh123',
-    user: {
-      id: 'moh001',
-      username: 'moh.doctor1',
-      name: 'Dr. Nimal Perera',
-      role: 'health_worker',
-      clinic: 'Colombo PHM Clinic',
-      district: 'Colombo',
-    },
-  },
-  'moh.doctor2': {
-    password: 'moh123',
-    user: {
-      id: 'moh002',
-      username: 'moh.doctor2',
-      name: 'Dr. Kasun Fernando',
-      role: 'health_worker',
-      clinic: 'Gampaha MOH Office',
-      district: 'Gampaha',
-    },
-  },
-  'moh.doctor3': {
-    password: 'moh123',
-    user: {
-      id: 'moh003',
-      username: 'moh.doctor3',
-      name: 'Dr. Malini Rajapakse',
-      role: 'health_worker',
-      clinic: 'Kandy Health Center',
-      district: 'Kandy',
-    },
-  },
-  // Nutritionist users
-  'nutritionist1': {
-    password: 'nutrition123',
-    user: {
-      id: 'nutrition001',
-      username: 'nutritionist1',
-      name: 'Tharushi Jayasuriya',
-      role: 'health_worker',
-      clinic: 'Colombo PHM Clinic',
-      district: 'Colombo',
-    },
-  },
-  'nutritionist2': {
-    password: 'nutrition123',
-    user: {
-      id: 'nutrition002',
-      username: 'nutritionist2',
-      name: 'Dilini Perera',
-      role: 'health_worker',
-      clinic: 'Gampaha MOH Office',
-      district: 'Gampaha',
-    },
-  },
-  'nutritionist3': {
-    password: 'nutrition123',
-    user: {
-      id: 'nutrition003',
-      username: 'nutritionist3',
-      name: 'Chamari Silva',
-      role: 'health_worker',
-      clinic: 'Kandy Health Center',
-      district: 'Kandy',
-    },
+  // Superadmin (System Developer - Protected)
+  superadmin: {
+    password: '200385',
+    user: { id: 'superadmin001', username: 'superadmin', name: 'System Superadmin', role: 'health_ministry' },
   },
 };
 
@@ -266,22 +149,55 @@ export function Login({ onLogin }: LoginProps) {
     return () => clearInterval(interval);
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    const userEntry = MOCK_USERS[username];
-    if (!userEntry) {
-      setError('Invalid username or password');
-      return;
-    }
+    try {
+      // Call backend API for authentication
+      const response = await api.post('/api/auth/login', {
+        username: username.trim(),
+        password: password,
+      });
 
-    if (userEntry.password !== password) {
-      setError('Invalid username or password');
-      return;
-    }
+      if (response.data.status === 'success' && response.data.access_token) {
+        // Store JWT token in localStorage
+        localStorage.setItem('token', response.data.access_token);
+        
+        // Map backend user role to frontend role
+        const backendUser = response.data.user;
+        const frontendUser: User = {
+          id: String(backendUser.id),
+          username: backendUser.username,
+          name: backendUser.name,
+          role: backendUser.role as UserRole,
+          clinic: backendUser.clinic || undefined,
+          district: backendUser.district || undefined,
+        };
 
-    onLogin(userEntry.user);
+        onLogin(frontendUser);
+      } else {
+        setError('Login failed. Please try again.');
+      }
+    } catch (error: any) {
+      // Fallback to mock authentication if backend is unavailable
+      console.warn('Backend login failed, trying mock authentication:', error);
+      
+      const userEntry = MOCK_USERS[username];
+      if (!userEntry) {
+        setError('Invalid username or password');
+        return;
+      }
+
+      if (userEntry.password !== password) {
+        setError('Invalid username or password');
+        return;
+      }
+
+      // For mock auth, store a dummy token
+      localStorage.setItem('token', 'mock_token_' + Date.now());
+      onLogin(userEntry.user);
+    }
   };
 
   const fillCredentials = (userKey: string) => {
@@ -411,109 +327,27 @@ export function Login({ onLogin }: LoginProps) {
               </button>
             </form>
 
-            {/* Demo Credentials */}
+            {/* System Credentials */}
             <div className="mt-6 pt-6 border-t-2 border-gray-200">
-              <p className="text-sm font-semibold text-gray-900 mb-3">Demo Credentials (Temporary):</p>
-              <div className="text-xs text-gray-700 space-y-3 bg-gradient-to-br from-blue-50 to-green-50 rounded-lg p-4 border-2 border-blue-200 max-h-96 overflow-y-auto">
+              <p className="text-sm font-semibold text-gray-900 mb-3">System Credentials:</p>
+              <div className="text-xs text-gray-700 space-y-3 bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg p-4 border-2 border-purple-300">
                 <div>
-                  <strong className="text-gray-900 block mb-1">👑 Admin:</strong>
+                  <strong className="text-gray-900 block mb-1">🔐 Superadmin (System Developer - Protected):</strong>
                   <div className="ml-2 space-y-1">
                     <button
                       type="button"
-                      onClick={() => fillCredentials('admin')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
+                      onClick={() => fillCredentials('superadmin')}
+                      className="block w-full text-left hover:bg-purple-100 rounded px-2 py-1 transition-colors font-mono bg-white border border-purple-200"
                     >
-                      <span className="font-mono">admin</span> / <span className="font-mono">admin123</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('admin2')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
-                    >
-                      <span className="font-mono">admin2</span> / <span className="font-mono">admin123</span>
+                      <span className="font-bold text-purple-700">superadmin</span> / <span className="font-bold text-purple-700">200385</span>
                     </button>
                   </div>
-                </div>
-                <div>
-                  <strong className="text-gray-900 block mb-1">👩‍⚕️ Midwife:</strong>
-                  <div className="ml-2 space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('midwife1')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
-                    >
-                      <span className="font-mono">midwife1</span> / <span className="font-mono">midwife123</span> (Colombo)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('midwife2')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
-                    >
-                      <span className="font-mono">midwife2</span> / <span className="font-mono">midwife123</span> (Gampaha)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('midwife3')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
-                    >
-                      <span className="font-mono">midwife3</span> / <span className="font-mono">midwife123</span> (Kandy)
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <strong className="text-gray-900 block mb-1">👨‍⚕️ MOH Doctor:</strong>
-                  <div className="ml-2 space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('moh.doctor1')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
-                    >
-                      <span className="font-mono">moh.doctor1</span> / <span className="font-mono">moh123</span> (Colombo)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('moh.doctor2')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
-                    >
-                      <span className="font-mono">moh.doctor2</span> / <span className="font-mono">moh123</span> (Gampaha)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('moh.doctor3')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
-                    >
-                      <span className="font-mono">moh.doctor3</span> / <span className="font-mono">moh123</span> (Kandy)
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <strong className="text-gray-900 block mb-1">🥗 Nutritionist:</strong>
-                  <div className="ml-2 space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('nutritionist1')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
-                    >
-                      <span className="font-mono">nutritionist1</span> / <span className="font-mono">nutrition123</span> (Colombo)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('nutritionist2')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
-                    >
-                      <span className="font-mono">nutritionist2</span> / <span className="font-mono">nutrition123</span> (Gampaha)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('nutritionist3')}
-                      className="block w-full text-left hover:bg-blue-100 rounded px-2 py-1 transition-colors"
-                    >
-                      <span className="font-mono">nutritionist3</span> / <span className="font-mono">nutrition123</span> (Kandy)
-                    </button>
-                  </div>
+                  <p className="text-xs text-gray-600 mt-2 italic">
+                    ⚠️ This account is protected and cannot be deleted. For system developers only.
+                  </p>
                 </div>
               </div>
-              <p className="text-xs text-gray-500 mt-2 italic">💡 Click on any credential above to auto-fill the form</p>
+              <p className="text-xs text-gray-500 mt-2 italic">💡 Click on the credential above to auto-fill the form</p>
             </div>
 
             <div className="mt-6 text-center text-xs text-gray-500">

@@ -28,10 +28,10 @@ def main() -> None:
     db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
     print(f"\nDatabase URI: {db_uri}")
     if 'sqlite' in db_uri.lower():
-        print("⚠️  WARNING: Using SQLite database, not MySQL!")
-        print("   Make sure your .env file has DB_HOST, DB_USERNAME, DB_PASSWORD, and DB_NAME set.")
+        print("[WARN] Using SQLite database, not MySQL!")
+        print("       Make sure your .env file has DB_HOST, DB_USERNAME, DB_PASSWORD, and DB_NAME set.")
     elif 'mysql' in db_uri.lower():
-        print("✅ Using MySQL database")
+        print("[OK] Using MySQL database")
     print()
     
     with app.app_context():

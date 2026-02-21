@@ -1,7 +1,6 @@
-import { useState } from 'react';
-import { MOCK_CHILDREN } from '../../data/mockData';
-import { getRiskColor, getRiskLabel } from '../../types';
-import { Search, Filter } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Filter, UserPlus, Eye } from 'lucide-react';
+import { childrenAPI } from '../../services/api';
 
 interface SearchChildViewProps {
   onViewChild: (childId: string) => void;
@@ -10,17 +9,78 @@ interface SearchChildViewProps {
 export function SearchChildView({ onViewChild }: SearchChildViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [riskFilter, setRiskFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [children, setChildren] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const filteredChildren = MOCK_CHILDREN.filter((child) => {
-    const matchesSearch =
-      child.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      child.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      child.guardianName.toLowerCase().includes(searchTerm.toLowerCase());
+  // Load children on mount and when filters change
+  useEffect(() => {
+    loadChildren();
+  }, [riskFilter, statusFilter]);
 
-    const matchesRisk = riskFilter === 'all' || child.riskLevel === riskFilter;
+  const loadChildren = async () => {
+    setIsLoading(true);
+    setError('');
 
-    return matchesSearch && matchesRisk;
-  });
+    try {
+      const params: any = {};
+      if (searchTerm.trim()) {
+        params.q = searchTerm.trim();
+      }
+      if (riskFilter !== 'all') {
+        params.risk = riskFilter.toUpperCase();
+      }
+      if (statusFilter !== 'all') {
+        params.status = statusFilter;
+      }
+
+      const response = await childrenAPI.list(params);
+      if (response.data.status === 'success') {
+        setChildren(response.data.children || []);
+      } else {
+        setError(response.data.message || 'Failed to load children');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to load children');
+      setChildren([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSearch = () => {
+    loadChildren();
+  };
+
+  const getRiskColor = (risk: string) => {
+    switch (risk?.toUpperCase()) {
+      case 'CRITICAL':
+      case 'HIGH':
+        return 'bg-red-500';
+      case 'MODERATE':
+        return 'bg-yellow-500';
+      case 'NORMAL':
+        return 'bg-green-500';
+      default:
+        return 'bg-gray-500';
+    }
+  };
+
+  const getRiskLabel = (risk: string) => {
+    switch (risk?.toUpperCase()) {
+      case 'CRITICAL':
+        return 'Critical';
+      case 'HIGH':
+        return 'High';
+      case 'MODERATE':
+        return 'Moderate';
+      case 'NORMAL':
+        return 'Normal';
+      default:
+        return 'Unknown';
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -32,7 +92,7 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
 
       {/* Search and Filter */}
       <div className="bg-white rounded-lg shadow p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
               Search
@@ -44,6 +104,7 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                 placeholder="Search by name, ID, or guardian name..."
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -64,32 +125,74 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
               >
                 <option value="all">All Risk Levels</option>
                 <option value="normal">Normal</option>
-                <option value="mam">MAM</option>
-                <option value="sam">SAM</option>
+                <option value="moderate">Moderate</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
               </select>
             </div>
           </div>
+
+          <div>
+            <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-2">
+              Filter by Status
+            </label>
+            <select
+              id="status-filter"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
+            >
+              <option value="all">All Status</option>
+              <option value="active">Active</option>
+              <option value="draft">Draft</option>
+              <option value="transferred">Transferred</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <button
+            onClick={handleSearch}
+            disabled={isLoading}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+          >
+            {isLoading ? 'Searching...' : 'Search'}
+          </button>
         </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+          <p className="text-sm text-red-900">{error}</p>
+        </div>
+      )}
 
       {/* Results */}
       <div className="bg-white rounded-lg shadow">
         <div className="p-6 border-b border-gray-200">
           <h3 className="text-lg font-bold text-gray-900">
-            Results ({filteredChildren.length})
+            Results ({children.length})
           </h3>
         </div>
 
         <div className="divide-y divide-gray-200">
-          {filteredChildren.length === 0 ? (
+          {isLoading ? (
+            <div className="p-12 text-center">
+              <p className="text-gray-500">Loading...</p>
+            </div>
+          ) : children.length === 0 ? (
             <div className="p-12 text-center">
               <p className="text-gray-500">No children found matching your search criteria.</p>
             </div>
           ) : (
-            filteredChildren.map((child) => {
-              const age = Math.floor(
-                (new Date().getTime() - new Date(child.dob).getTime()) / (1000 * 60 * 60 * 24 * 30)
-              );
+            children.map((child) => {
+              const age = child.dob
+                ? Math.floor(
+                    (new Date().getTime() - new Date(child.dob).getTime()) / (1000 * 60 * 60 * 24 * 30)
+                  )
+                : null;
+
               return (
                 <div
                   key={child.id}
@@ -99,42 +202,56 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
                     <div className="flex-1">
                       <div className="flex items-start gap-3">
                         <div className="flex-1">
-                          <h4 className="text-lg font-bold text-gray-900">{child.name}</h4>
+                          <h4 className="text-lg font-bold text-gray-900">
+                            {child.name || 'Unnamed Child'}
+                          </h4>
                           <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
                             <p>
-                              <span className="font-medium">ID:</span> {child.id}
+                              <span className="font-medium">ID:</span> {child.child_id}
                             </p>
-                            <p>
-                              <span className="font-medium">Age:</span> {age} months
-                            </p>
+                            {age !== null && (
+                              <p>
+                                <span className="font-medium">Age:</span> {age} months
+                              </p>
+                            )}
                             <p>
                               <span className="font-medium">Gender:</span>{' '}
-                              {child.gender === 'male' ? 'Male' : 'Female'}
+                              {child.gender === 'male' ? 'Male' : child.gender === 'female' ? 'Female' : 'N/A'}
                             </p>
-                            <p>
-                              <span className="font-medium">Last Visit:</span> {child.lastVisit}
-                            </p>
+                            {child.current_assigned_area && (
+                              <p>
+                                <span className="font-medium">Area:</span> {child.current_assigned_area.name}
+                              </p>
+                            )}
                             <p className="sm:col-span-2">
-                              <span className="font-medium">Guardian:</span> {child.guardianName} (
-                              {child.guardianPhone})
+                              <span className="font-medium">Guardian:</span> {child.guardian_name || 'N/A'} (
+                              {child.guardian_phone || 'N/A'})
                             </p>
+                            {child.is_draft && (
+                              <p className="sm:col-span-2">
+                                <span className="inline-block px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">
+                                  Draft
+                                </span>
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div>
                           <span
                             className="inline-block px-3 py-1 rounded-full text-xs font-medium text-white"
-                            style={{ backgroundColor: getRiskColor(child.riskLevel) }}
+                            style={{ backgroundColor: getRiskColor(child.current_risk_level || 'NORMAL') }}
                           >
-                            {getRiskLabel(child.riskLevel).split(' ')[0]}
+                            {getRiskLabel(child.current_risk_level || 'NORMAL')}
                           </span>
                         </div>
                       </div>
                     </div>
                     <div className="flex sm:flex-col gap-2">
                       <button
-                        onClick={() => onViewChild(child.id)}
-                        className="flex-1 sm:flex-none px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+                        onClick={() => onViewChild(child.child_id)}
+                        className="flex items-center gap-2 flex-1 sm:flex-none px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
                       >
+                        <Eye className="w-4 h-4" />
                         View Profile
                       </button>
                     </div>

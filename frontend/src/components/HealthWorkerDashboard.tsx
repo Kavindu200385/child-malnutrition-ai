@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { User } from '../App';
 import { DashboardView } from './health-worker/DashboardView';
 import { SearchChildView } from './health-worker/SearchChildView';
 import { ChildProfileView } from './health-worker/ChildProfileView';
 import { AddMeasurementView } from './health-worker/AddMeasurementView';
-import { AddChildView } from './health-worker/AddChildView';
+import { BirthRegistrationView } from './health-worker/BirthRegistrationView';
 import { ReportsView } from './health-worker/ReportsView';
+import { AssignChildView } from './health-worker/AssignChildView';
+import { TransferReviewView } from './health-worker/TransferReviewView';
 import { 
   LayoutDashboard, 
   Search, 
@@ -13,7 +15,8 @@ import {
   LogOut,
   UserCircle,
   PlusCircle,
-  UserPlus
+  UserPlus,
+  ArrowRightLeft
 } from 'lucide-react';
 
 interface HealthWorkerDashboardProps {
@@ -21,11 +24,24 @@ interface HealthWorkerDashboardProps {
   onLogout: () => void;
 }
 
-type View = 'dashboard' | 'search' | 'profile' | 'add-child' | 'add-measurement' | 'reports';
+type View = 'dashboard' | 'search' | 'profile' | 'add-child' | 'add-measurement' | 'reports' | 'assign-child' | 'transfers';
 
 export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardProps) {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
+
+  const isHospital = user.role === 'hospital';
+
+  const roleLabel =
+    user.role === 'hospital'
+      ? 'Hospital'
+      : user.role === 'midwife'
+      ? 'Midwife (PHM)'
+      : user.role === 'moh' || user.role === 'amoh'
+      ? user.role === 'moh' ? 'MOH' : 'AMOH'
+      : user.role === 'nutritionist'
+      ? 'Nutritionist'
+      : 'Health Worker';
 
   const handleViewChild = (childId: string) => {
     setSelectedChildId(childId);
@@ -37,13 +53,29 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
     setCurrentView('add-measurement');
   };
 
-  const navigationItems = [
-    { id: 'dashboard' as View, label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'search' as View, label: 'Search Child', icon: Search },
-    { id: 'add-child' as View, label: 'Add Child', icon: UserPlus },
-    { id: 'add-measurement' as View, label: 'Add Measurement', icon: PlusCircle },
-    { id: 'reports' as View, label: 'Reports', icon: FileText },
-  ];
+  const canReviewTransfers = ['moh', 'amoh', 'nutritionist'].includes(user.role);
+  
+  const navigationItems: { id: View; label: string; icon: any }[] = isHospital
+    ? [
+        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'search', label: 'Search Child', icon: Search },
+        { id: 'add-child', label: 'Register Child', icon: UserPlus },
+      ]
+    : user.role === 'midwife'
+    ? [
+        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'search', label: 'Search Child', icon: Search },
+        { id: 'assign-child', label: 'Assign Child', icon: UserPlus },
+        { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
+        { id: 'reports', label: 'Reports', icon: FileText },
+      ]
+    : [
+        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'search', label: 'Search Child', icon: Search },
+        { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
+        ...(canReviewTransfers ? [{ id: 'transfers' as View, label: 'Review Transfers', icon: ArrowRightLeft }] : []),
+        { id: 'reports', label: 'Reports', icon: FileText },
+      ];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -58,7 +90,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
             <div className="flex items-center gap-4">
               <div className="hidden sm:block text-right">
                 <p className="text-sm font-medium text-gray-900">{user.name}</p>
-                <p className="text-xs text-gray-500">Health Worker</p>
+                <p className="text-xs text-gray-500">{roleLabel}</p>
               </div>
               <UserCircle className="w-8 h-8 text-gray-400" />
               <button
@@ -107,8 +139,8 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
         {currentView === 'search' && (
           <SearchChildView onViewChild={handleViewChild} />
         )}
-        {currentView === 'add-child' && (
-          <AddChildView 
+        {currentView === 'add-child' && user.role === 'hospital' && (
+          <BirthRegistrationView
             onBack={() => setCurrentView('search')}
             onSuccess={(childId) => {
               setSelectedChildId(childId);
@@ -123,14 +155,31 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
             onAddMeasurement={handleAddMeasurement}
           />
         )}
-        {currentView === 'add-measurement' && (
+        {currentView === 'add-measurement' && !isHospital && (
           <AddMeasurementView 
             selectedChildId={selectedChildId}
             onBack={() => setCurrentView('search')}
             onSuccess={(childId) => handleViewChild(childId)}
           />
         )}
-        {currentView === 'reports' && <ReportsView />}
+        {currentView === 'reports' && !isHospital && <ReportsView user={user} />}
+        {currentView === 'assign-child' && user.role === 'midwife' && (
+          <AssignChildView
+            onBack={() => setCurrentView('search')}
+            onSuccess={(childId) => {
+              setSelectedChildId(childId);
+              setCurrentView('profile');
+            }}
+          />
+        )}
+        {currentView === 'transfers' && canReviewTransfers && (
+          <TransferReviewView
+            onBack={() => setCurrentView('dashboard')}
+            onSuccess={() => {
+              // Refresh data if needed
+            }}
+          />
+        )}
       </main>
     </div>
   );

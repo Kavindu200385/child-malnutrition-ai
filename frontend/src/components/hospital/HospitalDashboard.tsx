@@ -1,0 +1,110 @@
+/**
+ * Hospital Dashboard
+ * Hospital role only - Birth Registration & Initial Risk Screening
+ */
+import { useState, useEffect } from 'react';
+import { User } from '../../App';
+import { HospitalRegistrationView } from './HospitalRegistrationView';
+import { HospitalChildrenListView } from './HospitalChildrenListView';
+import { HospitalStatsView } from './HospitalStatsView';
+import { 
+  LayoutDashboard, 
+  UserPlus,
+  Users,
+  BarChart3,
+  LogOut,
+  UserCircle,
+  AlertTriangle
+} from 'lucide-react';
+
+interface HospitalDashboardProps {
+  user: User;
+  onLogout: () => void;
+}
+
+type HospitalView = 'dashboard' | 'register' | 'children' | 'stats';
+
+export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
+  const [currentView, setCurrentView] = useState<HospitalView>('dashboard');
+
+  const navigationItems = [
+    { id: 'dashboard' as HospitalView, label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'register' as HospitalView, label: 'Register Child', icon: UserPlus },
+    { id: 'children' as HospitalView, label: 'Registered Children', icon: Users },
+    { id: 'stats' as HospitalView, label: 'Statistics', icon: BarChart3 },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-gradient-to-r from-blue-600 to-blue-700 text-white sticky top-0 z-10 shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+                <UserCircle className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-white">CMRAS - Hospital Portal</h1>
+                <p className="text-xs text-blue-100">{user.clinic || 'Hospital'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="hidden sm:block text-right">
+                <p className="text-sm font-medium text-white">{user.name}</p>
+                <p className="text-xs text-blue-100">Hospital Role</p>
+              </div>
+              <button
+                onClick={onLogout}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Navigation */}
+      <nav className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex gap-2 overflow-x-auto py-2">
+            {navigationItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = currentView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setCurrentView(item.id)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${
+                    isActive
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {currentView === 'dashboard' && <HospitalStatsView user={user} />}
+        {currentView === 'register' && (
+          <HospitalRegistrationView
+            onSuccess={() => {
+              setCurrentView('children');
+            }}
+          />
+        )}
+        {currentView === 'children' && <HospitalChildrenListView user={user} />}
+        {currentView === 'stats' && <HospitalStatsView user={user} />}
+      </main>
+    </div>
+  );
+}

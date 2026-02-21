@@ -1,16 +1,20 @@
 import { useState } from 'react';
 import { User } from '../App';
 import { AdminOverview } from './admin/AdminOverview';
-import { UserManagement } from './admin/UserManagement';
 import { SystemAnalytics } from './admin/SystemAnalytics';
 import { SystemSettings } from './admin/SystemSettings';
+import { AreaManagementView } from './admin/AreaManagementView';
+import { WorkerManagementView } from './admin/WorkerManagementView';
+import { ReportsDashboard } from './admin/ReportsDashboard';
 import { 
   LayoutDashboard, 
   Users, 
   BarChart3, 
   Settings, 
   LogOut,
-  Shield
+  Shield,
+  MapPin,
+  FileText
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -18,14 +22,16 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type AdminView = 'overview' | 'users' | 'analytics' | 'settings';
+type AdminView = 'overview' | 'users' | 'areas' | 'reports' | 'analytics' | 'settings';
 
 export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const [currentView, setCurrentView] = useState<AdminView>('overview');
 
   const navigationItems = [
     { id: 'overview' as AdminView, label: 'Overview', icon: LayoutDashboard },
+    { id: 'areas' as AdminView, label: 'Area Management', icon: MapPin },
     { id: 'users' as AdminView, label: 'User Management', icon: Users },
+    { id: 'reports' as AdminView, label: 'Reports', icon: FileText },
     { id: 'analytics' as AdminView, label: 'System Analytics', icon: BarChart3 },
     { id: 'settings' as AdminView, label: 'Settings', icon: Settings },
   ];
@@ -89,7 +95,9 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {currentView === 'overview' && <AdminOverview />}
-        {currentView === 'users' && <UserManagement />}
+        {currentView === 'areas' && <AreaManagementView />}
+        {currentView === 'users' && <WorkerManagementView />}
+        {currentView === 'reports' && <ReportsDashboard user={user} />}
         {currentView === 'analytics' && <SystemAnalytics />}
         {currentView === 'settings' && <SystemSettings />}
       </main>

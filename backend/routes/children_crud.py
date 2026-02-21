@@ -3,7 +3,14 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity
 
-from backend.auth_utils import role_required, admin_required, child_monitoring_required
+from backend.auth_utils import (
+    role_required,
+    admin_required,
+    hospital_required,
+    midwife_required,
+    visit_required,
+    assignment_required,
+)
 from backend.extensions import db
 from backend.models import Child, Visit
 
@@ -11,15 +18,33 @@ bp = Blueprint("children_crud", __name__, url_prefix="/api/children")
 
 
 @bp.route("", methods=["POST"])
-@child_monitoring_required
+@hospital_required
 def create_child():
+    """
+    Register a new child (Hospital only).
+    Hospital registers children at birth, then midwife can assign them to their clinic.
+    """
+    from backend.models import User
+
     data = request.get_json() or {}
+
+    # Draft flag (optional) - if true, registration is saved as a draft
+    raw_is_draft = data.get("is_draft", False)
+    is_draft = bool(raw_is_draft)
     child_id = data.get("child_id")
     if not child_id:
         return jsonify({"status": "error", "message": "child_id is required"}), 400
 
     if Child.query.filter_by(child_id=child_id).first():
         return jsonify({"status": "error", "message": "child_id already exists"}), 409
+
+    # Get current user to set registered_by_clinic
+    user_id = get_jwt_identity()
+    try:
+        user_id_int = int(user_id) if user_id else None
+    except Exception:
+        user_id_int = None
+    user = db.session.get(User, user_id_int) if user_id_int else None
 
     child = Child(
         child_id=child_id,
@@ -28,6 +53,9 @@ def create_child():
         guardian_name=data.get("guardian_name"),
         guardian_phone=data.get("guardian_phone"),
         address=data.get("address"),
+        is_draft=is_draft,
+        registered_by_clinic=user.clinic if user else None,  # Track which hospital registered
+        birth_registration=data.get("birth_registration"),  # Store birth registration data (JSON)
     )
 
     # Optional DOB
@@ -44,34 +72,47 @@ def create_child():
 
 
 @bp.route("", methods=["GET"])
-@child_monitoring_required
+@role_required("admin", "hospital", "midwife", "moh_doctor", "nutritionist")
 def list_children():
+    """
+    List children based on role:
+    - Admin: sees all children
+    - Hospital: sees children they registered (registered_by_clinic matches)
+    - Midwife: sees unassigned children from hospitals + children assigned to their clinic
+    - MOH Doctor/Nutritionist: sees children assigned to their clinic
+    """
     from backend.models import User
     
     user_id = get_jwt_identity()
-    user = db.session.get(User, user_id) if user_id else None
-    
+    try:
+        user_id_int = int(user_id) if user_id else None
+    except Exception:
+        user_id_int = None
+    user = db.session.get(User, user_id_int) if user_id_int else None
+
     q = request.args.get("q", "").strip()
-    
-    # Admin sees all children, other users see children from their clinic
+    status = request.args.get("status", "").strip().lower()
+
+    # Admin sees all children
     if user and user.role == "admin":
         query = Child.query
-    elif user and user.clinic:
-        # Filter children by clinic prefix (all users in same clinic see same children)
-        clinic_prefix_map = {
-            "Colombo PHM Clinic": "COL",
-            "Gampaha MOH Office": "GAM",
-            "Kandy Health Center": "KAN",
-        }
-        prefix = clinic_prefix_map.get(user.clinic)
-        if prefix:
-            query = Child.query.filter(Child.child_id.like(f"{prefix}%"))
-        else:
-            # If clinic has no prefix mapping, return no children for non-admins
-            return jsonify({"status": "success", "children": []}), 200
+    # Hospital sees children they registered
+    elif user and user.role == "hospital" and user.clinic:
+        query = Child.query.filter(Child.registered_by_clinic == user.clinic)
+    # Midwife/MOH Doctor/Nutritionist see: unassigned children (from any hospital) + children assigned to their clinic
+    elif user and user.role in ("midwife", "moh_doctor", "nutritionist") and user.clinic:
+        query = Child.query.filter(
+            (Child.assigned_to_clinic == user.clinic) | (Child.assigned_to_clinic.is_(None))
+        )
     else:
         query = Child.query
-    
+
+    # Optional status filter: ?status=draft | active
+    if status == "draft":
+        query = query.filter(Child.is_draft.is_(True))
+    elif status in ("active", "final"):
+        query = query.filter(Child.is_draft.is_(False))
+
     if q:
         query = query.filter(
             Child.child_id.like(f"%{q}%") |
@@ -83,17 +124,35 @@ def list_children():
 
 
 @bp.route("/<child_id>", methods=["GET"])
-@child_monitoring_required
+@role_required("admin", "hospital", "midwife", "moh_doctor", "nutritionist")
 def get_child(child_id: str):
+    """
+    Get child details (all roles can view, but visits only shown to visit_required roles).
+    """
     child = Child.query.filter_by(child_id=child_id).first()
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
-    return jsonify({"status": "success", "child": child.to_dict(include_visits=True)}), 200
+    
+    # Only show visits to roles that can create visits (not hospital)
+    from backend.models import User
+    user_id = get_jwt_identity()
+    try:
+        user_id_int = int(user_id) if user_id else None
+    except Exception:
+        user_id_int = None
+    user = db.session.get(User, user_id_int) if user_id_int else None
+    
+    include_visits = user and user.role in ("admin", "midwife", "moh_doctor", "nutritionist")
+    
+    return jsonify({"status": "success", "child": child.to_dict(include_visits=include_visits)}), 200
 
 
 @bp.route("/<child_id>", methods=["PUT"])
-@child_monitoring_required
+@hospital_required
 def update_child(child_id: str):
+    """
+    Update child information (Hospital only - for managing registered children).
+    """
     child = Child.query.filter_by(child_id=child_id).first()
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
@@ -102,6 +161,13 @@ def update_child(child_id: str):
     for field in ["name", "gender", "guardian_name", "guardian_phone", "address"]:
         if field in data:
             setattr(child, field, data[field])
+
+    # Allow hospital to toggle draft status and update birth_registration blob
+    if "is_draft" in data:
+        child.is_draft = bool(data["is_draft"])
+
+    if "birth_registration" in data:
+        child.birth_registration = data["birth_registration"]
 
     if "dob" in data:
         if data["dob"] is None or data["dob"] == "":
@@ -127,9 +193,92 @@ def delete_child(child_id: str):
     return jsonify({"status": "success"}), 200
 
 
+@bp.route("/<child_id>/assign", methods=["POST"])
+@assignment_required
+def assign_child_to_clinic(child_id: str):
+    """
+    Assign a child to the current user's clinic for monitoring.
+    Allowed roles: Midwife, MOH Doctor, Nutritionist, Admin.
+    They can assign unassigned children (from hospitals) to their clinic.
+    """
+    from backend.models import User
+    
+    child = Child.query.filter_by(child_id=child_id).first()
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+    
+    # Get current user (midwife)
+    user_id = get_jwt_identity()
+    try:
+        user_id_int = int(user_id) if user_id else None
+    except Exception:
+        user_id_int = None
+    user = db.session.get(User, user_id_int) if user_id_int else None
+    
+    if not user or not user.clinic:
+        return jsonify({"status": "error", "message": "User clinic not found"}), 400
+    
+    # Only allow assigning if child is not already assigned, or if admin
+    if child.assigned_to_clinic and user.role != "admin":
+        return jsonify({
+            "status": "error",
+            "message": f"Child is already assigned to {child.assigned_to_clinic}"
+        }), 400
+    
+    child.assigned_to_clinic = user.clinic
+    db.session.commit()
+    
+    return jsonify({
+        "status": "success",
+        "message": f"Child assigned to {user.clinic}",
+        "child": child.to_dict()
+    }), 200
+
+
+@bp.route("/<child_id>/assign-areas", methods=["POST"])
+@assignment_required
+def assign_child_areas(child_id: str):
+    """
+    Assign / update Midwife and MOH areas for a child.
+
+    Allowed roles: Midwife, MOH Doctor, Nutritionist, Admin.
+    Expected JSON (all optional, but at least one should be provided):
+    - midwife_area: str
+    - moh_area: str
+    """
+    child = Child.query.filter_by(child_id=child_id).first()
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+
+    data = request.get_json() or {}
+    midwife_area = (data.get("midwife_area") or "").strip()
+    moh_area = (data.get("moh_area") or "").strip()
+
+    if not midwife_area and not moh_area:
+        return jsonify({
+            "status": "error",
+            "message": "Provide at least one of midwife_area or moh_area"
+        }), 400
+
+    if midwife_area:
+        child.midwife_area = midwife_area
+    if moh_area:
+        child.moh_area = moh_area
+
+    db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "child": child.to_dict()
+    }), 200
+
+
 @bp.route("/<child_id>/visits", methods=["GET"])
-@child_monitoring_required
+@visit_required
 def list_visits(child_id: str):
+    """
+    List visits for a child (Midwife, MOH Doctor, Nutritionist only - not Hospital).
+    """
     child = Child.query.filter_by(child_id=child_id).first()
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404

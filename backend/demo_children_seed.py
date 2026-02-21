@@ -108,11 +108,16 @@ def reset_demo_children_data() -> dict:
     # Use the same clinic-based seeding logic
     users = User.query.filter(User.role != "admin").all()
     
-    # Clinic prefix mapping
+    # Clinic prefix mapping (ensure UNIQUE prefixes per clinic to avoid duplicate child_id)
     clinic_prefix_map = {
+        # Field clinics
         "Colombo PHM Clinic": "COL",
         "Gampaha MOH Office": "GAM",
         "Kandy Health Center": "KAN",
+        # Hospital clinics (birth registration)
+        "Colombo Maternity Hospital": "HCL",
+        "Gampaha General Hospital": "HGA",
+        "Kandy Teaching Hospital": "HKA",
     }
 
     risk_to_current = {"normal": "LOW", "mam": "HIGH", "sam": "CRITICAL"}
@@ -206,11 +211,16 @@ def seed_demo_children_if_empty() -> int:
         print("WARNING: No non-admin users found. Cannot seed children.")
         return 0
     
-    # Clinic prefix mapping
+    # Clinic prefix mapping (ensure UNIQUE prefixes per clinic to avoid duplicate child_id)
     clinic_prefix_map = {
+        # Field clinics
         "Colombo PHM Clinic": "COL",
         "Gampaha MOH Office": "GAM",
         "Kandy Health Center": "KAN",
+        # Hospital clinics (birth registration)
+        "Colombo Maternity Hospital": "HCL",
+        "Gampaha General Hospital": "HGA",
+        "Kandy Teaching Hospital": "HKA",
     }
 
     risk_to_current = {"normal": "LOW", "mam": "HIGH", "sam": "CRITICAL"}

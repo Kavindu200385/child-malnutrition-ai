@@ -1,13 +1,19 @@
 """
-AI Module for Child Malnutrition Analysis
+AI package
+
+Production structure:
+- backend/ai/model_loader.py
+- backend/ai/predictor.py
 """
-from .child_risk_analyzing import analyze_child, save_record, get_child_history, format_detailed_report
-from .prediction_next2months import get_next2months_predictor
+
+from .model_loader import prediction_model, current_birth_2_model, current_2_5_model
+from .predictor import predict_current_risk, predict_future_risk, compute_z_scores
 
 __all__ = [
-    "analyze_child",
-    "save_record",
-    "get_child_history",
-    "format_detailed_report",
-    "get_next2months_predictor",
+    "prediction_model",
+    "current_birth_2_model",
+    "current_2_5_model",
+    "predict_current_risk",
+    "predict_future_risk",
+    "compute_z_scores",
 ]

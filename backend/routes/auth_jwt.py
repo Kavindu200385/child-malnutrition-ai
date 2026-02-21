@@ -20,7 +20,8 @@ def login():
     if not user or not user.check_password(password):
         return jsonify({"status": "error", "message": "Invalid credentials"}), 401
 
-    token = create_access_token(identity=user.id, additional_claims={"role": user.role})
+    # JWT "sub" should be a string (avoids 422: Subject must be a string)
+    token = create_access_token(identity=str(user.id), additional_claims={"role": user.role})
     return jsonify({"status": "success", "access_token": token, "user": user.to_dict()}), 200
 
 
