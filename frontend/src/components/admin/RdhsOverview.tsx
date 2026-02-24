@@ -1,0 +1,216 @@
+/**
+ * RDHS District Dashboard Overview
+ * Same UI layout as Admin Overview but district-filtered data only.
+ */
+import { useState, useEffect } from 'react';
+import { Users, Building2, AlertTriangle, Activity, Stethoscope, UserCheck } from 'lucide-react';
+import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { rdhsAPI } from '../../services/api';
+
+export function RdhsOverview() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setError('');
+    setLoading(true);
+    rdhsAPI
+      .dashboardSummary()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data?.status === 'success' && res.data?.data) {
+          setData(res.data.data);
+        } else {
+          setError(res.data?.message || 'Failed to load district dashboard');
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.response?.data?.message || 'Failed to load district dashboard');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-900">District Overview</h2>
+        <div className="bg-white rounded-lg shadow p-12 text-center">
+          <p className="text-gray-500">Loading district data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-900">District Overview</h2>
+        <div className="bg-red-50 border-2 border-red-200 rounded-lg p-6 text-center">
+          <p className="text-red-700">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const districtNames = (data?.district_names || []).join(', ') || 'Your District';
+  const totalChildren = data?.total_children ?? 0;
+  const samCount = data?.sam_count ?? 0;
+  const totalMoh = data?.total_moh_areas ?? 0;
+  const totalMidwives = data?.total_midwives ?? 0;
+  const totalNutritionists = data?.total_nutritionists ?? 0;
+  const escalationSummary = data?.escalation_summary ?? { total: 0, pending: 0, reviewed: 0 };
+  const monthlyTrend = data?.monthly_trend ?? [];
+  const mohPerformance = data?.moh_performance ?? [];
+  const riskDistribution = (data?.risk_distribution ?? []).filter((d: any) => d.value > 0);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">District Overview</h2>
+        <p className="text-gray-600 mt-1">{districtNames} – district-level dashboard (read-only)</p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Total Children</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{totalChildren}</p>
+            </div>
+            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+              <Activity className="w-6 h-6 text-green-600" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">MOH Areas</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{totalMoh}</p>
+            </div>
+            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+              <Building2 className="w-6 h-6 text-purple-600" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Midwives</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{totalMidwives}</p>
+            </div>
+            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+              <Stethoscope className="w-6 h-6 text-blue-600" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Nutritionists</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{totalNutritionists}</p>
+            </div>
+            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+              <UserCheck className="w-6 h-6 text-indigo-600" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-white rounded-lg shadow p-6">
+          <p className="text-sm text-gray-600">Critical Cases (SAM)</p>
+          <p className="text-3xl font-bold text-red-600 mt-2">{samCount}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <p className="text-sm text-gray-600">Escalations</p>
+          <p className="text-3xl font-bold text-gray-900 mt-2">{escalationSummary.total}</p>
+          <p className="text-xs text-gray-500 mt-1">Pending: {escalationSummary.pending} · Reviewed: {escalationSummary.reviewed}</p>
+        </div>
+      </div>
+
+      {samCount > 0 && (
+        <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+            <div>
+              <h3 className="text-lg font-bold text-red-900">{samCount} SAM Cases in District</h3>
+              <p className="text-red-800 mt-1">Coordinate with MOH areas and nutrition support.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">District Risk Distribution</h3>
+          {riskDistribution.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <PieChart>
+                <Pie data={riskDistribution} cx="50%" cy="50%" labelLine={false} label={(e: any) => `${e.name}: ${e.value}`} outerRadius={80} dataKey="value">
+                  {riskDistribution.map((entry: any, i: number) => (
+                    <Cell key={i} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-gray-500 py-8 text-center">No risk data yet.</p>
+          )}
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">MOH Performance Comparison</h3>
+          {mohPerformance.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={mohPerformance}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="moh_name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="normal" fill="#2ECC71" name="Normal" />
+                <Bar dataKey="mam" fill="#F1C40F" name="MAM" />
+                <Bar dataKey="sam" fill="#E74C3C" name="SAM" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-gray-500 py-8 text-center">No MOH area data yet.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Monthly Child Monitoring Trend</h3>
+        {monthlyTrend.length > 0 ? (
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={monthlyTrend}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="children" stroke="#3498DB" strokeWidth={2} name="Children" />
+              <Line type="monotone" dataKey="sam" stroke="#E74C3C" strokeWidth={2} name="SAM" />
+              <Line type="monotone" dataKey="mam" stroke="#F1C40F" strokeWidth={2} name="MAM" />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="text-gray-500 py-8 text-center">No trend data yet.</p>
+        )}
+      </div>
+
+      {(data?.referral_stats?.total_referrals ?? 0) > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Referral Statistics</h3>
+          <p className="text-gray-600">Total referrals to nutritionist: {data.referral_stats.total_referrals}</p>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,197 +1,95 @@
 /**
- * Hospital Statistics View
- * Shows hospital-level statistics
+ * Pediatric Unit (Hospital) Dashboard – same UI as other roles.
+ * Each hospital sees only their own registered children and stats (backend scopes by user.hospital_id).
  */
 import { useState, useEffect } from 'react';
 import { User } from '../../App';
 import { hospitalAPI } from '../../services/api';
-import { Users, AlertTriangle, CheckCircle, ArrowRight, Loader2, BarChart3 } from 'lucide-react';
+import { SharedDashboardLayout } from '../health-worker/SharedDashboardLayout';
+import { ArrowRight, Loader2 } from 'lucide-react';
 
 interface HospitalStatsViewProps {
   user: User;
+  onViewChild?: (childId: string | number) => void;
 }
 
-export function HospitalStatsView({ user }: HospitalStatsViewProps) {
+export function HospitalStatsView({ user, onViewChild }: HospitalStatsViewProps) {
   const [stats, setStats] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [children, setChildren] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    loadStats();
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    Promise.all([
+      hospitalAPI.getStats().then((r) => (r.data?.status === 'success' ? r.data.stats : null)),
+      hospitalAPI.listChildren({}).then((r) => (r.data?.status === 'success' ? r.data.children || [] : [])),
+    ])
+      .then(([s, c]) => {
+        if (!cancelled) {
+          setStats(s || null);
+          setChildren(Array.isArray(c) ? c : []);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.response?.data?.message || 'Failed to load dashboard');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
-  const loadStats = async () => {
-    setIsLoading(true);
-    setError('');
-
-    try {
-      const response = await hospitalAPI.getStats();
-      if (response.data.status === 'success') {
-        setStats(response.data.stats);
-      } else {
-        setError(response.data.message || 'Failed to load statistics');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load statistics');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (isLoading) {
+  if (loading) {
     return (
-      <div className="p-12 text-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
-        <p className="text-gray-500">Loading statistics...</p>
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
+        <div className="bg-white rounded-lg shadow p-12 text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-4" />
+          <p className="text-gray-500">Loading dashboard...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
-        <p className="text-sm font-medium text-red-900">{error}</p>
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
+        <div className="bg-red-50 border-2 border-red-200 rounded-lg p-6 text-center">
+          <p className="text-red-700">{error}</p>
+        </div>
       </div>
     );
   }
 
-  if (!stats) {
-    return null;
-  }
-
-  const samPercentage = stats.total_children > 0 
-    ? ((stats.sam_cases / stats.total_children) * 100).toFixed(1)
-    : 0;
+  const total_children = stats?.total_children ?? 0;
+  const normal_count = stats?.normal_cases ?? 0;
+  const mam_count = stats?.mam_cases ?? 0;
+  const sam_count = stats?.sam_cases ?? 0;
+  const transferred = stats?.transferred_to_nutritionist ?? 0;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Hospital Dashboard</h2>
-        <p className="text-gray-600">Overview of registered children and risk levels</p>
-      </div>
-
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Children */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Total Children</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{stats.total_children}</p>
-            </div>
-            <Users className="w-10 h-10 text-blue-500" />
-          </div>
-        </div>
-
-        {/* SAM Cases */}
-        <div className="bg-white rounded-lg shadow p-6 border-2 border-red-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">SAM Cases</p>
-              <p className="text-3xl font-bold text-red-600 mt-2">{stats.sam_cases}</p>
-              <p className="text-xs text-gray-500 mt-1">{samPercentage}% of total</p>
-            </div>
-            <AlertTriangle className="w-10 h-10 text-red-500" />
-          </div>
-        </div>
-
-        {/* MAM Cases */}
-        <div className="bg-white rounded-lg shadow p-6 border-2 border-yellow-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">MAM Cases</p>
-              <p className="text-3xl font-bold text-yellow-600 mt-2">{stats.mam_cases}</p>
-            </div>
-            <AlertTriangle className="w-10 h-10 text-yellow-500" />
-          </div>
-        </div>
-
-        {/* Transferred */}
-        <div className="bg-white rounded-lg shadow p-6 border-2 border-blue-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Transferred to Nutritionist</p>
-              <p className="text-3xl font-bold text-blue-600 mt-2">{stats.transferred_to_nutritionist}</p>
-            </div>
-            <ArrowRight className="w-10 h-10 text-blue-500" />
-          </div>
-        </div>
-      </div>
-
-      {/* Risk Distribution Chart */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 text-blue-600" />
-          Risk Level Distribution
-        </h3>
-        <div className="space-y-4">
-          {/* SAM Bar */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700">SAM (Severe)</span>
-              <span className="text-sm font-bold text-red-600">{stats.sam_cases}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-4">
-              <div
-                className="bg-red-600 h-4 rounded-full"
-                style={{ width: `${samPercentage}%` }}
-              />
-            </div>
-          </div>
-
-          {/* MAM Bar */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700">MAM (Moderate)</span>
-              <span className="text-sm font-bold text-yellow-600">{stats.mam_cases}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-4">
-              <div
-                className="bg-yellow-500 h-4 rounded-full"
-                style={{ width: `${stats.total_children > 0 ? ((stats.mam_cases / stats.total_children) * 100) : 0}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Normal Bar */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700">Normal</span>
-              <span className="text-sm font-bold text-green-600">{stats.normal_cases}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-4">
-              <div
-                className="bg-green-500 h-4 rounded-full"
-                style={{ width: `${stats.total_children > 0 ? ((stats.normal_cases / stats.total_children) * 100) : 0}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-blue-900 mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white rounded-lg p-4 border border-blue-200">
-            <p className="text-sm font-medium text-gray-700 mb-2">Pending SAM Transfers</p>
-            <p className="text-2xl font-bold text-red-600">
-              {stats.sam_cases - stats.transferred_to_nutritionist}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">SAM cases not yet transferred</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 border border-blue-200">
-            <p className="text-sm font-medium text-gray-700 mb-2">Transfer Rate</p>
-            <p className="text-2xl font-bold text-blue-600">
-              {stats.sam_cases > 0 
-                ? ((stats.transferred_to_nutritionist / stats.sam_cases) * 100).toFixed(1)
-                : 0}%
-            </p>
-            <p className="text-xs text-gray-500 mt-1">Of SAM cases transferred</p>
-          </div>
-        </div>
-      </div>
-    </div>
+    <SharedDashboardLayout
+      title="Dashboard"
+      subtitle="Overview of registered children and risk levels at your hospital"
+      stats={{
+        total_children,
+        normal_count,
+        mam_count,
+        sam_count,
+      }}
+      children={children}
+      onViewChild={onViewChild}
+      extraCard={{
+        label: 'Transferred to Nutritionist',
+        value: transferred,
+        color: '#3B82F6',
+        icon: <ArrowRight className="w-6 h-6 text-blue-600" />,
+      }}
+      emptyMessage="No children registered at your hospital yet."
+    />
   );
 }

@@ -1,0 +1,157 @@
+import { useState, useEffect } from 'react';
+import { Users, Activity, AlertTriangle, TrendingUp, UserCheck, Send } from 'lucide-react';
+import { mohAPI } from '../../services/api';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+
+/* Same colors as DashboardView (Midwife) */
+const COLORS = { normal: '#2ECC71', mam: '#F1C40F', sam: '#E74C3C' };
+
+export function MohDashboardView() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await mohAPI.dashboard();
+      if (res.data?.status === 'success') setData(res.data.dashboard);
+      else setError(res.data?.message || 'Failed to load dashboard');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load dashboard');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) return <div className="text-gray-600">Loading dashboard...</div>;
+  if (error) {
+    return (
+      <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+        <p className="text-sm text-red-900">{error}</p>
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const pieData = [
+    { name: 'Normal', value: data.normal_count, color: COLORS.normal },
+    { name: 'MAM', value: data.mam_count, color: COLORS.mam },
+    { name: 'SAM', value: data.sam_count, color: COLORS.sam },
+  ].filter((d) => d.value > 0);
+  if (pieData.length === 0) pieData.push({ name: 'No data', value: 1, color: '#95A5A6' });
+
+  const summaryBarData = [
+    { name: 'Midwives in area', value: data.midwife_count, fill: '#0d9488' },
+    { name: 'Referred to nutritionist', value: data.referrals_to_nutritionist, fill: '#2563eb' },
+    { name: 'Pending escalations', value: data.pending_escalations, fill: '#d97706' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
+        <p className="text-gray-600 mt-1">Overview of child nutrition status in your area</p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Total Children</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{data.total_children}</p>
+            </div>
+            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+              <Users className="w-6 h-6 text-blue-600" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Normal</p>
+              <p className="text-3xl font-bold mt-2" style={{ color: '#2ECC71' }}>{data.normal_count}</p>
+            </div>
+            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+              <Activity className="w-6 h-6 text-green-600" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">MAM Cases</p>
+              <p className="text-3xl font-bold mt-2" style={{ color: '#F1C40F' }}>{data.mam_count}</p>
+            </div>
+            <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+              <TrendingUp className="w-6 h-6 text-yellow-600" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">SAM Cases</p>
+              <p className="text-3xl font-bold mt-2" style={{ color: '#E74C3C' }}>{data.sam_count}</p>
+            </div>
+            <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="font-semibold text-gray-900 mb-4">Risk distribution</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                {pieData.map((entry, i) => (
+                  <Cell key={i} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+          <h3 className="font-semibold text-gray-900">Summary</h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={summaryBarData} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" allowDecimals={false} />
+              <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                {summaryBarData.map((entry, i) => (
+                  <Cell key={i} fill={entry.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="pt-2 border-t border-gray-100 space-y-2">
+            <div className="flex items-center gap-3 text-gray-700">
+              <UserCheck className="w-5 h-5 text-teal-600 flex-shrink-0" />
+              <span>Midwives in area: <strong>{data.midwife_count}</strong></span>
+            </div>
+            <div className="flex items-center gap-3 text-gray-700">
+              <Send className="w-5 h-5 text-blue-600 flex-shrink-0" />
+              <span>Referred to nutritionist: <strong>{data.referrals_to_nutritionist}</strong></span>
+            </div>
+            <div className="flex items-center gap-3 text-gray-700">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+              <span>Pending escalations: <strong>{data.pending_escalations}</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

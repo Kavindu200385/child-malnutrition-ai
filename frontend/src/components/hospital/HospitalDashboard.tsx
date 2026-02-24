@@ -1,12 +1,13 @@
 /**
- * Hospital Dashboard
- * Hospital role only - Birth Registration & Initial Risk Screening
+ * Pediatric Unit Dashboard
+ * Pediatric Unit role - Birth Registration & Initial Risk Screening at hospital
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { User } from '../../App';
-import { HospitalRegistrationView } from './HospitalRegistrationView';
+import { BirthRegistrationView } from '../health-worker/BirthRegistrationView';
 import { HospitalChildrenListView } from './HospitalChildrenListView';
 import { HospitalStatsView } from './HospitalStatsView';
+import { HospitalStatisticsView } from './HospitalStatisticsView';
 import { 
   LayoutDashboard, 
   UserPlus,
@@ -14,7 +15,7 @@ import {
   BarChart3,
   LogOut,
   UserCircle,
-  AlertTriangle
+  Shield
 } from 'lucide-react';
 
 interface HospitalDashboardProps {
@@ -36,27 +37,29 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-blue-600 to-blue-700 text-white sticky top-0 z-10 shadow-lg">
+      {/* Header – solid dark bar so top bar is clearly visible */}
+      <header
+        className="sticky top-0 z-10 shadow-lg"
+        style={{ backgroundColor: '#4338ca' }}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                <UserCircle className="w-6 h-6 text-white" />
-              </div>
+              <Shield className="w-8 h-8 text-white" aria-hidden />
               <div>
-                <h1 className="text-xl font-bold text-white">CMRAS - Hospital Portal</h1>
-                <p className="text-xs text-blue-100">{user.clinic || 'Hospital'}</p>
+                <h1 className="text-xl font-bold text-white">CMRAS</h1>
+                <p className="text-xs text-white font-medium opacity-95">{user.clinic || 'Pediatric Unit'}</p>
               </div>
             </div>
             <div className="flex items-center gap-4">
               <div className="hidden sm:block text-right">
                 <p className="text-sm font-medium text-white">{user.name}</p>
-                <p className="text-xs text-blue-100">Hospital Role</p>
+                <p className="text-xs text-white font-medium opacity-95">Pediatric Unit</p>
               </div>
+              <UserCircle className="w-8 h-8 text-white" aria-hidden />
               <button
                 onClick={onLogout}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-white/20 hover:bg-white/30 rounded-lg transition-colors border border-white/30"
               >
                 <LogOut className="w-4 h-4" />
                 <span className="hidden sm:inline">Logout</span>
@@ -66,7 +69,7 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
         </div>
       </header>
 
-      {/* Navigation */}
+      {/* Navigation – role-colored active (indigo) */}
       <nav className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex gap-2 overflow-x-auto py-2">
@@ -78,9 +81,7 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
                   key={item.id}
                   onClick={() => setCurrentView(item.id)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${
-                    isActive
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'text-gray-600 hover:bg-gray-100'
+                    isActive ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -94,16 +95,22 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {currentView === 'dashboard' && <HospitalStatsView user={user} />}
+        {currentView === 'dashboard' && (
+          <HospitalStatsView
+            user={user}
+            onViewChild={() => setCurrentView('children')}
+          />
+        )}
         {currentView === 'register' && (
-          <HospitalRegistrationView
+          <BirthRegistrationView
+            onBack={() => setCurrentView('dashboard')}
             onSuccess={() => {
               setCurrentView('children');
             }}
           />
         )}
         {currentView === 'children' && <HospitalChildrenListView user={user} />}
-        {currentView === 'stats' && <HospitalStatsView user={user} />}
+        {currentView === 'stats' && <HospitalStatisticsView user={user} />}
       </main>
     </div>
   );

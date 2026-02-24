@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { MOCK_CHILDREN } from '../../data/mockData';
+import { useState, useEffect } from 'react';
 import { calculateRiskLevel, getRiskColor, getRiskLabel } from '../../types';
 import { ArrowLeft, Save, CheckCircle, AlertTriangle, Brain, TrendingUp, Calendar, FileText, TrendingDown, Activity } from 'lucide-react';
+import { nutritionistAPI, midwifeAPI } from '../../services/api';
 
 interface AddMeasurementViewProps {
+  user?: { role?: string } | null;
   selectedChildId: string | null;
   onBack: () => void;
   onSuccess: (childId: string) => void;
@@ -40,7 +41,8 @@ interface AIResults {
   prediction?: PredictionData;
 }
 
-export function AddMeasurementView({ selectedChildId, onBack, onSuccess }: AddMeasurementViewProps) {
+export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }: AddMeasurementViewProps) {
+  const isNutritionist = user?.role === 'nutritionist';
   const [childId, setChildId] = useState(selectedChildId || '');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [weight, setWeight] = useState('');
@@ -49,76 +51,91 @@ export function AddMeasurementView({ selectedChildId, onBack, onSuccess }: AddMe
   const [notes, setNotes] = useState('');
   const [showResults, setShowResults] = useState(false);
   const [aiResults, setAiResults] = useState<AIResults | null>(null);
+  const [referredChildren, setReferredChildren] = useState<{ child: any }[]>([]);
+  const [midwifeChildren, setMidwifeChildren] = useState<any[]>([]);
+  const [nutLoading, setNutLoading] = useState(false);
+  const [midwifeLoading, setMidwifeLoading] = useState(false);
+  const [nutError, setNutError] = useState('');
+  const [nutSuccess, setNutSuccess] = useState(false);
 
-  const selectedChild = MOCK_CHILDREN.find((c) => c.id === childId);
+  useEffect(() => {
+    if (isNutritionist) {
+      nutritionistAPI.referredChildren()
+        .then((res) => { if (res.data?.status === 'success') setReferredChildren(res.data.children || []); })
+        .catch(() => setReferredChildren([]));
+    } else {
+      midwifeAPI.listChildren({})
+        .then((res) => { if (res.data?.status === 'success') setMidwifeChildren(res.data.children || []); })
+        .catch(() => setMidwifeChildren([]));
+    }
+  }, [isNutritionist]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const selectedChild = isNutritionist
+    ? referredChildren.find((r) => String(r.child?.id) === childId)?.child
+    : midwifeChildren.find((c) => String(c.child_id || c.id) === String(childId));
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Calculate Z-scores (simplified - in production, use WHO tables)
+    if (isNutritionist) {
+      const weightNum = parseFloat(weight);
+      const heightNum = parseFloat(height);
+      if (!childId || isNaN(weightNum) || isNaN(heightNum) || weightNum <= 0 || heightNum <= 0) {
+        setNutError('Please select a child and enter valid weight and height.');
+        return;
+      }
+      setNutError('');
+      setNutLoading(true);
+      try {
+        await nutritionistAPI.addMeasurement({
+          child_id: Number(childId),
+          weight_kg: weightNum,
+          height_cm: heightNum,
+          muac_cm: muac ? parseFloat(muac) : undefined,
+          measurement_date: date,
+          specialist_notes: notes || undefined,
+        });
+        setNutSuccess(true);
+        setTimeout(() => onSuccess(childId), 1500);
+      } catch (err: any) {
+        setNutError(err.response?.data?.message || 'Failed to save measurement');
+      } finally {
+        setNutLoading(false);
+      }
+      return;
+    }
+
     const weightNum = parseFloat(weight);
     const heightNum = parseFloat(height);
     const muacNum = parseFloat(muac);
-    
-    // Mock Z-score calculations
-    const weightForAge = (weightNum - 11) / 1.5; // Simplified
-    const heightForAge = (heightNum - 85) / 3; // Simplified
-    const weightForHeight = (weightNum - 11.5) / 1.8; // Simplified
-
-    const riskLevel = calculateRiskLevel(weightForAge, heightForAge, weightForHeight);
-
-    // Generate prediction based on historical data and current trend
-    const childData = MOCK_CHILDREN.find(c => c.id === childId);
-    const historicalMeasurements = childData?.measurements || [];
-    
-    let prediction: PredictionData | undefined;
-    if (historicalMeasurements.length > 0) {
-      // Calculate trend from historical data
-      const recentMeasurements = historicalMeasurements.slice(-3);
-      const avgWFATrend = recentMeasurements.length > 1 
-        ? (recentMeasurements[recentMeasurements.length - 1].weightForAge - recentMeasurements[0].weightForAge) / recentMeasurements.length
-        : 0;
-      
-      // Project 1-2 months ahead
-      const predictedWFA = weightForAge + (avgWFATrend * 2);
-      const predictedHFA = heightForAge + (avgWFATrend * 0.5); // Slower change for height
-      const predictedWFH = weightForHeight + (avgWFATrend * 1.5);
-      
-      const predictedRisk = calculateRiskLevel(predictedWFA, predictedHFA, predictedWFH);
-      
-      // Determine confidence based on data consistency
-      const dataConsistency = recentMeasurements.length >= 2 ? 85 : 65;
-      const confidence = Math.min(95, dataConsistency + (Math.random() * 10));
-      
-      // Determine status
-      let status: 'Early Warning' | 'Stable' | 'Improving' = 'Stable';
-      let trend: 'declining' | 'stable' | 'improving' = 'stable';
-      
-      if (avgWFATrend < -0.2) {
-        trend = 'declining';
-        status = 'Early Warning';
-      } else if (avgWFATrend > 0.2) {
-        trend = 'improving';
-        status = 'Improving';
-      }
-      
-      // Check if action required (predicted risk is worse than current)
-      const riskOrder = { 'normal': 0, 'mam': 1, 'sam': 2 };
-      const actionRequired = riskOrder[predictedRisk] > riskOrder[riskLevel];
-      
-      prediction = {
-        predictedRiskLevel: predictedRisk,
-        confidence: Math.round(confidence),
-        status,
-        predictedZScores: {
-          weightForAge: predictedWFA,
-          heightForAge: predictedHFA,
-          weightForHeight: predictedWFH,
-        },
-        trend,
-        actionRequired,
-      };
+    if (!childId || isNaN(weightNum) || isNaN(heightNum) || weightNum <= 0 || heightNum <= 0) {
+      setNutError('Please select a child and enter valid weight and height.');
+      return;
     }
+
+    setMidwifeLoading(true);
+    setNutError('');
+    const numericChildId = selectedChild?.id ?? childId;
+    try {
+      await midwifeAPI.addMeasurement({
+        child_id: Number(numericChildId),
+        weight_kg: weightNum,
+        height_cm: heightNum,
+        muac_cm: muac ? parseFloat(muac) : undefined,
+      });
+    } catch (err: any) {
+      setNutError(err.response?.data?.message || 'Failed to save measurement');
+      setMidwifeLoading(false);
+      return;
+    }
+    setMidwifeLoading(false);
+
+    // Client-side display: simplified Z-scores for UI only (backend has run AI)
+    const weightForAge = (weightNum - 11) / 1.5;
+    const heightForAge = (heightNum - 85) / 3;
+    const weightForHeight = (weightNum - 11.5) / 1.8;
+    const riskLevel = calculateRiskLevel(weightForAge, heightForAge, weightForHeight);
+    const prediction: PredictionData | undefined = undefined;
 
     // Generate AI-powered recommendations
     const recommendations: string[] = [];
@@ -591,6 +608,17 @@ export function AddMeasurementView({ selectedChildId, onBack, onSuccess }: AddMe
 
       {/* Form */}
       <div className="bg-white rounded-lg shadow p-6">
+        {nutSuccess && (
+          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800 flex items-center gap-2">
+            <CheckCircle className="w-5 h-5 flex-shrink-0" />
+            Measurement recorded successfully. Redirecting...
+          </div>
+        )}
+        {nutError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
+            {nutError}
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Child Selection */}
           <div>
@@ -605,11 +633,17 @@ export function AddMeasurementView({ selectedChildId, onBack, onSuccess }: AddMe
               required
             >
               <option value="">-- Select a child --</option>
-              {MOCK_CHILDREN.map((child) => (
-                <option key={child.id} value={child.id}>
-                  {child.name} ({child.id})
-                </option>
-              ))}
+              {isNutritionist
+                ? referredChildren.map((r) => (
+                    <option key={r.child?.id} value={r.child?.id}>
+                      {r.child?.name || r.child?.child_id || r.child?.child_unique_id} ({r.child?.id})
+                    </option>
+                  ))
+                : midwifeChildren.map((child) => (
+                    <option key={child.id} value={child.child_id || child.id}>
+                      {child.name || child.child_id || 'Unnamed'} ({child.child_id || child.id})
+                    </option>
+                  ))}
             </select>
           </div>
 
@@ -618,17 +652,17 @@ export function AddMeasurementView({ selectedChildId, onBack, onSuccess }: AddMe
               <h4 className="font-medium text-gray-900 mb-2">Child Information</h4>
               <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
                 <p>
-                  <span className="font-medium">Name:</span> {selectedChild.name}
+                  <span className="font-medium">Name:</span> {selectedChild.name || selectedChild.child_id || selectedChild.child_unique_id}
                 </p>
                 <p>
-                  <span className="font-medium">DOB:</span> {selectedChild.dob}
+                  <span className="font-medium">DOB:</span> {selectedChild.dob ?? '—'}
                 </p>
                 <p>
                   <span className="font-medium">Gender:</span>{' '}
-                  {selectedChild.gender === 'male' ? 'Male' : 'Female'}
+                  {selectedChild.gender === 'male' ? 'Male' : selectedChild.gender === 'female' ? 'Female' : '—'}
                 </p>
                 <p>
-                  <span className="font-medium">Guardian:</span> {selectedChild.guardianName}
+                  <span className="font-medium">Guardian:</span> {selectedChild.guardian_name ?? selectedChild.guardianName ?? '—'}
                 </p>
               </div>
             </div>
@@ -687,7 +721,7 @@ export function AddMeasurementView({ selectedChildId, onBack, onSuccess }: AddMe
 
             <div>
               <label htmlFor="muac" className="block text-sm font-medium text-gray-700 mb-2">
-                MUAC (cm) *
+                MUAC (cm){!isNutritionist ? ' *' : ''}
               </label>
               <input
                 id="muac"
@@ -697,7 +731,7 @@ export function AddMeasurementView({ selectedChildId, onBack, onSuccess }: AddMe
                 onChange={(e) => setMuac(e.target.value)}
                 placeholder="e.g., 13.5"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
+                required={!isNutritionist}
               />
               <p className="mt-1 text-xs text-gray-500">Mid-Upper Arm Circumference</p>
             </div>
@@ -750,11 +784,11 @@ export function AddMeasurementView({ selectedChildId, onBack, onSuccess }: AddMe
             </button>
             <button
               type="submit"
-              disabled={!childId || !weight || !height || !muac}
+              disabled={nutLoading || midwifeLoading || !childId || !weight || !height || (!isNutritionist && !muac)}
               className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
             >
               <Save className="w-4 h-4" />
-              Save & Get AI Analysis
+              {(nutLoading || midwifeLoading) ? 'Saving...' : isNutritionist ? 'Save measurement' : 'Save & Get AI Analysis'}
             </button>
           </div>
         </form>

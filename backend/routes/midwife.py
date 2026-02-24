@@ -10,7 +10,7 @@ Strict midwife-only functionality:
 """
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from backend.auth_utils_hierarchical import get_current_user, ROLE_MIDWIFE
@@ -188,9 +188,11 @@ def list_children():
     escalation_status = request.args.get("escalation_status")
     search = request.args.get("search")
     
-    # Build query - STRICT area scoping
+    # Build query - show ONLY children explicitly assigned to this midwife
+    # (prevents hospital-registered/unassigned children from appearing)
     query = db.session.query(Child).filter(
-        Child.phm_area_id == user.phm_area_id
+        Child.current_assigned_role == UserRole.MIDWIFE.value,
+        Child.current_assigned_user_id == user.id,
     )
     
     # Apply filters
@@ -565,6 +567,19 @@ def submit_clinic_report():
     }), 200
 
 
+def _get_midwife_phm_area_id(user):
+    """Resolve midwife's PHM area from User.phm_area_id or WorkerAreaMapping."""
+    if getattr(user, "phm_area_id", None) is not None:
+        return user.phm_area_id
+    from backend.models_hierarchical import WorkerAreaMapping
+    phm_mapping = db.session.query(WorkerAreaMapping).join(Area).filter(
+        WorkerAreaMapping.user_id == user.id,
+        WorkerAreaMapping.is_active == True,
+        Area.level == AreaLevel.PHM.value
+    ).first()
+    return phm_mapping.area_id if phm_mapping else None
+
+
 @bp.route("/dashboard/stats", methods=["GET"])
 @midwife_required
 def get_dashboard_stats():
@@ -572,25 +587,42 @@ def get_dashboard_stats():
     Get dashboard statistics for midwife's area.
     """
     user = get_current_user()
-    
-    # Get all children in midwife's area
-    children = db.session.query(Child).filter(
-        Child.phm_area_id == user.phm_area_id
-    ).all()
-    
+    phm_area_id = _get_midwife_phm_area_id(user)
+
+    # Get all children in midwife's area (or no children if no area)
+    children = (
+        db.session.query(Child).filter(Child.phm_area_id == phm_area_id).all()
+        if phm_area_id is not None
+        else []
+    )
+
     total = len(children)
     normal_count = sum(1 for c in children if c.current_risk_level == RiskLevel.NORMAL.value)
-    mam_count = sum(1 for c in children if c.current_risk_level == RiskLevel.MAM.value)
-    sam_count = sum(1 for c in children if c.current_risk_level == RiskLevel.SAM.value)
+    mam_count = sum(1 for c in children if (c.current_risk_level or "").upper() in (RiskLevel.MAM.value, RiskLevel.MODERATE.value, RiskLevel.HIGH.value))
+    sam_count = sum(1 for c in children if (c.current_risk_level or "").upper() in (RiskLevel.SAM.value, RiskLevel.CRITICAL.value))
     escalated_count = sum(1 for c in children if c.escalation_status == EscalationStatus.ESCALATED_TO_MOH.value)
-    
+
     # Get recent measurements count (last 30 days)
     thirty_days_ago = datetime.now() - timedelta(days=30)
-    recent_measurements = db.session.query(Measurement).join(Child).filter(
-        Child.phm_area_id == user.phm_area_id,
-        Measurement.measurement_date >= thirty_days_ago
-    ).count()
-    
+    recent_measurements = 0
+    if phm_area_id is not None:
+        recent_measurements = db.session.query(Measurement).join(Child).filter(
+            Child.phm_area_id == phm_area_id,
+            Measurement.measurement_date >= thirty_days_ago
+        ).count()
+
+    # Optional: resolve PHM area name/full path for frontend display
+    phm_area_name = None
+    phm_area_full_path = None
+    if phm_area_id is not None:
+        area = db.session.get(Area, phm_area_id)
+        if area:
+            phm_area_name = area.name
+            try:
+                phm_area_full_path = area.get_full_path()
+            except Exception:
+                phm_area_full_path = area.name
+
     return jsonify({
         "status": "success",
         "stats": {
@@ -601,5 +633,7 @@ def get_dashboard_stats():
             "escalated_cases": escalated_count,
             "recent_measurements_30days": recent_measurements,
         },
-        "phm_area_id": user.phm_area_id,
+        "phm_area_id": phm_area_id,
+        "phm_area_name": phm_area_name,
+        "phm_area_full_path": phm_area_full_path,
     }), 200

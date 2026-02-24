@@ -1,62 +1,43 @@
 import React, { useState } from 'react';
-import { Shield, Info, Heart, Users, Activity } from 'lucide-react';
-import { UserInfo } from '../App';
+import { Shield, Heart, Users, Activity } from 'lucide-react';
+import api from '../services/api';
+import { User, UserRole } from '../App';
 
 interface LoginScreenProps {
-  onLogin: (user: UserInfo) => void;
+  onLogin: (user: User) => void;
 }
-
-// Sample login credentials with user details
-const sampleLogins = [
-  { 
-    id: 'PHM-2024-001', 
-    password: 'phm123', 
-    name: 'Mrs. Nimalka Perera',
-    role: 'Public Health Midwife' 
-  },
-  { 
-    id: 'NURSE-2024-015', 
-    password: 'nurse123', 
-    name: 'Ms. Chamari Silva',
-    role: 'Clinic Nurse' 
-  },
-  { 
-    id: 'MOH-2024-003', 
-    password: 'moh123', 
-    name: 'Dr. Sunil Fernando',
-    role: 'MOH Officer' 
-  },
-];
 
 export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [workerId, setWorkerId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
-    // Validate against sample logins
-    const validLogin = sampleLogins.find(
-      login => login.id === workerId && login.password === password
-    );
-
-    if (validLogin) {
-      onLogin({
-        id: validLogin.id,
-        name: validLogin.name,
-        role: validLogin.role
+    try {
+      const response = await api.post('/api/auth/login', {
+        username: workerId.trim(),
+        password,
       });
-    } else {
-      setError('Invalid credentials. Please use one of the demo logins below.');
+      if (response.data?.status === 'success' && response.data?.access_token) {
+        localStorage.setItem('token', response.data.access_token);
+        const backendUser = response.data.user;
+        onLogin({
+          id: String(backendUser.id),
+          username: backendUser.username,
+          name: backendUser.name,
+          role: backendUser.role as UserRole,
+          clinic: backendUser.clinic,
+          district: backendUser.district,
+          is_protected: !!backendUser.is_protected,
+        });
+      } else {
+        setError('Login failed. Please try again.');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Invalid credentials. Please try again.');
     }
-  };
-
-  const fillSampleLogin = (login: typeof sampleLogins[0]) => {
-    setWorkerId(login.id);
-    setPassword(login.password);
-    setError('');
   };
 
   return (
@@ -198,32 +179,6 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 Sign In
               </button>
             </form>
-
-            {/* Sample Logins */}
-            <div className="mt-6 pt-6 border-t-2 border-gray-200">
-              <div className="flex items-center gap-2 mb-3">
-                <Info className="w-4 h-4 text-blue-600" />
-                <p className="text-sm font-medium text-gray-900">Demo Credentials</p>
-              </div>
-              <div className="space-y-2">
-                {sampleLogins.map((login, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    onClick={() => fillSampleLogin(login)}
-                    className="w-full text-left bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg p-3 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{login.role}</p>
-                        <p className="text-xs text-gray-600">ID: {login.id}</p>
-                      </div>
-                      <span className="text-xs text-blue-600 font-medium">Use →</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
 
             <div className="mt-6 text-center text-xs text-gray-500">
               <p>For authorized health workers only</p>

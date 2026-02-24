@@ -98,8 +98,11 @@ def get_worker(worker_id: int):
     # Check access
     if user.role != ROLE_HEALTH_MINISTRY:
         accessible_areas = get_user_accessible_areas(user)
-        worker_areas = [wa.area for wa in worker.worker_areas if wa.is_active]
-        if not any(wa in accessible_areas for wa in worker_areas):
+        accessible_area_ids = {a.id for a in accessible_areas}
+        worker_area_ids = {wa.area_id for wa in worker.worker_areas if wa.is_active}
+        if not worker_area_ids or not accessible_area_ids:
+            return jsonify({"status": "error", "message": "No access to this worker"}), 403
+        if not worker_area_ids.intersection(accessible_area_ids):
             return jsonify({"status": "error", "message": "No access to this worker"}), 403
     
     return jsonify({
@@ -125,6 +128,7 @@ def create_worker():
     email = data.get("email")
     phone = data.get("phone")
     area_ids = data.get("area_ids", [])  # List of area IDs to assign worker to
+    hospital_id = data.get("hospital_id")  # For nutritionist: assign to hospital
     
     if not username or not password or not name or not role:
         return jsonify({
@@ -156,6 +160,8 @@ def create_worker():
         is_active=True,
         created_by_id=user.id,
     )
+    if role in ("nutritionist", "hospital") and hospital_id:
+        worker.hospital_id = int(hospital_id)
     worker.set_password(password)
     
     db.session.add(worker)
@@ -313,6 +319,13 @@ def update_worker(worker_id: int):
                     created_by_id=user.id,
                 )
                 db.session.add(mapping)
+    
+    # Nutritionist / Pediatric Unit (hospital role): assign to hospital
+    if "hospital_id" in data:
+        if worker.role in ("nutritionist", "hospital"):
+            worker.hospital_id = int(data["hospital_id"]) if data["hospital_id"] else None
+        else:
+            worker.hospital_id = None
     
     db.session.flush()
     

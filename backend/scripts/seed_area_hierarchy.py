@@ -1,6 +1,7 @@
 """
 Seed Script for Initial Area Hierarchy
-Creates the 5-level hierarchy: Ministry → PDHS → RDHS → MOH → PHM
+Creates the 5-level area hierarchy: Ministry → PDHS → RDHS → MOH → PHM
+(Hospitals: Nutritionist at RDHS level, Birth at PHM level)
 """
 import sys
 import os

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getRiskColor, getRiskLabel } from '../../types';
-import { FileText, Download, Printer, Calendar, Filter, Send, BarChart3, User, FileCheck, TrendingUp } from 'lucide-react';
+import { FileText, Download, Printer, Calendar, Filter, Send, BarChart3, User as UserIcon, FileCheck, TrendingUp } from 'lucide-react';
 import { childrenAPI, midwifeAPI } from '../../services/api';
 
 // Get user from localStorage (temporary solution)
@@ -22,8 +22,13 @@ interface Child {
   last_risk_update?: string;
 }
 
-export function ReportsView() {
-  const user = getUser();
+interface ReportsViewProps {
+  user?: { role?: string; name?: string; clinic?: string } | null;
+}
+
+export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
+  const userFromStorage = getUser();
+  const user = userProp ?? userFromStorage;
   const isMidwife = user?.role === 'midwife';
   
   const [reportType, setReportType] = useState<'all' | 'sam' | 'mam' | 'normal'>('all');
@@ -57,16 +62,9 @@ export function ReportsView() {
     setError(null);
     try {
       const params: any = {
-        risk_level: reportType !== 'all' ? reportType.toUpperCase() : undefined,
+        risk: reportType !== 'all' ? reportType.toUpperCase() : undefined,
       };
-      
-      let response;
-      if (isMidwife) {
-        response = await midwifeAPI.listChildren(params);
-      } else {
-        response = await childrenAPI.list(params);
-      }
-      
+      const response = await childrenAPI.list(params);
       if (response.data.status === 'success') {
         setChildren(response.data.children || []);
         updateStats(response.data.children || []);
@@ -80,15 +78,17 @@ export function ReportsView() {
   };
 
   const loadDashboardStats = async () => {
+    if (!isMidwife) return;
     try {
-      const response = await midwifeAPI.getDashboardStats();
-      if (response.data.status === 'success') {
+      const response = await childrenAPI.list({});
+      if (response.data?.status === 'success') {
+        const list = response.data.children || [];
         setStats({
-          total: response.data.stats.total_children || 0,
-          sam: response.data.stats.sam_count || 0,
-          mam: response.data.stats.mam_count || 0,
-          normal: response.data.stats.normal_count || 0,
-          escalated: response.data.stats.escalated_cases || 0,
+          total: list.length,
+          sam: list.filter((c: Child) => (c.current_risk_level || '').toUpperCase() === 'SAM').length,
+          mam: list.filter((c: Child) => (c.current_risk_level || '').toUpperCase() === 'MAM').length,
+          normal: list.filter((c: Child) => (c.current_risk_level || '').toUpperCase() === 'NORMAL').length,
+          escalated: 0,
         });
       }
     } catch (err) {

@@ -21,6 +21,7 @@ from backend.models_hierarchical import (
     Report,
     RiskLevel,
     ChildTransfer,
+    User,
 )
 from backend.utils.audit import log_audit
 
@@ -527,6 +528,148 @@ def list_reports():
         "status": "success",
         "reports": [r.to_dict() for r in reports],
         "count": len(reports),
+    }), 200
+
+
+def _risk_sam(r):
+    """Count as SAM: SAM or CRITICAL"""
+    v = (r or "").upper()
+    return v in ("SAM", "CRITICAL")
+
+
+def _risk_mam(r):
+    """Count as MAM: MAM, MODERATE, HIGH"""
+    v = (r or "").upper()
+    return v in ("MAM", "MODERATE", "HIGH")
+
+
+def _risk_normal(r):
+    """Count as Normal: NORMAL"""
+    return (r or "").upper() == "NORMAL"
+
+
+@bp.route("/overview-stats", methods=["GET"])
+def overview_stats():
+    """
+    Health Ministry only. Aggregated stats for admin dashboard overview:
+    total_children, total_workers, total_clinics (PHM areas), risk counts,
+    district_breakdown, monthly_trend (last 6 months), clinic_performance (MOH areas).
+    """
+    user = get_current_user()
+    if not user or user.role != ROLE_HEALTH_MINISTRY:
+        return jsonify({"status": "error", "message": "Health Ministry access required"}), 403
+
+    # Active non-draft children
+    children_query = db.session.query(Child).filter(
+        Child.is_draft == False,
+        Child.status == "ACTIVE"
+    )
+    all_children = children_query.all()
+
+    total_children = len(all_children)
+    sam_count = sum(1 for c in all_children if _risk_sam(c.current_risk_level))
+    mam_count = sum(1 for c in all_children if _risk_mam(c.current_risk_level))
+    normal_count = sum(1 for c in all_children if _risk_normal(c.current_risk_level))
+
+    # Health workers: PDHS, RDHS, MOH, AMOH, MIDWIFE, NUTRITIONIST, HOSPITAL (exclude health_ministry)
+    worker_roles = ("pdhs", "rdhs", "moh", "amoh", "midwife", "nutritionist", "hospital")
+    total_workers = db.session.query(User).filter(User.role.in_(worker_roles)).count()
+
+    # Clinics = active PHM areas
+    total_clinics = db.session.query(Area).filter(
+        Area.level == "phm",
+        Area.is_active == True
+    ).count()
+
+    # District breakdown (RDHS level)
+    rdhs_areas = db.session.query(Area).filter(
+        Area.level == "rdhs",
+        Area.is_active == True
+    ).all()
+    district_breakdown = []
+    for rdhs in rdhs_areas:
+        child_area_ids = _get_child_area_ids(rdhs.id)
+        district_children = [c for c in all_children if c.current_assigned_area_id and c.current_assigned_area_id in child_area_ids]
+        total = len(district_children)
+        if total == 0 and len([c for c in all_children if c.district_id == rdhs.id]) == 0:
+            # Optionally include districts with no children for full map
+            continue
+        sam = sum(1 for c in district_children if _risk_sam(c.current_risk_level))
+        mam = sum(1 for c in district_children if _risk_mam(c.current_risk_level))
+        normal = sum(1 for c in district_children if _risk_normal(c.current_risk_level))
+        district_breakdown.append({
+            "district": rdhs.name or rdhs.district or f"RDHS {rdhs.id}",
+            "total": total,
+            "sam": sam,
+            "mam": mam,
+            "normal": normal,
+        })
+    district_breakdown.sort(key=lambda x: -x["total"])
+
+    # Last 6 calendar months trend (by created_at month)
+    monthly_trend = []
+    today = datetime.utcnow().date()
+    for i in range(5, -1, -1):
+        # month_start = first day of (today - i months)
+        year = today.year
+        month = today.month - i
+        while month <= 0:
+            month += 12
+            year -= 1
+        month_start = today.replace(year=year, month=month, day=1)
+        if month == 12:
+            month_end = month_start.replace(day=31)
+        else:
+            month_end = (month_start.replace(month=month + 1, day=1) - timedelta(days=1))
+        if month_end > today:
+            month_end = today
+        period_children = [
+            c for c in all_children
+            if c.created_at and (month_start <= c.created_at.date() <= month_end)
+        ]
+        monthly_trend.append({
+            "month": month_start.strftime("%b"),
+            "children": len(period_children),
+            "sam": sum(1 for c in period_children if _risk_sam(c.current_risk_level)),
+            "mam": sum(1 for c in period_children if _risk_mam(c.current_risk_level)),
+        })
+
+    # Clinic performance: MOH areas with child counts
+    moh_areas = db.session.query(Area).filter(
+        Area.level == "moh",
+        Area.is_active == True
+    ).all()
+    clinic_performance = []
+    for moh in moh_areas:
+        moh_children = [c for c in all_children if c.moh_area_id == moh.id]
+        total = len(moh_children)
+        sam = sum(1 for c in moh_children if _risk_sam(c.current_risk_level))
+        mam = sum(1 for c in moh_children if _risk_mam(c.current_risk_level))
+        normal = sum(1 for c in moh_children if _risk_normal(c.current_risk_level))
+        clinic_performance.append({
+            "clinic_name": moh.name or f"MOH {moh.id}",
+            "district": moh.district or moh.province or "—",
+            "total": total,
+            "sam": sam,
+            "mam": mam,
+            "normal": normal,
+            "status": "Active",
+        })
+    clinic_performance.sort(key=lambda x: -x["total"])
+
+    return jsonify({
+        "status": "success",
+        "data": {
+            "total_children": total_children,
+            "total_workers": total_workers,
+            "total_clinics": total_clinics,
+            "sam_count": sam_count,
+            "mam_count": mam_count,
+            "normal_count": normal_count,
+            "district_breakdown": district_breakdown,
+            "monthly_trend": monthly_trend,
+            "clinic_performance": clinic_performance,
+        },
     }), 200
 
 

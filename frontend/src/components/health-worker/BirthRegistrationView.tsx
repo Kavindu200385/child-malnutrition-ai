@@ -9,6 +9,19 @@ interface BirthRegistrationViewProps {
 
 type Step = 1 | 2 | 3 | 'summary';
 
+// Auto-generate an island-wide style MCH card number
+function generateMchCardNo(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const random = Math.floor(Math.random() * 1_000_000)
+    .toString()
+    .padStart(6, '0');
+  // Example: MCH-2026-0221-123456
+  return `MCH-${year}${month}${day}-${random}`;
+}
+
 export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationViewProps) {
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -16,8 +29,9 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
   const [submitError, setSubmitError] = useState('');
 
   // Step 1: Basic Information & Identification
-  const [step1Data, setStep1Data] = useState({
-    mchCardNo: '',
+  const [step1Data, setStep1Data] = useState(() => ({
+    // Auto-populate MCH card number (editable if needed)
+    mchCardNo: generateMchCardNo(),
     registrationDate: new Date().toISOString().split('T')[0],
     childName: '',
     childDOB: '',
@@ -26,7 +40,7 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
     motherAge: '',
     address: '',
     totalLivingChildren: '',
-  });
+  }));
 
   // Step 2: Birth Details & Measurements
   const [step2Data, setStep2Data] = useState({

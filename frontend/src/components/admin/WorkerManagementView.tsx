@@ -1,11 +1,11 @@
 /**
  * User/Worker Management View
- * Health Ministry can create, update, and assign users/workers to areas
+ * Ministry (Admin) / System Developer can create, update, and assign users/workers to areas
  * This component manages all system users (workers) with their roles and area assignments
  */
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, User, MapPin, AlertCircle, CheckCircle } from 'lucide-react';
-import { workersAPI, areasHierarchicalAPI } from '../../services/api';
+import { workersAPI, areasHierarchicalAPI, hospitalsAPI } from '../../services/api';
 
 interface WorkerManagementViewProps {
   onBack?: () => void;
@@ -28,8 +28,21 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
   const [pdhsAreas, setPdhsAreas] = useState<any[]>([]);
   const [rdhsAreas, setRdhsAreas] = useState<any[]>([]);
   const [mohAreas, setMohAreas] = useState<any[]>([]);
-  // Hospital options (for nutritionists who are based at hospitals)
+  // Hospital options (for nutritionists who are based at hospitals) - workers with role=hospital for list filter
   const [hospitalOptions, setHospitalOptions] = useState<any[]>([]);
+  // Master list of hospitals (from Area Management) for assigning nutritionists
+  const [hospitalsList, setHospitalsList] = useState<any[]>([]);
+
+  const roleDisplayLabels: Record<string, string> = {
+    health_ministry: 'Ministry (Admin)',
+    pdhs: 'PDHS',
+    rdhs: 'RDHS',
+    moh: 'MOH',
+    amoh: 'AMOH',
+    midwife: 'Midwife',
+    nutritionist: 'Nutritionist',
+    hospital: 'Pediatric Unit',
+  };
 
   // Load area options on mount
   useEffect(() => {
@@ -65,6 +78,12 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
       const hospitalResponse = await workersAPI.list({ role: 'hospital' });
       if (hospitalResponse.data.status === 'success') {
         setHospitalOptions(hospitalResponse.data.workers || []);
+      }
+
+      // Load master hospital list (from Area Management) for assigning nutritionists to hospitals
+      const hospitalsRes = await hospitalsAPI.list({});
+      if (hospitalsRes.data.status === 'success') {
+        setHospitalsList(hospitalsRes.data.hospitals || []);
       }
     } catch (err) {
       console.error('Failed to load area options:', err);
@@ -185,14 +204,14 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
 
   const roles = [
     { value: 'all', label: 'All Roles' },
-    { value: 'health_ministry', label: 'Health Ministry' },
+    { value: 'health_ministry', label: 'Ministry (Admin)' },
     { value: 'pdhs', label: 'PDHS' },
     { value: 'rdhs', label: 'RDHS' },
     { value: 'moh', label: 'MOH' },
     { value: 'amoh', label: 'AMOH' },
     { value: 'midwife', label: 'Midwife' },
     { value: 'nutritionist', label: 'Nutritionist' },
-    { value: 'hospital', label: 'Hospital' },
+    { value: 'hospital', label: 'Pediatric Unit' },
   ];
 
   return (
@@ -307,7 +326,7 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
           {/* Hospital Filter (for Nutritionists at Hospitals) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Filter by Hospital (Nutritionists)
+              Filter by Hospital (Nutritionists / Pediatric Unit)
             </label>
             <select
               value={hospitalFilter}
@@ -372,6 +391,7 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
       {(showCreateForm || editingWorker) && (
         <WorkerForm
           worker={editingWorker}
+          hospitalsList={hospitalsList}
           onSave={(data) => {
             if (editingWorker) {
               handleUpdate(editingWorker.id, data);
@@ -406,7 +426,7 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
                       <User className="w-5 h-5 text-gray-400" />
                       <h4 className="text-lg font-bold text-gray-900">{worker.name}</h4>
                       <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
-                        {worker.role}
+                        {roleDisplayLabels[worker.role] ?? worker.role}
                       </span>
                       {!worker.is_active && (
                         <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">
@@ -420,6 +440,9 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
                       {worker.phone && <p><span className="font-medium">Phone:</span> {worker.phone}</p>}
                       {worker.clinic && <p><span className="font-medium">Clinic:</span> {worker.clinic}</p>}
                       {worker.district && <p><span className="font-medium">District:</span> {worker.district}</p>}
+                      {(worker.role === 'nutritionist' || worker.role === 'hospital') && worker.hospital && (
+                        <p><span className="font-medium">Hospital:</span> {worker.hospital.hospital_name} ({worker.hospital.hospital_code})</p>
+                      )}
                     </div>
                     {worker.assigned_areas && worker.assigned_areas.length > 0 && (
                       <div className="mt-3 ml-8">
@@ -466,10 +489,12 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
 
 function WorkerForm({
   worker,
+  hospitalsList,
   onSave,
   onCancel,
 }: {
   worker?: any;
+  hospitalsList?: any[];
   onSave: (data: any) => void;
   onCancel: () => void;
 }) {
@@ -483,6 +508,7 @@ function WorkerForm({
     clinic: worker?.clinic || '',
     district: worker?.district || '',
     area_ids: worker?.assigned_areas?.map((a: any) => a.id) || [],
+    hospital_id: worker?.hospital_id ?? worker?.hospital?.id ?? '',
   });
 
   const [availableAreas, setAvailableAreas] = useState<any[]>([]);
@@ -518,21 +544,26 @@ function WorkerForm({
   };
 
   const roles = [
-    { value: 'health_ministry', label: 'Health Ministry' },
+    { value: 'health_ministry', label: 'Ministry (Admin)' },
     { value: 'pdhs', label: 'PDHS' },
     { value: 'rdhs', label: 'RDHS' },
     { value: 'moh', label: 'MOH' },
     { value: 'amoh', label: 'AMOH' },
     { value: 'midwife', label: 'Midwife' },
     { value: 'nutritionist', label: 'Nutritionist' },
-    { value: 'hospital', label: 'Hospital' },
+    { value: 'hospital', label: 'Pediatric Unit' },
   ];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const data = { ...formData };
+    const data: any = { ...formData };
     if (!data.password && worker) {
       delete data.password; // Don't update password if not provided
+    }
+    if (data.role === 'nutritionist' || data.role === 'hospital') {
+      data.hospital_id = data.hospital_id ? Number(data.hospital_id) : null;
+    } else {
+      delete data.hospital_id;
     }
     onSave(data);
   };
@@ -601,7 +632,12 @@ function WorkerForm({
             </label>
             <select
               value={formData.role}
-              onChange={(e) => setFormData({ ...formData, role: e.target.value, area_ids: [] })}
+              onChange={(e) => setFormData({
+                ...formData,
+                role: e.target.value,
+                area_ids: [],
+                hospital_id: (e.target.value === 'nutritionist' || e.target.value === 'hospital') ? formData.hospital_id : '',
+              })}
               required
               className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
@@ -645,6 +681,27 @@ function WorkerForm({
             />
           </div>
         </div>
+
+        {(formData.role === 'nutritionist' || formData.role === 'hospital') && (hospitalsList?.length ?? 0) > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Assign to Hospital
+            </label>
+            <select
+              value={formData.hospital_id ?? ''}
+              onChange={(e) => setFormData({ ...formData, hospital_id: e.target.value ? Number(e.target.value) : '' })}
+              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">— No hospital —</option>
+              {(hospitalsList || []).map((h: any) => (
+                <option key={h.id} value={h.id}>
+                  {h.hospital_name} ({h.hospital_code})
+                  {h.district ? ` — ${h.district}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {availableAreas.length > 0 && (
           <div>

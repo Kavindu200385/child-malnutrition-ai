@@ -9,9 +9,11 @@ from backend.auth_utils_hierarchical import (
     get_current_user,
     user_can_access_child,
     get_user_accessible_areas,
+    get_rdhs_district_area_ids,
     hospital_required,
     measurement_required,
     child_access_required,
+    role_required,
     ROLE_HEALTH_MINISTRY,
     ROLE_HOSPITAL,
     ROLE_MIDWIFE,
@@ -24,16 +26,18 @@ from backend.auth_utils_hierarchical import (
 from backend.extensions import db
 from backend.models_hierarchical import Child, Visit, Area, RiskLevel
 from backend.utils.audit import log_audit
+from backend.utils.midwife_helpers import get_area_hierarchy
 
 bp = Blueprint("children_crud_hierarchical", __name__, url_prefix="/api/children")
 
 
 @bp.route("", methods=["POST"])
-@hospital_required
+@role_required(ROLE_HOSPITAL, ROLE_MIDWIFE, ROLE_HEALTH_MINISTRY)
 def create_child():
     """
-    Register a new child (Hospital only).
-    Hospital registers children at birth with registration number.
+    Register a new child. Hospital (Pediatric Unit) or Midwife can register.
+    Hospital: registers at birth with registration number.
+    Midwife: 4-step birth registration; child is auto-assigned to midwife's PHM area.
     """
     user = get_current_user()
     data = request.get_json() or {}
@@ -74,6 +78,30 @@ def create_child():
 
     db.session.add(child)
     db.session.flush()
+
+    # When Pediatric Unit (hospital) registers, link child to their hospital
+    if user.role == ROLE_HOSPITAL and getattr(user, "hospital_id", None):
+        child.hospital_id = user.hospital_id
+
+    # When midwife registers, assign child to their PHM area so it appears in their list
+    if user.role == ROLE_MIDWIFE:
+        accessible_areas = get_user_accessible_areas(user)
+        phm_area = next((a for a in accessible_areas if a.level == "phm"), None)
+        if phm_area:
+            try:
+                hierarchy = get_area_hierarchy(phm_area.id)
+                child.phm_area_id = hierarchy["phm_area_id"]
+                child.moh_area_id = hierarchy.get("moh_id")
+                child.district_id = hierarchy.get("district_id")
+                child.province_id = hierarchy.get("province_id")
+                child.current_assigned_area_id = phm_area.id
+                child.current_assigned_user_id = user.id
+                child.current_assigned_role = ROLE_MIDWIFE
+                child.assigned_date = datetime.utcnow()
+                child.status = "ACTIVE"
+                child.is_draft = False
+            except ValueError:
+                pass  # If hierarchy fails, child stays unassigned; midwife can assign later
     
     log_audit(
         action="CREATE",
@@ -117,30 +145,62 @@ def list_children():
         # PDHS/RDHS see children in their areas
         accessible_areas = get_user_accessible_areas(user)
         accessible_area_ids = [a.id for a in accessible_areas]
-        if not accessible_area_ids:
-            return jsonify({"status": "success", "children": [], "count": 0}), 200
-        query = query.filter(Child.current_assigned_area_id.in_(accessible_area_ids))
-    elif user.role == ROLE_HOSPITAL:
-        # Hospital sees children they registered
-        query = query.filter(Child.registered_by_user_id == user.id)
-    elif user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST]:
-        # Field workers see children in their assigned areas
-        accessible_areas = get_user_accessible_areas(user)
-        accessible_area_ids = [a.id for a in accessible_areas]
-        
-        if user.role == ROLE_MIDWIFE:
-            # Midwife also sees unassigned children (to assign them)
+        if user.role == ROLE_RDHS:
+            from sqlalchemy import or_
+            rdhs_ids = get_rdhs_district_area_ids(user)
+            conditions = []
             if accessible_area_ids:
-                query = query.filter(
-                    (Child.current_assigned_area_id.in_(accessible_area_ids)) |
-                    (Child.current_assigned_area_id.is_(None))
-                )
-            else:
-                query = query.filter(Child.current_assigned_area_id.is_(None))
+                conditions.append(Child.current_assigned_area_id.in_(accessible_area_ids))
+            if rdhs_ids:
+                conditions.append(Child.district_id.in_(rdhs_ids))
+            if not conditions:
+                return jsonify({"status": "success", "children": [], "count": 0}), 200
+            query = query.filter(or_(*conditions))
         else:
             if not accessible_area_ids:
                 return jsonify({"status": "success", "children": [], "count": 0}), 200
             query = query.filter(Child.current_assigned_area_id.in_(accessible_area_ids))
+    elif user.role == ROLE_HOSPITAL:
+        # Hospital sees children they registered
+        query = query.filter(Child.registered_by_user_id == user.id)
+    elif user.role == ROLE_NUTRITIONIST:
+        # Nutritionist: only children referred to their hospital (strict specialist isolation)
+        from backend.models_hierarchical import ChildReferral
+        if not user.hospital_id:
+            return jsonify({"status": "success", "children": [], "count": 0}), 200
+        ref_child_ids = db.session.query(ChildReferral.child_id).filter(
+            ChildReferral.hospital_id == user.hospital_id,
+            ChildReferral.referred_to_role == "nutritionist",
+        ).distinct().all()
+        ref_child_ids = [r[0] for r in ref_child_ids]
+        if not ref_child_ids:
+            return jsonify({"status": "success", "children": [], "count": 0}), 200
+        query = query.filter(Child.id.in_(ref_child_ids))
+    elif user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH]:
+        # Field workers see children in their assigned areas
+        if user.role in [ROLE_MOH, ROLE_AMOH]:
+            # MOH: strict area isolation - only children in their MOH area(s)
+            from backend.auth_utils_hierarchical import get_moh_area_ids
+            moh_area_ids = get_moh_area_ids(user)
+            if not moh_area_ids:
+                return jsonify({"status": "success", "children": [], "count": 0}), 200
+            query = query.filter(Child.moh_area_id.in_(moh_area_ids))
+        else:
+            accessible_areas = get_user_accessible_areas(user)
+            accessible_area_ids = [a.id for a in accessible_areas]
+            if user.role == ROLE_MIDWIFE:
+                # Midwife also sees unassigned children (to assign them)
+                if accessible_area_ids:
+                    query = query.filter(
+                        (Child.current_assigned_area_id.in_(accessible_area_ids)) |
+                        (Child.current_assigned_area_id.is_(None))
+                    )
+                else:
+                    query = query.filter(Child.current_assigned_area_id.is_(None))
+            else:
+                if not accessible_area_ids:
+                    return jsonify({"status": "success", "children": [], "count": 0}), 200
+                query = query.filter(Child.current_assigned_area_id.in_(accessible_area_ids))
     else:
         return jsonify({"status": "error", "message": "Invalid role"}), 403
     
@@ -156,8 +216,8 @@ def list_children():
     elif status_filter == "transferred":
         query = query.filter(Child.status == "TRANSFERRED")
     
-    # Filter by risk level
-    if risk_filter and risk_filter in ["NORMAL", "MODERATE", "HIGH", "CRITICAL"]:
+    # Filter by risk level (NORMAL, MAM, SAM, MODERATE, HIGH, CRITICAL)
+    if risk_filter and risk_filter in ["NORMAL", "MODERATE", "HIGH", "CRITICAL", "MAM", "SAM"]:
         query = query.filter(Child.current_risk_level == risk_filter)
     
     # Search filter
@@ -199,9 +259,9 @@ def get_child(child_id: str):
     if not user_can_access_child(user, child):
         return jsonify({"status": "error", "message": "No access to this child"}), 403
     
-    # Include visits for measurement roles
-    include_visits = user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY]
-    include_transfers = user.role in [ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY]
+    # Include visits/transfers for measurement roles and RDHS (read-only)
+    include_visits = user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS]
+    include_transfers = user.role in [ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS]
     
     return jsonify({
         "status": "success",
@@ -269,6 +329,8 @@ def update_child(child_id: str):
 def delete_child(child_id: str):
     """Delete child - Health Ministry only"""
     user = get_current_user()
+    if not user:
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
     if user.role != ROLE_HEALTH_MINISTRY:
         return jsonify({"status": "error", "message": "Only Health Ministry can delete children"}), 403
     
@@ -296,10 +358,14 @@ def delete_child(child_id: str):
 @bp.route("/<child_id>/assign", methods=["POST"])
 def assign_child_to_area(child_id: str):
     """
-    Assign a child to an area (Midwife/MOH/Nutritionist).
-    This is the initial assignment from Hospital to field worker.
+    Assign a child to an area (Midwife/MOH/Nutritionist only).
+    RDHS/PDHS cannot assign – read-only oversight.
     """
     user = get_current_user()
+    if not user:
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if user.role in (ROLE_RDHS, ROLE_PDHS):
+        return jsonify({"status": "error", "message": "RDHS/PDHS cannot assign children. Read-only access."}), 403
     data = request.get_json() or {}
     
     child = db.session.query(Child).filter(Child.child_id == child_id).first()
@@ -321,7 +387,8 @@ def assign_child_to_area(child_id: str):
     
     # Validate user can assign to this area
     accessible_areas = get_user_accessible_areas(user)
-    if area not in accessible_areas and user.role != ROLE_HEALTH_MINISTRY:
+    accessible_area_ids = {a.id for a in accessible_areas}
+    if user.role != ROLE_HEALTH_MINISTRY and area.id not in accessible_area_ids:
         return jsonify({"status": "error", "message": "No access to target area"}), 403
     
     # Validate area level matches role
@@ -347,7 +414,7 @@ def assign_child_to_area(child_id: str):
     
     # Update area-specific fields
     if user.role == ROLE_MIDWIFE:
-        child.midwife_area_id = area_id
+        child.phm_area_id = area_id
     elif user.role in [ROLE_MOH, ROLE_AMOH]:
         child.moh_area_id = area_id
     
@@ -376,12 +443,15 @@ def assign_child_to_area(child_id: str):
 
 
 @bp.route("/<child_id>/visits", methods=["GET"])
-@measurement_required
 @child_access_required
 def list_visits(child_id: str):
     """
-    List visits for a child (Midwife, MOH, Nutritionist only).
+    List visits for a child. Midwife/MOH/Nutritionist/Health Ministry can manage.
+    RDHS can view (read-only).
     """
+    user = get_current_user()
+    if user.role not in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS]:
+        return jsonify({"status": "error", "message": "Insufficient permissions"}), 403
     child = db.session.query(Child).filter(Child.child_id == child_id).first()
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404

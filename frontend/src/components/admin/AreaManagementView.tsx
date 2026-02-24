@@ -1,10 +1,10 @@
 /**
  * Area Management View
- * Health Ministry can create, update, and manage the area hierarchy
+ * Ministry (Admin) / System Developer can create, update, and manage the area hierarchy
  */
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, ChevronRight, MapPin, AlertCircle } from 'lucide-react';
-import { areasHierarchicalAPI } from '../../services/api';
+import { Plus, Edit, Trash2, ChevronRight, MapPin, AlertCircle, Building2, RefreshCw } from 'lucide-react';
+import { areasHierarchicalAPI, hospitalsAPI } from '../../services/api';
 
 interface AreaManagementViewProps {
   onBack?: () => void;
@@ -12,14 +12,20 @@ interface AreaManagementViewProps {
 
 export function AreaManagementView({ onBack }: AreaManagementViewProps) {
   const [hierarchy, setHierarchy] = useState<any[]>([]);
+  const [flatAreas, setFlatAreas] = useState<any[]>([]); // from API so we never miss areas by level
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingArea, setEditingArea] = useState<any>(null);
-  const [selectedLevel, setSelectedLevel] = useState<string>('ministry');
+  const [selectedLevel, setSelectedLevel] = useState<string>('all');
+  const [hospitals, setHospitals] = useState<any[]>([]);
+  const [hospitalsLoading, setHospitalsLoading] = useState(false);
+  const [showCreateHospital, setShowCreateHospital] = useState(false);
+  const [editingHospital, setEditingHospital] = useState<any>(null);
 
   useEffect(() => {
     loadHierarchy();
+    loadHospitals();
   }, []);
 
   const loadHierarchy = async () => {
@@ -30,6 +36,7 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
       const response = await areasHierarchicalAPI.getHierarchy();
       if (response.data.status === 'success') {
         setHierarchy(response.data.hierarchy || []);
+        setFlatAreas(Array.isArray(response.data.flat) ? response.data.flat : []);
       } else {
         setError(response.data.message || 'Failed to load hierarchy');
       }
@@ -42,17 +49,24 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
   };
 
   const handleCreate = async (formData: any) => {
+    setError('');
     try {
       const response = await areasHierarchicalAPI.create(formData);
       if (response.data.status === 'success') {
-        await loadHierarchy();
         setShowCreateForm(false);
+        await loadHierarchy();
       } else {
         setError(response.data.message || 'Failed to create area');
       }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to create area');
     }
+  };
+
+  const handleRefresh = () => {
+    setError('');
+    loadHierarchy();
+    loadHospitals();
   };
 
   const handleUpdate = async (areaId: number, formData: any) => {
@@ -86,21 +100,77 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
     }
   };
 
+  const loadHospitals = async () => {
+    setHospitalsLoading(true);
+    try {
+      const response = await hospitalsAPI.list({ include_inactive: true });
+      if (response.data.status === 'success') {
+        setHospitals(response.data.hospitals || []);
+      }
+    } catch {
+      setHospitals([]);
+    } finally {
+      setHospitalsLoading(false);
+    }
+  };
+
+  const handleCreateHospital = async (data: any) => {
+    try {
+      const response = await hospitalsAPI.create(data);
+      if (response.data.status === 'success') {
+        await loadHospitals();
+        setShowCreateHospital(false);
+      } else {
+        setError(response.data.message || 'Failed to create hospital');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to create hospital');
+    }
+  };
+
+  const handleUpdateHospital = async (hospitalId: number, data: any) => {
+    try {
+      const response = await hospitalsAPI.update(hospitalId, data);
+      if (response.data.status === 'success') {
+        await loadHospitals();
+        setEditingHospital(null);
+      } else {
+        setError(response.data.message || 'Failed to update hospital');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to update hospital');
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Area Hierarchy Management</h2>
-          <p className="text-gray-600">Manage the 5-level area hierarchy (Ministry → PDHS → RDHS → MOH → PHM)</p>
+          <p className="text-gray-600">Area hierarchy: Ministry → PDHS → RDHS → MOH → PHM. Nutritionists are assigned to hospitals. Add hospitals below (separate from area levels).</p>
         </div>
-        <button
-          onClick={() => setShowCreateForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Create Area
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => { setShowCreateForm(true); setEditingArea(null); setShowCreateHospital(false); setEditingHospital(null); }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors shadow"
+          >
+            <Plus className="w-4 h-4" />
+            Create Area
+          </button>
+          <button
+            type="button"
+            onClick={() => { setShowCreateHospital(true); setEditingHospital(null); setShowCreateForm(false); setEditingArea(null); }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors shadow border-0"
+            style={{ backgroundColor: '#4F46E5', color: '#fff' }}
+            onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#4338CA'; }}
+            onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#4F46E5'; }}
+          >
+            <Building2 className="w-4 h-4" style={{ color: '#fff' }} />
+            Add Hospital
+          </button>
+        </div>
       </div>
 
       {/* Error Message */}
@@ -111,7 +181,7 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
         </div>
       )}
 
-      {/* Create/Edit Form */}
+      {/* Create/Edit Area Form */}
       {(showCreateForm || editingArea) && (
         <AreaForm
           area={editingArea}
@@ -129,9 +199,35 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
         />
       )}
 
-      {/* Level Filter */}
+      {/* Add/Edit Hospital Form (at top like Area form, so Hospital section below stays card-only) */}
+      {(showCreateHospital || editingHospital) && (
+        <HospitalForm
+          hospital={editingHospital}
+          hierarchy={hierarchy}
+          flatAreas={flatAreas}
+          onSave={(data) => {
+            if (editingHospital) {
+              handleUpdateHospital(editingHospital.id, data);
+            } else {
+              handleCreateHospital(data);
+            }
+          }}
+          onCancel={() => { setShowCreateHospital(false); setEditingHospital(null); }}
+        />
+      )}
+
+      {/* Level Filter + Refresh */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-sm font-medium text-gray-700">Filter by Level:</span>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          className="flex items-center gap-1 px-3 py-1 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+          title="Refresh areas and hospitals from database"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Refresh
+        </button>
         <button
           onClick={() => setSelectedLevel('all')}
           className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
@@ -169,9 +265,8 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
       ) : (
         <div className="space-y-8">
           {['ministry', 'pdhs', 'rdhs', 'moh', 'phm'].map((level) => {
-            const areasAtLevel = getAllAreasAtLevel(hierarchy, level);
+            const areasAtLevel = getAllAreasAtLevel(hierarchy, level, flatAreas);
             if (selectedLevel !== 'all' && selectedLevel !== level) return null;
-            if (areasAtLevel.length === 0) return null;
 
             return (
               <div key={level} className="bg-white rounded-lg shadow-lg border-2 border-gray-200">
@@ -182,45 +277,147 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
                   </h3>
                 </div>
                 <div className="p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {areasAtLevel.map((area) => (
-                      <AreaCard
-                        key={area.id}
-                        area={area}
-                        level={level}
-                        onEdit={setEditingArea}
-                        onDelete={handleDelete}
-                        getParentName={(id) => getAreaNameById(hierarchy, id)}
-                      />
-                    ))}
-                  </div>
+                  {areasAtLevel.length === 0 ? (
+                    <p className="text-gray-500">No areas at this level yet. Use &quot;Create Area&quot; and select {level.toUpperCase()} as the level.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {areasAtLevel.map((area) => (
+                        <AreaCard
+                          key={area.id}
+                          area={area}
+                          level={level}
+                          onEdit={setEditingArea}
+                          onDelete={handleDelete}
+                          getParentName={(id) => getAreaNameById(hierarchy, id)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* Hospitals – entered separately (not part of area hierarchy); nutritionists assigned here */}
+      {(selectedLevel === 'all' || selectedLevel === 'hospital') && (
+      <div className="bg-white rounded-lg shadow-lg border-2 border-gray-200">
+        <div className="px-6 py-4 border-b-2 bg-indigo-100 border-indigo-300">
+          <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <Building2 className="w-5 h-5" />
+            Hospitals ({hospitals.length} {hospitals.length === 1 ? 'hospital' : 'hospitals'})
+          </h3>
+          <p className="text-sm text-gray-600 mt-1">Add hospitals to the system. Assign nutritionists and Pediatric Unit staff to hospitals in User Management.</p>
+        </div>
+        <div className="p-6">
+          {hospitalsLoading ? (
+            <p className="text-gray-500">Loading hospitals...</p>
+          ) : hospitals.length === 0 ? (
+            <p className="text-gray-500">No hospitals yet.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {hospitals.map((h) => (
+                <HospitalCard
+                  key={h.id}
+                  hospital={h}
+                  onEdit={(hospital) => setEditingHospital(hospital)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      )}
     </div>
   );
 }
 
-// Helper function to get all areas at a specific level
-function getAllAreasAtLevel(hierarchy: any[], level: string): any[] {
-  const result: any[] = [];
-  
-  function traverse(areas: any[]) {
-    for (const area of areas) {
-      if (area.level === level) {
-        result.push(area);
-      }
-      if (area.children && area.children.length > 0) {
-        traverse(area.children);
+// Hospital Card – same layout as AreaCard (like RDHS/MOH/PHM cards)
+function HospitalCard({ hospital, onEdit }: { hospital: any; onEdit: (hospital: any) => void }) {
+  return (
+    <div className="border-2 border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="px-2 py-1 rounded text-xs font-bold border bg-indigo-100 text-indigo-800 border-indigo-300">
+              HOSPITAL
+            </span>
+            {hospital.hospital_code && (
+              <span className="text-xs text-gray-500 font-mono bg-gray-50 px-2 py-1 rounded">
+                {hospital.hospital_code}
+              </span>
+            )}
+            {!hospital.is_active && (
+              <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">Inactive</span>
+            )}
+          </div>
+          <h4 className="text-lg font-bold text-gray-900 mb-1">{hospital.hospital_name}</h4>
+        </div>
+        <div className="flex gap-1">
+          <button
+            onClick={() => onEdit(hospital)}
+            className="p-2 hover:bg-blue-100 rounded transition-colors"
+            title="Edit Hospital"
+          >
+            <Edit className="w-4 h-4 text-blue-600" />
+          </button>
+        </div>
+      </div>
+      <div className="space-y-2 text-sm">
+        {hospital.district && (
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 font-medium">District:</span>
+            <span className="text-gray-700">{hospital.district}</span>
+          </div>
+        )}
+        {hospital.province && (
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 font-medium">Province:</span>
+            <span className="text-gray-700">{hospital.province}</span>
+          </div>
+        )}
+        {hospital.address && (
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 font-medium">Address:</span>
+            <span className="text-gray-700">{hospital.address}</span>
+          </div>
+        )}
+        {hospital.contact_phone && (
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 font-medium">Contact:</span>
+            <span className="text-gray-700">{hospital.contact_phone}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Flatten hierarchy tree to a list of all areas (so we never miss nested MOH/PHM)
+function flattenHierarchy(areas: any[]): any[] {
+  const out: any[] = [];
+  function walk(list: any[]) {
+    if (!list || !Array.isArray(list)) return;
+    for (const area of list) {
+      if (area && typeof area === 'object') {
+        out.push(area);
+        if (area.children && Array.isArray(area.children)) walk(area.children);
       }
     }
   }
-  
-  traverse(hierarchy);
-  return result;
+  walk(areas);
+  return out;
+}
+
+// Helper function to get all areas at a specific level (prefer API flat list so we never miss areas)
+function getAllAreasAtLevel(hierarchy: any[], level: string, flatFromApi?: any[]): any[] {
+  const match = (level || '').toLowerCase();
+  if (flatFromApi && flatFromApi.length > 0) {
+    return flatFromApi.filter((a: any) => (a.level || '').toLowerCase() === match);
+  }
+  const all = flattenHierarchy(hierarchy);
+  return all.filter((a: any) => (a.level || '').toLowerCase() === match);
 }
 
 // Helper function to get area name by ID
@@ -304,6 +501,9 @@ function AreaCard({
               <span className="text-xs text-gray-500 font-mono bg-gray-50 px-2 py-1 rounded">
                 {area.code}
               </span>
+            )}
+            {area.is_active === false && (
+              <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">Inactive</span>
             )}
           </div>
           <h4 className="text-lg font-bold text-gray-900 mb-1">{area.name}</h4>
@@ -593,6 +793,160 @@ function AreaForm({
             className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
           >
             {area ? 'Update Area' : 'Create Area'}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function HospitalForm({
+  hospital,
+  hierarchy,
+  flatAreas = [],
+  onSave,
+  onCancel,
+}: {
+  hospital?: any;
+  hierarchy: any[];
+  flatAreas?: any[];
+  onSave: (data: any) => void;
+  onCancel: () => void;
+}) {
+  const [formData, setFormData] = useState({
+    hospital_name: hospital?.hospital_name || '',
+    district: hospital?.district || '',
+    province: hospital?.province || '',
+    address: hospital?.address || '',
+    contact_phone: hospital?.contact_phone || '',
+    district_area_id: null as number | null,
+    is_active: hospital ? hospital.is_active !== false : true,
+  });
+
+  const rdhsAreas = getAllAreasAtLevel(hierarchy, 'rdhs', flatAreas);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload: any = {
+      hospital_name: formData.hospital_name.trim(),
+      district: formData.district.trim() || undefined,
+      province: formData.province.trim() || undefined,
+      address: formData.address.trim() || undefined,
+      contact_phone: formData.contact_phone.trim() || undefined,
+    };
+    if (formData.district_area_id) {
+      payload.district_area_id = formData.district_area_id;
+    }
+    if (hospital) payload.is_active = formData.is_active;
+    onSave(payload);
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-indigo-300 mb-6">
+      <h3 className="text-lg font-bold text-gray-900 mb-4">
+        {hospital ? 'Edit Hospital' : 'Add New Hospital'}
+      </h3>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Hospital Name <span className="text-red-500">*</span></label>
+          <input
+            type="text"
+            value={formData.hospital_name}
+            onChange={(e) => setFormData({ ...formData, hospital_name: e.target.value })}
+            required
+            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          {!hospital && (
+            <p className="text-xs text-gray-500 mt-1">Hospital code will be auto-generated (e.g. HOS001, HOS002).</p>
+          )}
+        </div>
+        {hospital && hospital.hospital_code && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Hospital Code (auto-generated, read-only)</label>
+            <input
+              type="text"
+              value={hospital.hospital_code}
+              disabled
+              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg bg-gray-100 font-mono text-gray-700 cursor-not-allowed"
+            />
+          </div>
+        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Link to RDHS (District) Area</label>
+          <select
+            value={formData.district_area_id ?? ''}
+            onChange={(e) => setFormData({ ...formData, district_area_id: e.target.value ? Number(e.target.value) : null })}
+            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">— Optional: set district/province from area —</option>
+            {rdhsAreas.map((a) => (
+              <option key={a.id} value={a.id}>{a.code ? `[${a.code}] ` : ''}{a.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">District</label>
+            <input
+              type="text"
+              value={formData.district}
+              onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Province</label>
+            <input
+              type="text"
+              value={formData.province}
+              onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+          <input
+            type="text"
+            value={formData.address}
+            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Contact Phone</label>
+          <input
+            type="text"
+            value={formData.contact_phone}
+            onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
+            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        {hospital && (
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="hospital-active"
+              checked={formData.is_active}
+              onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <label htmlFor="hospital-active" className="text-sm font-medium text-gray-700">Active</label>
+          </div>
+        )}
+        <div className="flex gap-3 pt-4">
+          <button
+            type="submit"
+            className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+          >
+            {hospital ? 'Update Hospital' : 'Create Hospital'}
           </button>
           <button
             type="button"

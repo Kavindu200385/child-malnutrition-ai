@@ -1,18 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Login } from './components/Login';
 import { HealthWorkerDashboard } from './components/HealthWorkerDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { HospitalDashboard } from './components/hospital/HospitalDashboard';
 
 export type UserRole = 
-  | 'health_ministry'  // Super Admin
+  | 'health_ministry'  // Ministry (Admin) or System Developer (superadmin)
   | 'pdhs'            // Provincial Admin
   | 'rdhs'            // District Admin
   | 'moh'             // Medical Officer of Health
   | 'amoh'            // Assistant MOH
   | 'midwife'         // PHM
   | 'nutritionist'    // Hospital role
-  | 'hospital';       // Hospital registration
+  | 'hospital';       // Pediatric Unit (birth registration at hospital)
 
 export interface User {
   id: string;
@@ -21,10 +21,40 @@ export interface User {
   role: UserRole;
   clinic?: string;
   district?: string;
+  is_protected?: boolean;
+  // For midwife/MOH assignments (from backend)
+  phm_area_id?: number;
+}
+
+export interface ChildData {
+  id: string;
+  name: string;
+  age: { years: number; months: number };
+  sex: string;
+  area: string;
+  currentStatus: { classification: 'normal' | 'moderate' | 'critical' };
 }
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState(null as User | null);
+  const [bootstrapped, setBootstrapped] = useState(false);
+
+  // Restore user from localStorage on first load so refresh keeps you logged in
+  useEffect(() => {
+    try {
+      const storedUser = localStorage.getItem('user');
+      const token = localStorage.getItem('token');
+      if (storedUser && token) {
+        const parsed = JSON.parse(storedUser) as User;
+        setUser(parsed);
+      }
+    } catch {
+      // Ignore parse errors and start with a clean state
+      localStorage.removeItem('user');
+    } finally {
+      setBootstrapped(true);
+    }
+  }, []);
 
   const handleLogin = (loggedInUser: User) => {
     setUser(loggedInUser);
@@ -32,8 +62,14 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUser(null);
   };
+
+  // Avoid flicker on first load while we restore user
+  if (!bootstrapped) {
+    return null;
+  }
 
   if (!user) {
     return <Login onLogin={handleLogin} />;

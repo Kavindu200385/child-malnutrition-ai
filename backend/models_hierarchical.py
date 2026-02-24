@@ -30,7 +30,7 @@ class AreaLevel(str, Enum):
 
 class UserRole(str, Enum):
     """User roles in the system"""
-    HEALTH_MINISTRY = "health_ministry"  # Super Admin
+    HEALTH_MINISTRY = "health_ministry"  # Ministry (Admin) or System Developer (superadmin)
     PDHS = "pdhs"  # Provincial Admin
     RDHS = "rdhs"  # District Admin
     MOH = "moh"  # Medical Officer of Health
@@ -67,6 +67,7 @@ class EscalationStatus(str, Enum):
     """Child escalation status"""
     NONE = "NONE"
     ESCALATED_TO_MOH = "ESCALATED_TO_MOH"
+    ESCALATED_TO_NUTRITIONIST = "ESCALATED_TO_NUTRITIONIST"
 
 
 class EscalationRecordStatus(str, Enum):
@@ -103,7 +104,7 @@ class AreaChangeStatus(str, Enum):
 class Area(db.Model):
     """
     Hierarchical Area System
-    Ministry → PDHS → RDHS → MOH → PHM
+    Ministry → PDHS → RDHS → Hospital (Nutritionist) → MOH → PHM → Hospital (Birth)
     Each area must have exactly one parent (except Ministry which has no parent)
     """
     __tablename__ = "areas"
@@ -205,11 +206,18 @@ class User(db.Model):
     # Legacy fields (kept for backward compatibility during migration)
     clinic = db.Column(db.String(120), nullable=True)
     district = db.Column(db.String(120), nullable=True)
+    hospital_id = db.Column(db.Integer, ForeignKey("hospitals.id"), nullable=True, index=True)  # For hospital-linked roles (e.g. nutritionist)
+
+    # Midwife/MOH assignment (for transfer management)
+    staff_id = db.Column(db.String(64), nullable=True, index=True)  # Staff ID for search
+    phm_area_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=True, index=True)  # Assigned PHM area
+    moh_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)  # MOH user who manages this worker
+    assignment_status = db.Column(db.String(32), nullable=True, default="ACTIVE", index=True)  # ACTIVE | UNASSIGNED
     
     # Soft delete
     is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
     
-    # Protected user (cannot be deleted) - for system superadmin
+    # Protected user (cannot be deleted) - for system developer (superadmin)
     is_protected = db.Column(db.Boolean, nullable=False, default=False, index=True)
     
     # Audit
@@ -217,9 +225,11 @@ class User(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     created_by_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True)
 
-    # Relationships
-    created_by = relationship("User", remote_side=[id])
-    # hospital and phm_area relationships removed - use WorkerAreaMapping instead
+    # Relationships (foreign_keys required: User has two self-FKs: created_by_id, moh_id)
+    created_by = relationship("User", remote_side=[id], foreign_keys=[created_by_id])
+    managed_by_moh = relationship("User", remote_side=[id], foreign_keys=[moh_id])
+    assigned_phm_area = relationship("Area", foreign_keys=[phm_area_id])
+    assigned_hospital = relationship("Hospital", foreign_keys=[hospital_id])
     worker_areas = relationship("WorkerAreaMapping", foreign_keys="WorkerAreaMapping.user_id", back_populates="user", lazy=True)
     created_children = relationship("Child", foreign_keys="Child.registered_by_user_id", back_populates="registered_by_user")
     created_visits = relationship("Visit", back_populates="created_by_user")
@@ -245,10 +255,17 @@ class User(db.Model):
             "role": self.role,
             "clinic": self.clinic,
             "district": self.district,
+            "hospital_id": self.hospital_id,
             "is_active": self.is_active,
             "is_protected": self.is_protected,
+            "staff_id": self.staff_id,
+            "phm_area_id": self.phm_area_id,
+            "moh_id": self.moh_id,
+            "assignment_status": self.assignment_status,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+        if self.assigned_hospital:
+            data["hospital"] = self.assigned_hospital.to_dict()
         if include_areas:
             data["assigned_areas"] = [wa.area.to_dict() for wa in self.worker_areas if wa.is_active]
         return data
@@ -447,7 +464,7 @@ class Child(db.Model):
     district_area = relationship("Area", foreign_keys=[district_id], post_update=True)
     province_area = relationship("Area", foreign_keys=[province_id], post_update=True)
     midwife_area_rel = relationship("Area", foreign_keys=[phm_area_id], overlaps="phm_area")  # Legacy - same as phm_area
-    moh_area_rel = relationship("Area", foreign_keys=[moh_area_id])  # Legacy
+    moh_area_rel = relationship("Area", foreign_keys=[moh_area_id], overlaps="moh_area")  # Legacy
     visits = relationship("Visit", backref="child", lazy=True, cascade="all, delete-orphan", order_by="Visit.visit_date.desc()")
     transfers = relationship("ChildTransfer", back_populates="child", lazy=True, order_by="ChildTransfer.created_at.desc()")
     referrals = relationship("ChildReferral", back_populates="child", lazy=True, order_by="ChildReferral.created_at.desc()")
@@ -500,6 +517,7 @@ class Child(db.Model):
         }
         if include_visits:
             data["visits"] = [v.to_dict() for v in self.visits]
+            data["measurements"] = [m.to_dict() for m in self.measurements]
         if include_transfers:
             data["transfers"] = [t.to_dict() for t in self.transfers]
         if include_referrals:
@@ -695,6 +713,215 @@ class ClinicReport(db.Model):
     __table_args__ = (
         Index("idx_clinic_report_unique", "phm_area_id", "report_month", "report_year", unique=True),
     )
+
+
+# ============================================================================
+# MOH REPORT MODEL (MOH → RDHS monthly reports)
+# ============================================================================
+
+class MohReport(db.Model):
+    """
+    Monthly area reports generated by MOH, can be sent to RDHS.
+    """
+    __tablename__ = "moh_reports"
+
+    id = db.Column(db.Integer, primary_key=True)
+    moh_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)  # MOH user who created report
+    moh_area_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=False, index=True)  # MOH area
+
+    total_children = db.Column(db.Integer, nullable=False, default=0)
+    normal_count = db.Column(db.Integer, nullable=False, default=0)
+    mam_count = db.Column(db.Integer, nullable=False, default=0)
+    sam_count = db.Column(db.Integer, nullable=False, default=0)
+    total_escalations = db.Column(db.Integer, nullable=False, default=0)
+
+    month = db.Column(db.Integer, nullable=False)  # 1-12
+    report_year = db.Column(db.Integer, nullable=False, index=True)
+    sent_to_rdhs = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    sent_at = db.Column(db.DateTime, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    moh_user = relationship("User", foreign_keys=[moh_id])
+    moh_area = relationship("Area", foreign_keys=[moh_area_id])
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "moh_id": self.moh_id,
+            "moh_area_id": self.moh_area_id,
+            "moh_area": self.moh_area.to_dict() if self.moh_area else None,
+            "total_children": self.total_children,
+            "normal_count": self.normal_count,
+            "mam_count": self.mam_count,
+            "sam_count": self.sam_count,
+            "total_escalations": self.total_escalations,
+            "month": self.month,
+            "report_year": self.report_year,
+            "sent_to_rdhs": self.sent_to_rdhs,
+            "sent_at": self.sent_at.isoformat() if self.sent_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ============================================================================
+# RDHS REPORT MODEL (District monthly reports, can be sent to PDHS)
+# ============================================================================
+
+class RdhsReport(db.Model):
+    """
+    District-level monthly reports generated by RDHS. Can be sent to PDHS.
+    """
+    __tablename__ = "rdhs_reports"
+
+    id = db.Column(db.Integer, primary_key=True)
+    district_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=False, index=True)  # RDHS area ID
+    created_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    total_children = db.Column(db.Integer, nullable=False, default=0)
+    normal_count = db.Column(db.Integer, nullable=False, default=0)
+    mam_count = db.Column(db.Integer, nullable=False, default=0)
+    sam_count = db.Column(db.Integer, nullable=False, default=0)
+    total_escalations = db.Column(db.Integer, nullable=False, default=0)
+    total_returns = db.Column(db.Integer, nullable=False, default=0)  # returns from nutritionist to MOH
+
+    month = db.Column(db.Integer, nullable=False)  # 1-12
+    report_year = db.Column(db.Integer, nullable=False, index=True)
+    sent_to_pdhs = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    sent_at = db.Column(db.DateTime, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    district_area = relationship("Area", foreign_keys=[district_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "district_id": self.district_id,
+            "district": self.district_area.to_dict() if self.district_area else None,
+            "created_by_user_id": self.created_by_user_id,
+            "total_children": self.total_children,
+            "normal_count": self.normal_count,
+            "mam_count": self.mam_count,
+            "sam_count": self.sam_count,
+            "total_escalations": self.total_escalations,
+            "total_returns": self.total_returns,
+            "month": self.month,
+            "report_year": self.report_year,
+            "sent_to_pdhs": self.sent_to_pdhs,
+            "sent_at": self.sent_at.isoformat() if self.sent_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ============================================================================
+# PDHS REPORT MODEL (Provincial monthly reports, can be sent to Health Ministry)
+# ============================================================================
+
+class PdhsReport(db.Model):
+    """
+    Province-level monthly reports generated by PDHS. Can be sent to Health Ministry.
+    """
+    __tablename__ = "pdhs_reports"
+
+    id = db.Column(db.Integer, primary_key=True)
+    province_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=False, index=True)  # PDHS area ID
+    created_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    total_children = db.Column(db.Integer, nullable=False, default=0)
+    normal_count = db.Column(db.Integer, nullable=False, default=0)
+    mam_count = db.Column(db.Integer, nullable=False, default=0)
+    sam_count = db.Column(db.Integer, nullable=False, default=0)
+    escalations = db.Column(db.Integer, nullable=False, default=0)
+
+    month = db.Column(db.Integer, nullable=False)  # 1-12
+    report_year = db.Column(db.Integer, nullable=False, index=True)
+    sent_to_ministry = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    sent_at = db.Column(db.DateTime, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    province_area = relationship("Area", foreign_keys=[province_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "province_id": self.province_id,
+            "province": self.province_area.to_dict() if self.province_area else None,
+            "created_by_user_id": self.created_by_user_id,
+            "total_children": self.total_children,
+            "normal_count": self.normal_count,
+            "mam_count": self.mam_count,
+            "sam_count": self.sam_count,
+            "escalations": self.escalations,
+            "month": self.month,
+            "report_year": self.report_year,
+            "sent_to_ministry": self.sent_to_ministry,
+            "sent_at": self.sent_at.isoformat() if self.sent_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ============================================================================
+# SYSTEM MESSAGE MODEL (Admin broadcast / targeted messages)
+# ============================================================================
+
+class SystemMessage(db.Model):
+    """
+    System-wide or targeted messages from Admin (Health Ministry).
+    """
+    __tablename__ = "system_messages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    target_role = db.Column(db.String(32), nullable=True, index=True)  # null = all
+    province_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=True, index=True)
+    district_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=True, index=True)
+    created_by_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    province_area = relationship("Area", foreign_keys=[province_id])
+    district_area = relationship("Area", foreign_keys=[district_id])
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "message": self.message,
+            "target_role": self.target_role,
+            "province_id": self.province_id,
+            "district_id": self.district_id,
+            "created_by_id": self.created_by_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ============================================================================
+# SYSTEM SETTINGS MODEL (Key-value config: risk thresholds, notifications, etc.)
+# ============================================================================
+
+class SystemSetting(db.Model):
+    """
+    System configuration (risk thresholds, notification settings, reporting frequency).
+    """
+    __tablename__ = "system_settings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    value = db.Column(db.Text, nullable=True)  # JSON string or plain value
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "key": self.key,
+            "value": self.value,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
 
 
 # ============================================================================

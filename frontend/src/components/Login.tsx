@@ -125,15 +125,6 @@ const CONTENT_VARIATIONS = [
   }
 ];
 
-// Mock user database - only superadmin (for fallback only)
-const MOCK_USERS: Record<string, { password: string; user: User }> = {
-  // Superadmin (System Developer - Protected)
-  superadmin: {
-    password: '200385',
-    user: { id: 'superadmin001', username: 'superadmin', name: 'System Superadmin', role: 'health_ministry' },
-  },
-};
-
 export function Login({ onLogin }: LoginProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -173,40 +164,26 @@ export function Login({ onLogin }: LoginProps) {
           role: backendUser.role as UserRole,
           clinic: backendUser.clinic || undefined,
           district: backendUser.district || undefined,
+          is_protected: !!backendUser.is_protected,
+          phm_area_id: backendUser.phm_area_id ?? undefined,
         };
+
+        // Persist user so refresh keeps you logged in
+        localStorage.setItem('user', JSON.stringify(frontendUser));
 
         onLogin(frontendUser);
       } else {
         setError('Login failed. Please try again.');
       }
     } catch (error: any) {
-      // Fallback to mock authentication if backend is unavailable
-      console.warn('Backend login failed, trying mock authentication:', error);
-      
-      const userEntry = MOCK_USERS[username];
-      if (!userEntry) {
-        setError('Invalid username or password');
-        return;
-      }
-
-      if (userEntry.password !== password) {
-        setError('Invalid username or password');
-        return;
-      }
-
-      // For mock auth, store a dummy token
-      localStorage.setItem('token', 'mock_token_' + Date.now());
-      onLogin(userEntry.user);
+      setError(error.response?.data?.message || 'Login failed. Please check your credentials and try again.');
     }
   };
 
-  const fillCredentials = (userKey: string) => {
-    const userEntry = MOCK_USERS[userKey];
-    if (userEntry) {
-      setUsername(userKey);
-      setPassword(userEntry.password);
-      setError('');
-    }
+  const fillCredentials = (userKey: string, pass: string) => {
+    setUsername(userKey);
+    setPassword(pass);
+    setError('');
   };
 
   return (
@@ -332,11 +309,11 @@ export function Login({ onLogin }: LoginProps) {
               <p className="text-sm font-semibold text-gray-900 mb-3">System Credentials:</p>
               <div className="text-xs text-gray-700 space-y-3 bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg p-4 border-2 border-purple-300">
                 <div>
-                  <strong className="text-gray-900 block mb-1">🔐 Superadmin (System Developer - Protected):</strong>
+                  <strong className="text-gray-900 block mb-1">🔐 System Developer (superadmin):</strong>
                   <div className="ml-2 space-y-1">
                     <button
                       type="button"
-                      onClick={() => fillCredentials('superadmin')}
+                      onClick={() => fillCredentials('superadmin', '200385')}
                       className="block w-full text-left hover:bg-purple-100 rounded px-2 py-1 transition-colors font-mono bg-white border border-purple-200"
                     >
                       <span className="font-bold text-purple-700">superadmin</span> / <span className="font-bold text-purple-700">200385</span>

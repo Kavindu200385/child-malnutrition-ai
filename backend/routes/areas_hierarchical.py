@@ -11,7 +11,7 @@ from backend.auth_utils_hierarchical import (
     health_ministry_required,
 )
 from backend.extensions import db
-from backend.models_hierarchical import Area, AreaLevel, Child, WorkerAreaMapping
+from backend.models_hierarchical import Area, AreaLevel, Child, WorkerAreaMapping, Hospital
 from backend.utils.audit import log_audit
 
 bp = Blueprint("areas_hierarchical", __name__, url_prefix="/api/areas")
@@ -233,11 +233,11 @@ def create_area():
     except Exception as e:
         return jsonify({"status": "error", "message": f"Failed to generate area code: {str(e)}"}), 500
     
-    # Create area with auto-generated code
+    # Create area with auto-generated code (ensure parent_id is int for tree building)
     area = Area(
         name=name,
         level=level,
-        parent_id=parent_id,
+        parent_id=int(parent_id) if parent_id else None,
         code=code,  # Auto-generated
         district=district,
         province=province,
@@ -423,15 +423,23 @@ def delete_area(area_id: int):
 @bp.route("/hierarchy", methods=["GET"])
 @area_management_required
 def get_area_hierarchy():
-    """Get full area hierarchy tree"""
-    # Get all active areas
-    all_areas = db.session.query(Area).filter(Area.is_active == True).order_by(Area.level, Area.name).all()
+    """Get full area hierarchy tree (includes active and inactive so all DB areas are visible)."""
+    include_inactive = request.args.get("include_inactive", "true").lower() == "true"
+    query = db.session.query(Area).order_by(Area.level, Area.name)
+    if not include_inactive:
+        query = query.filter(Area.is_active == True)
+    all_areas = query.all()
     
-    # Build tree structure
+    # Build tree structure and a flat list (flat list ensures UI never misses areas by level)
     area_dict = {a.id: a.to_dict(include_children=False) for a in all_areas}
+    flat_list = list(area_dict.values())  # all areas with level, for frontend "by level" view
     root_areas = []
-    
-    for area in all_areas:
+
+    # Process in level order so parent is always in tree before we attach children
+    level_order = ["ministry", "pdhs", "rdhs", "moh", "phm"]
+    ordered_areas = sorted(all_areas, key=lambda a: (level_order.index(a.level) if a.level in level_order else 99, a.name or ""))
+
+    for area in ordered_areas:
         area_dict[area.id]["children"] = []
         if area.parent_id is None:
             root_areas.append(area_dict[area.id])
@@ -440,8 +448,158 @@ def get_area_hierarchy():
                 if "children" not in area_dict[area.parent_id]:
                     area_dict[area.parent_id]["children"] = []
                 area_dict[area.parent_id]["children"].append(area_dict[area.id])
-    
+            else:
+                # Parent missing (inactive or deleted) – show area at root so it's visible
+                root_areas.append(area_dict[area.id])
+
     return jsonify({
         "status": "success",
         "hierarchy": root_areas,
+        "flat": flat_list,
     }), 200
+
+
+# =============================================================================
+# HOSPITAL MANAGEMENT (Area Hierarchy – link hospitals to districts)
+# =============================================================================
+
+def _generate_hospital_code() -> str:
+    """Auto-generate unique hospital code: HOS001, HOS002, ..."""
+    prefix = "HOS"
+    all_codes = [r[0] for r in db.session.query(Hospital.hospital_code).all()]
+    next_num = 1
+    for c in all_codes:
+        if c and c.startswith(prefix) and len(c) > len(prefix):
+            try:
+                n = int(c[len(prefix):])
+                if n >= next_num:
+                    next_num = n + 1
+            except ValueError:
+                pass
+    code = f"{prefix}{next_num:03d}"
+    max_attempts = 100
+    attempt = 0
+    while attempt < max_attempts:
+        existing = db.session.query(Hospital).filter(Hospital.hospital_code == code).first()
+        if not existing:
+            break
+        next_num += 1
+        code = f"{prefix}{next_num:03d}"
+        attempt += 1
+    if attempt >= max_attempts:
+        raise ValueError("Could not generate unique hospital code")
+    return code
+
+
+@bp.route("/hospitals", methods=["GET"])
+@health_ministry_required
+def list_hospitals():
+    """List all hospitals. Health Ministry only."""
+    include_inactive = request.args.get("include_inactive", "false").lower() == "true"
+    query = db.session.query(Hospital)
+    if not include_inactive:
+        query = query.filter(Hospital.is_active == True)
+    hospitals = query.order_by(Hospital.hospital_name).all()
+    return jsonify({
+        "status": "success",
+        "hospitals": [h.to_dict() for h in hospitals],
+        "count": len(hospitals),
+    }), 200
+
+
+@bp.route("/hospitals", methods=["POST"])
+@health_ministry_required
+def create_hospital():
+    """Create a new hospital. Hospital code is auto-generated (HOS001, HOS002, ...). Health Ministry only."""
+    data = request.get_json() or {}
+    hospital_name = (data.get("hospital_name") or data.get("name") or "").strip()
+    district = data.get("district")
+    province = data.get("province")
+    address = data.get("address")
+    contact_phone = data.get("contact_phone")
+    district_area_id = data.get("district_area_id")  # optional: set district from RDHS area name
+
+    if not hospital_name:
+        return jsonify({"status": "error", "message": "hospital_name is required"}), 400
+
+    try:
+        hospital_code = _generate_hospital_code()
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+    if district_area_id:
+        area = db.session.get(Area, district_area_id)
+        if area and area.level == "rdhs":
+            district = area.name
+            if area.parent_id:
+                parent = db.session.get(Area, area.parent_id)
+                if parent:
+                    province = parent.name
+
+    hospital = Hospital(
+        hospital_name=hospital_name,
+        hospital_code=hospital_code,
+        district=district,
+        province=province,
+        address=address,
+        contact_phone=contact_phone,
+        is_active=True,
+    )
+    db.session.add(hospital)
+    db.session.flush()
+    log_audit(
+        action="CREATE",
+        entity_type="hospital",
+        entity_id=hospital.id,
+        new_values=hospital.to_dict(),
+        user_id=get_current_user().id,
+        description=f"Created hospital: {hospital_name}",
+    )
+    db.session.commit()
+    return jsonify({"status": "success", "hospital": hospital.to_dict()}), 201
+
+
+@bp.route("/hospitals/<int:hospital_id>", methods=["PUT"])
+@health_ministry_required
+def update_hospital(hospital_id: int):
+    """Update hospital details. Optional: link to RDHS area via district_area_id."""
+    hospital = db.session.get(Hospital, hospital_id)
+    if not hospital:
+        return jsonify({"status": "error", "message": "Hospital not found"}), 404
+
+    data = request.get_json() or {}
+    if "hospital_name" in data or "name" in data:
+        hospital.hospital_name = data.get("hospital_name") or data.get("name") or hospital.hospital_name
+    # hospital_code is auto-generated and cannot be changed on update
+    if "district" in data:
+        hospital.district = data["district"]
+    if "province" in data:
+        hospital.province = data["province"]
+    if "address" in data:
+        hospital.address = data["address"]
+    if "contact_phone" in data:
+        hospital.contact_phone = data["contact_phone"]
+    if "is_active" in data:
+        hospital.is_active = bool(data["is_active"])
+
+    district_area_id = data.get("district_area_id")
+    if district_area_id:
+        area = db.session.get(Area, district_area_id)
+        if area and area.level == "rdhs":
+            hospital.district = area.name
+            if area.parent_id:
+                parent = db.session.get(Area, area.parent_id)
+                if parent:
+                    hospital.province = parent.name
+
+    db.session.flush()
+    log_audit(
+        action="UPDATE",
+        entity_type="hospital",
+        entity_id=hospital.id,
+        new_values=hospital.to_dict(),
+        user_id=get_current_user().id,
+        description=f"Updated hospital: {hospital.hospital_name}",
+    )
+    db.session.commit()
+    return jsonify({"status": "success", "hospital": hospital.to_dict()}), 200

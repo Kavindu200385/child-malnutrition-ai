@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react';
-import { MOCK_CHILDREN } from '../../data/mockData';
+import { useRef, useState, useEffect } from 'react';
 import { getRiskColor, getRiskLabel, calculateRiskLevel, RiskLevel } from '../../types';
 import { ArrowLeft, User, Phone, MapPin, Calendar, Activity, AlertTriangle, TrendingUp, Plus, Download, TrendingDown, FileText, CheckCircle } from 'lucide-react';
 import { WHOGrowthCharts } from './WHOGrowthCharts';
+import { childrenAPI } from '../../services/api';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -29,25 +29,88 @@ interface PredictionData {
   message: string;
 }
 
+function mapToMeasurements(items: any[], dob: string | null) {
+  if (!items || !Array.isArray(items)) return [];
+  const dobDate = dob ? new Date(dob) : null;
+  return items.map((v) => {
+    const dateStr = v.measurement_date || v.visit_date;
+    const visitDate = dateStr ? new Date(dateStr) : new Date();
+    const ageMonths = dobDate ? Math.floor((visitDate.getTime() - dobDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)) : 0;
+    const risk = (v.risk_level || v.current_risk || 'NORMAL').toLowerCase();
+    const r = risk === 'sam' || risk === 'critical' ? 'sam' : risk === 'mam' || risk === 'moderate' || risk === 'high' ? 'mam' : 'normal';
+    return {
+      id: v.id || String(visitDate.getTime()),
+      date: dateStr || visitDate.toISOString().slice(0, 10),
+      ageMonths,
+      weight: Number(v.weight_kg) || 0,
+      height: Number(v.height_cm) || 0,
+      muac: v.muac_cm != null ? Number(v.muac_cm) : undefined,
+      weightForAge: (v.z_score_wfa ?? v.z_wfa) != null ? Number(v.z_score_wfa ?? v.z_wfa) : undefined,
+      heightForAge: (v.z_score_hfa ?? v.z_hfa) != null ? Number(v.z_score_hfa ?? v.z_hfa) : undefined,
+      weightForHeight: (v.z_score_wfh ?? v.z_wfh) != null ? Number(v.z_score_wfh ?? v.z_wfh) : undefined,
+      riskLevel: r as RiskLevel,
+      notes: v.notes,
+    };
+  }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
 export function ChildProfileView({ childId, onBack, onAddMeasurement }: ChildProfileViewProps) {
   const [showPDFDialog, setShowPDFDialog] = useState(false);
   const pdfRef = useRef<HTMLDivElement | null>(null);
-  const child = MOCK_CHILDREN.find((c) => c.id === childId);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [apiChild, setApiChild] = useState<any>(null);
 
-  if (!child) {
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    childrenAPI.get(childId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data?.status === 'success' && res.data?.child) setApiChild(res.data.child);
+        else setError(res.data?.message || 'Child not found');
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.response?.data?.message || 'Failed to load child');
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [childId]);
+
+  const child = apiChild ? {
+    id: apiChild.child_id || apiChild.id,
+    name: apiChild.name,
+    dob: apiChild.dob,
+    gender: apiChild.gender,
+    guardianName: apiChild.guardian_name,
+    guardianPhone: apiChild.guardian_phone,
+    address: apiChild.address,
+    riskLevel: ((apiChild.current_risk_level || 'NORMAL').toLowerCase() === 'sam' || (apiChild.current_risk_level || '').toLowerCase() === 'critical' ? 'sam' : (apiChild.current_risk_level || '').toLowerCase() === 'mam' || (apiChild.current_risk_level || '').toLowerCase() === 'moderate' || (apiChild.current_risk_level || '').toLowerCase() === 'high' ? 'mam' : 'normal') as RiskLevel,
+    measurements: mapToMeasurements([...(apiChild.measurements || []), ...(apiChild.visits || [])], apiChild.dob),
+  } : null;
+
+  if (loading) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
-        <p className="text-gray-600">Child not found</p>
-        <button onClick={onBack} className="mt-4 text-blue-600 hover:text-blue-700">
-          Go back
-        </button>
+        <p className="text-gray-600">Loading child...</p>
+        <button onClick={onBack} className="mt-4 text-blue-600 hover:text-blue-700">Go back</button>
       </div>
     );
   }
 
-  const age = Math.floor(
+  if (error || !child) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <p className="text-gray-600">{error || 'Child not found'}</p>
+        <button onClick={onBack} className="mt-4 text-blue-600 hover:text-blue-700">Go back</button>
+      </div>
+    );
+  }
+
+  const age = child.dob ? Math.floor(
     (new Date().getTime() - new Date(child.dob).getTime()) / (1000 * 60 * 60 * 24 * 30)
-  );
+  ) : 0;
 
   // Calculate prediction based on historical data
   const calculatePrediction = (): PredictionData | null => {

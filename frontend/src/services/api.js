@@ -3,7 +3,7 @@
  */
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5173';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -55,6 +55,13 @@ export const areasHierarchicalAPI = {
   getHierarchy: () => api.get('/api/areas/hierarchy'),
 };
 
+// Hospitals API (Health Ministry only – hospital code auto-generated)
+export const hospitalsAPI = {
+  list: (params) => api.get('/api/areas/hospitals', { params }),
+  create: (data) => api.post('/api/areas/hospitals', data),
+  update: (hospitalId, data) => api.put(`/api/areas/hospitals/${hospitalId}`, data),
+};
+
 // Child Transfers API
 export const transfersAPI = {
   request: (childId, data) => api.post(`/api/transfers/children/${childId}/request`, data),
@@ -78,6 +85,7 @@ export const reportsAPI = {
   district: (params) => api.get('/api/reports/district', { params }),
   provincial: (params) => api.get('/api/reports/provincial', { params }),
   national: (params) => api.get('/api/reports/national', { params }),
+  overviewStats: () => api.get('/api/reports/overview-stats'),
   save: (data) => api.post('/api/reports/save', data),
   list: (params) => api.get('/api/reports', { params }),
 };
@@ -109,6 +117,66 @@ export const midwifeAPI = {
   getChildReport: (childId) => api.get(`/api/midwife/child-report/${childId}`),
   submitClinicReport: (data) => api.post('/api/midwife/clinic-report/submit', data),
   getDashboardStats: () => api.get('/api/midwife/dashboard/stats'),
+};
+
+// Nutritionist API (Nutritionist role only - specialist at hospital)
+export const nutritionistAPI = {
+  referredChildren: () => api.get('/api/nutritionist/referred-children'),
+  getChild: (childId) => api.get(`/api/nutritionist/child/${childId}`),
+  addMeasurement: (data) => api.post('/api/nutritionist/measurement/add', data),
+  returnToMoh: (childId) => api.post(`/api/nutritionist/return-to-moh/${childId}`),
+  dashboardSummary: () => api.get('/api/nutritionist/dashboard-summary'),
+};
+
+// MOH API (MOH/AMOH role only)
+export const mohAPI = {
+  dashboard: () => api.get('/api/moh/dashboard'),
+  releaseMidwife: (midwifeId) => api.post(`/api/moh/release-midwife/${midwifeId}`),
+  searchMidwife: (params) => api.get('/api/moh/search-midwife', { params }),
+  assignMidwife: (midwifeId, data) => api.post(`/api/moh/assign-midwife/${midwifeId}`, data),
+  getEscalatedChildren: () => api.get('/api/moh/escalated-children'),
+  reviewEscalation: (childId, data) => api.post(`/api/moh/review-escalation/${childId}`, data),
+  escalateToNutritionist: (childId, data) => api.post(`/api/moh/escalate-to-nutritionist/${childId}`, data),
+  returnToMidwife: (childId) => api.post(`/api/moh/return-to-midwife/${childId}`),
+  listWorkers: () => api.get('/api/moh/workers'),
+  setWorkerActive: (workerId, active) => api.post(`/api/moh/workers/${workerId}/activate`, { active }),
+  getAreas: () => api.get('/api/moh/areas'),
+  getMonthlyReports: (params) => api.get('/api/moh/reports/monthly', { params }),
+  generateMonthlyReport: (data) => api.post('/api/moh/reports/monthly/generate', data),
+  sendReportToRdhs: (reportId) => api.post(`/api/moh/send-report-to-rdhs/${reportId}`),
+};
+
+// RDHS API (District Admin only – district-filtered data)
+export const rdhsAPI = {
+  dashboardSummary: () => api.get('/api/rdhs/dashboard-summary'),
+  healthWorkers: (params) => api.get('/api/rdhs/health-workers', { params }),
+  setUserStatus: (userId, data) => api.put(`/api/rdhs/user/status/${userId}`, data),
+  userPerformance: (userId) => api.get(`/api/rdhs/user/performance/${userId}`),
+  reportsMonthly: (params) => api.get('/api/rdhs/reports/monthly', { params }),
+  createMonthlyReport: (data) => api.post('/api/rdhs/reports/monthly', data),
+  sendReportToPdhs: (reportId) => api.post(`/api/rdhs/send-report-to-pdhs/${reportId}`),
+};
+
+// PDHS API (Province Admin only – province-filtered data)
+export const pdhsAPI = {
+  dashboardSummary: () => api.get('/api/pdhs/dashboard-summary'),
+  healthWorkers: (params) => api.get('/api/pdhs/health-workers', { params }),
+  setUserStatus: (userId, data) => api.put(`/api/pdhs/user/status/${userId}`, data),
+  userPerformance: (userId) => api.get(`/api/pdhs/user/performance/${userId}`),
+  areas: (params) => api.get('/api/pdhs/areas', { params }),
+  mohCreate: (data) => api.post('/api/pdhs/moh/create', data),
+  mohUpdate: (areaId, data) => api.put(`/api/pdhs/moh/update/${areaId}`, data),
+  reportsMonthly: (params) => api.get('/api/pdhs/reports/monthly', { params }),
+  createMonthlyReport: (data) => api.post('/api/pdhs/reports/monthly', data),
+  sendReportToMinistry: (reportId) => api.post(`/api/pdhs/send-report-to-ministry/${reportId}`),
+};
+
+// Admin (Health Ministry) API – national dashboard, messaging, settings
+export const adminAPI = {
+  dashboardSummary: () => api.get('/api/admin/dashboard-summary'),
+  sendMessage: (data) => api.post('/api/admin/send-message', data),
+  getSettings: () => api.get('/api/admin/settings'),
+  updateSettings: (data) => api.put('/api/admin/settings/update', data),
 };
 
 // Health check

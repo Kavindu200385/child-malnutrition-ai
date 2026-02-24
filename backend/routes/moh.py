@@ -1,0 +1,720 @@
+"""
+MOH (Medical Officer of Health) Role Routes
+Area-level clinical supervisor: midwife management, escalated children,
+risk escalation to nutritionist, return to midwife, reports to RDHS.
+Strict area isolation: all data filtered by moh_area_id.
+"""
+from datetime import datetime
+from flask import Blueprint, jsonify, request
+
+from backend.auth_utils_hierarchical import (
+    get_current_user,
+    moh_required,
+    get_moh_area_ids,
+    ROLE_MOH,
+    ROLE_AMOH,
+)
+from backend.extensions import db
+from backend.models_hierarchical import (
+    User,
+    Child,
+    Area,
+    WorkerAreaMapping,
+    ChildEscalation,
+    ChildReferral,
+    Measurement,
+    MohReport,
+    Hospital,
+    UserRole,
+    RiskLevel,
+    EscalationStatus,
+    EscalationRecordStatus,
+    AreaLevel,
+)
+from backend.utils.audit import log_audit
+
+bp = Blueprint("moh", __name__, url_prefix="/api/moh")
+
+
+def _moh_area_ids_or_403():
+    """Return MOH area IDs for current user or 403."""
+    user = get_current_user()
+    ids = get_moh_area_ids(user)
+    if not ids:
+        return None, jsonify({"status": "error", "message": "No MOH area assigned"}), 403
+    return user, ids, None
+
+
+def _child_in_moh_area(child: Child, moh_area_ids: list) -> bool:
+    return child.moh_area_id is not None and child.moh_area_id in moh_area_ids
+
+
+# ---------------------------------------------------------------------------
+# Midwife transfer: release
+# ---------------------------------------------------------------------------
+@bp.route("/release-midwife/<int:midwife_id>", methods=["POST"])
+@moh_required
+def release_midwife(midwife_id: int):
+    """
+    Release a midwife from current MOH area (transfer out).
+    Only if midwife.moh_id == logged-in MOH user id.
+    Sets phm_area_id=NULL, moh_id=NULL, assignment_status='UNASSIGNED'.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    midwife = db.session.get(User, midwife_id)
+    if not midwife:
+        return jsonify({"status": "error", "message": "Midwife not found"}), 404
+    if midwife.role not in (UserRole.MIDWIFE.value, "midwife"):
+        return jsonify({"status": "error", "message": "User is not a midwife"}), 400
+    # Only the MOH who manages this midwife can release
+    if midwife.moh_id != user.id:
+        return jsonify({"status": "error", "message": "You can only release midwives assigned to your area"}), 403
+
+    midwife.phm_area_id = None
+    midwife.moh_id = None
+    midwife.assignment_status = "UNASSIGNED"
+    # Deactivate worker area mappings for this user (PHM areas)
+    db.session.query(WorkerAreaMapping).filter(
+        WorkerAreaMapping.user_id == midwife.id,
+        WorkerAreaMapping.is_active == True,
+    ).update({"is_active": False})
+
+    db.session.flush()
+    log_audit(
+        action="UPDATE",
+        entity_type="user",
+        entity_id=midwife.id,
+        new_values={"assignment_status": "UNASSIGNED", "phm_area_id": None, "moh_id": None},
+        user_id=user.id,
+        description=f"MOH released midwife {midwife.username}",
+    )
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "message": "Midwife released successfully",
+        "midwife": midwife.to_dict(include_areas=True),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# Midwife transfer: search (by staff_id or NIC/username)
+# ---------------------------------------------------------------------------
+@bp.route("/search-midwife", methods=["GET"])
+@moh_required
+def search_midwife():
+    """
+    Search for an unassigned midwife by staff_id (or username).
+    Returns midwife if found and assignment_status='UNASSIGNED'.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    staff_id = (request.args.get("staff_id") or request.args.get("q") or "").strip()
+    if not staff_id:
+        return jsonify({"status": "error", "message": "staff_id or q is required"}), 400
+
+    midwife = db.session.query(User).filter(
+        User.role == UserRole.MIDWIFE.value,
+        (User.staff_id == staff_id) | (User.username == staff_id),
+        User.is_active == True,
+    ).first()
+
+    if not midwife:
+        return jsonify({"status": "error", "message": "Midwife not found"}), 404
+    if (midwife.assignment_status or "ACTIVE") != "UNASSIGNED":
+        return jsonify({
+            "status": "error",
+            "message": "Midwife is already assigned to an area",
+            "midwife": midwife.to_dict(include_areas=True),
+        }), 400
+
+    return jsonify({
+        "status": "success",
+        "midwife": midwife.to_dict(include_areas=True),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# Midwife transfer: assign (to this MOH's area)
+# ---------------------------------------------------------------------------
+@bp.route("/assign-midwife/<int:midwife_id>", methods=["POST"])
+@moh_required
+def assign_midwife(midwife_id: int):
+    """
+    Assign an UNASSIGNED midwife to a PHM area under this MOH.
+    Body: { "phm_area_id": <id> }.
+    Prevents cross-district: phm_area must be under this MOH's area.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    phm_area_id = data.get("phm_area_id")
+    if not phm_area_id:
+        return jsonify({"status": "error", "message": "phm_area_id is required"}), 400
+
+    phm_area = db.session.get(Area, phm_area_id)
+    if not phm_area or phm_area.level != AreaLevel.PHM.value or not phm_area.is_active:
+        return jsonify({"status": "error", "message": "Invalid or inactive PHM area"}), 400
+    # PHM parent must be this MOH's area (same district)
+    if phm_area.parent_id not in moh_area_ids:
+        return jsonify({"status": "error", "message": "PHM area is not under your MOH area (cross-district not allowed)"}), 403
+
+    midwife = db.session.get(User, midwife_id)
+    if not midwife:
+        return jsonify({"status": "error", "message": "Midwife not found"}), 404
+    if midwife.role not in (UserRole.MIDWIFE.value, "midwife"):
+        return jsonify({"status": "error", "message": "User is not a midwife"}), 400
+    if (midwife.assignment_status or "ACTIVE") != "UNASSIGNED":
+        return jsonify({"status": "error", "message": "Midwife is already assigned"}), 400
+
+    midwife.phm_area_id = phm_area_id
+    midwife.moh_id = user.id
+    midwife.assignment_status = "ACTIVE"
+
+    # Ensure one WorkerAreaMapping for this PHM area
+    existing = db.session.query(WorkerAreaMapping).filter(
+        WorkerAreaMapping.user_id == midwife.id,
+        WorkerAreaMapping.area_id == phm_area_id,
+    ).first()
+    if existing:
+        existing.is_active = True
+    else:
+        db.session.add(WorkerAreaMapping(
+            user_id=midwife.id,
+            area_id=phm_area_id,
+            is_active=True,
+            created_by_id=user.id,
+        ))
+
+    db.session.flush()
+    log_audit(
+        action="UPDATE",
+        entity_type="user",
+        entity_id=midwife.id,
+        new_values={"phm_area_id": phm_area_id, "moh_id": user.id, "assignment_status": "ACTIVE"},
+        user_id=user.id,
+        description=f"MOH assigned midwife {midwife.username} to PHM area {phm_area_id}",
+    )
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "message": "Midwife assigned successfully",
+        "midwife": midwife.to_dict(include_areas=True),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# Escalated children (to_role=MOH, status=PENDING, moh_id = MOH area)
+# ---------------------------------------------------------------------------
+@bp.route("/escalated-children", methods=["GET"])
+@moh_required
+def get_escalated_children():
+    """
+    List children escalated to MOH: child_escalations.to_role='MOH',
+    escalation.moh_id in (MOH's area ids), status='PENDING'.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    escalations = db.session.query(ChildEscalation).filter(
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.moh_id.in_(moh_area_ids),
+        ChildEscalation.status == EscalationRecordStatus.PENDING.value,
+    ).order_by(ChildEscalation.created_at.desc()).all()
+
+    out = []
+    for e in escalations:
+        rec = e.to_dict()
+        rec["child"] = e.child.to_dict(include_visits=True) if e.child else None
+        if e.child:
+            rec["measurements"] = [m.to_dict() for m in e.child.measurements[:50]]
+        out.append(rec)
+
+    return jsonify({
+        "status": "success",
+        "escalations": out,
+        "count": len(out),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# Review escalation (add notes, mark REVIEWED)
+# ---------------------------------------------------------------------------
+@bp.route("/review-escalation/<int:child_id>", methods=["POST"])
+@moh_required
+def review_escalation(child_id: int):
+    """
+    MOH reviews an escalated child: add clinical notes, mark escalation as REVIEWED.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    child = db.session.get(Child, child_id)
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+    if not _child_in_moh_area(child, moh_area_ids):
+        return jsonify({"status": "error", "message": "Child is not in your MOH area"}), 403
+
+    # Latest PENDING escalation to MOH for this child
+    escalation = db.session.query(ChildEscalation).filter(
+        ChildEscalation.child_id == child_id,
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.moh_id.in_(moh_area_ids),
+        ChildEscalation.status == EscalationRecordStatus.PENDING.value,
+    ).order_by(ChildEscalation.created_at.desc()).first()
+
+    if not escalation:
+        return jsonify({"status": "error", "message": "No pending escalation found for this child"}), 404
+
+    data = request.get_json() or {}
+    escalation.review_notes = data.get("review_notes") or escalation.review_notes
+    escalation.status = EscalationRecordStatus.REVIEWED.value
+    escalation.reviewed_by_user_id = user.id
+    escalation.reviewed_at = datetime.utcnow()
+
+    db.session.flush()
+    log_audit(
+        action="UPDATE",
+        entity_type="escalation",
+        entity_id=escalation.id,
+        new_values=escalation.to_dict(),
+        user_id=user.id,
+        description=f"MOH reviewed escalation for child {child_id}",
+    )
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "message": "Escalation reviewed",
+        "escalation": escalation.to_dict(),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# Escalate child to Nutritionist (MAM→SAM or SAM remains)
+# ---------------------------------------------------------------------------
+@bp.route("/escalate-to-nutritionist/<int:child_id>", methods=["POST"])
+@moh_required
+def escalate_to_nutritionist(child_id: int):
+    """
+    Create referral to NUTRITIONIST; set child.escalation_status = ESCALATED_TO_NUTRITIONIST.
+    hospital_id = hospital linked to MOH area (same district).
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    child = db.session.get(Child, child_id)
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+    if not _child_in_moh_area(child, moh_area_ids):
+        return jsonify({"status": "error", "message": "Child is not in your MOH area"}), 403
+
+    moh_area = db.session.get(Area, child.moh_area_id)
+    district_name = moh_area.district if moh_area and moh_area.district else None
+    hospital = None
+    if district_name:
+        hospital = db.session.query(Hospital).filter(
+            Hospital.district == district_name,
+            Hospital.is_active == True,
+        ).first()
+    if not hospital:
+        return jsonify({"status": "error", "message": "No hospital linked to MOH area district for referral"}), 400
+
+    data = request.get_json() or {}
+    reason = data.get("reason", "Escalated from MOH - requires nutritionist review")
+
+    referral = ChildReferral(
+        child_id=child.id,
+        referred_by_user_id=user.id,
+        referred_to_role="nutritionist",
+        hospital_id=hospital.id,
+        status="PENDING",
+        referral_reason=reason,
+    )
+    db.session.add(referral)
+    child.escalation_status = EscalationStatus.ESCALATED_TO_NUTRITIONIST.value
+
+    db.session.flush()
+    log_audit(
+        action="CREATE",
+        entity_type="referral",
+        entity_id=referral.id,
+        new_values=referral.to_dict(),
+        user_id=user.id,
+        description=f"MOH escalated child {child_id} to nutritionist",
+    )
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "message": "Child escalated to nutritionist",
+        "referral": referral.to_dict(),
+    }), 201
+
+
+# ---------------------------------------------------------------------------
+# Return child to midwife (downgrade risk: MAM/SAM → NORMAL)
+# ---------------------------------------------------------------------------
+@bp.route("/return-to-midwife/<int:child_id>", methods=["POST"])
+@moh_required
+def return_to_midwife(child_id: int):
+    """
+    Remove escalation; set child.current_risk_level='NORMAL', escalation_status='NONE'.
+    Child remains in same PHM area.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    child = db.session.get(Child, child_id)
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+    if not _child_in_moh_area(child, moh_area_ids):
+        return jsonify({"status": "error", "message": "Child is not in your MOH area"}), 403
+
+    child.current_risk_level = RiskLevel.NORMAL.value
+    child.escalation_status = EscalationStatus.NONE.value
+
+    db.session.flush()
+    log_audit(
+        action="UPDATE",
+        entity_type="child",
+        entity_id=child.id,
+        new_values={"current_risk_level": "NORMAL", "escalation_status": "NONE"},
+        user_id=user.id,
+        description=f"MOH returned child {child_id} to midwife care",
+    )
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "message": "Child returned to midwife",
+        "child": child.to_dict(),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# Area health worker management (midwives + nutritionists in MOH area)
+# ---------------------------------------------------------------------------
+@bp.route("/workers", methods=["GET"])
+@moh_required
+def list_area_workers():
+    """
+    List midwives in MOH area and nutritionists at hospital(s) in district.
+    Midwives: User.role=midwife and (moh_id=current user or WorkerAreaMapping in PHM under MOH area).
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    # PHM areas under this MOH
+    phm_ids = db.session.query(Area.id).filter(
+        Area.parent_id.in_(moh_area_ids),
+        Area.level == AreaLevel.PHM.value,
+        Area.is_active == True,
+    ).all()
+    phm_ids = [r[0] for r in phm_ids]
+
+    # Midwives: assigned to these PHM areas (via WorkerAreaMapping or User.phm_area_id/moh_id)
+    midwife_ids_wa = set()
+    if phm_ids:
+        for row in db.session.query(WorkerAreaMapping.user_id).filter(
+            WorkerAreaMapping.area_id.in_(phm_ids),
+            WorkerAreaMapping.is_active == True,
+        ).distinct().all():
+            midwife_ids_wa.add(row[0])
+    midwife_ids_moh = set()
+    for u in db.session.query(User.id).filter(
+        User.role == UserRole.MIDWIFE.value,
+        User.moh_id == user.id,
+        User.is_active == True,
+    ).all():
+        midwife_ids_moh.add(u[0])
+    all_midwife_ids = list(midwife_ids_wa | midwife_ids_moh)
+
+    midwives = db.session.query(User).filter(
+        User.id.in_(all_midwife_ids),
+        User.is_active == True,
+    ).all() if all_midwife_ids else []
+
+    # Stats per midwife: total children, MAM, SAM, escalations
+    def midwife_stats(mw: User):
+        if mw.phm_area_id and mw.phm_area_id in phm_ids:
+            area_filter = Child.phm_area_id == mw.phm_area_id
+        else:
+            area_filter = Child.moh_area_id.in_(moh_area_ids)
+        children = db.session.query(Child).filter(
+            area_filter,
+            Child.status == "ACTIVE",
+        ).all()
+        total = len(children)
+        mam = sum(1 for c in children if c.current_risk_level == RiskLevel.MAM.value)
+        sam = sum(1 for c in children if c.current_risk_level == RiskLevel.SAM.value)
+        esc = sum(1 for c in children if c.escalation_status == EscalationStatus.ESCALATED_TO_MOH.value)
+        return {"total_children": total, "mam_count": mam, "sam_count": sam, "escalations_count": esc}
+
+    midwife_list = []
+    for mw in midwives:
+        d = mw.to_dict(include_areas=True)
+        d["stats"] = midwife_stats(mw)
+        midwife_list.append(d)
+
+    # Nutritionists: same district as MOH area (users with hospital_id set to hospital in district)
+    moh_area = db.session.get(Area, moh_area_ids[0]) if moh_area_ids else None
+    district_name = moh_area.district if moh_area and moh_area.district else None
+    nutritionists = []
+    if district_name:
+        hosp_ids = [r[0] for r in db.session.query(Hospital.id).filter(
+            Hospital.district == district_name,
+            Hospital.is_active == True,
+        ).all()]
+        if hosp_ids:
+            for u in db.session.query(User).filter(
+                User.role == UserRole.NUTRITIONIST.value,
+                User.hospital_id.in_(hosp_ids),
+                User.is_active == True,
+            ).all():
+                nutritionists.append(u.to_dict(include_areas=True))
+
+    return jsonify({
+        "status": "success",
+        "midwives": midwife_list,
+        "nutritionists": nutritionists,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# Activate/Deactivate midwife (soft: is_active)
+# ---------------------------------------------------------------------------
+@bp.route("/workers/<int:worker_id>/activate", methods=["POST"])
+@moh_required
+def set_worker_active(worker_id: int):
+    """Activate a midwife in MOH area."""
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+    data = request.get_json() or {}
+    active = data.get("active", True)
+    worker = db.session.get(User, worker_id)
+    if not worker:
+        return jsonify({"status": "error", "message": "Worker not found"}), 404
+    if worker.role not in (UserRole.MIDWIFE.value, UserRole.NUTRITIONIST.value):
+        return jsonify({"status": "error", "message": "Not a midwife or nutritionist"}), 400
+    if worker.moh_id != user.id and worker.role == UserRole.MIDWIFE.value:
+        # Check if midwife is in our PHM areas
+        if not worker.phm_area_id:
+            return jsonify({"status": "error", "message": "Worker not in your area"}), 403
+        phm = db.session.get(Area, worker.phm_area_id)
+        if not phm or phm.parent_id not in moh_area_ids:
+            return jsonify({"status": "error", "message": "Worker not in your area"}), 403
+    if worker.is_protected:
+        return jsonify({"status": "error", "message": "Cannot change protected user"}), 403
+    worker.is_active = bool(active)
+    db.session.commit()
+    return jsonify({"status": "success", "worker": worker.to_dict(include_areas=True)}), 200
+
+
+# ---------------------------------------------------------------------------
+# Monthly reports
+# ---------------------------------------------------------------------------
+@bp.route("/reports/monthly", methods=["GET"])
+@moh_required
+def get_monthly_reports():
+    """List or generate monthly MOH reports for the area."""
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    month = request.args.get("month", type=int)
+    year = request.args.get("year", type=int)
+    if not year:
+        year = datetime.utcnow().year
+    if month and (month < 1 or month > 12):
+        return jsonify({"status": "error", "message": "Invalid month"}), 400
+
+    query = db.session.query(MohReport).filter(
+        MohReport.moh_id == user.id,
+        MohReport.moh_area_id.in_(moh_area_ids),
+        MohReport.report_year == year,
+    )
+    if month:
+        query = query.filter(MohReport.month == month)
+    reports = query.order_by(MohReport.month.desc()).all()
+
+    # If no report for current month and no month filter, create one
+    if not month and not reports:
+        now = datetime.utcnow()
+        report = _generate_moh_report(user, moh_area_ids[0], now.month, now.year)
+        if report:
+            reports = [report]
+
+    return jsonify({
+        "status": "success",
+        "reports": [r.to_dict() for r in reports],
+    }), 200
+
+
+def _generate_moh_report(moh_user: User, moh_area_id: int, month: int, year: int) -> MohReport | None:
+    """Create a MohReport for the given month/year."""
+    children = db.session.query(Child).filter(
+        Child.moh_area_id == moh_area_id,
+        Child.status == "ACTIVE",
+    ).all()
+    total = len(children)
+    normal = sum(1 for c in children if c.current_risk_level == RiskLevel.NORMAL.value)
+    mam = sum(1 for c in children if c.current_risk_level == RiskLevel.MAM.value)
+    sam = sum(1 for c in children if c.current_risk_level == RiskLevel.SAM.value)
+    esc = sum(1 for c in children if c.escalation_status and c.escalation_status != EscalationStatus.NONE.value)
+    report = MohReport(
+        moh_id=moh_user.id,
+        moh_area_id=moh_area_id,
+        total_children=total,
+        normal_count=normal,
+        mam_count=mam,
+        sam_count=sam,
+        total_escalations=esc,
+        month=month,
+        report_year=year,
+        sent_to_rdhs=False,
+    )
+    db.session.add(report)
+    db.session.commit()
+    return report
+
+
+@bp.route("/reports/monthly/generate", methods=["POST"])
+@moh_required
+def generate_monthly_report():
+    """Generate monthly report for current month (or body month/year)."""
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+    data = request.get_json() or {}
+    now = datetime.utcnow()
+    month = data.get("month") or now.month
+    year = data.get("year") or now.year
+    if month < 1 or month > 12:
+        return jsonify({"status": "error", "message": "Invalid month"}), 400
+    existing = db.session.query(MohReport).filter(
+        MohReport.moh_id == user.id,
+        MohReport.moh_area_id == moh_area_ids[0],
+        MohReport.month == month,
+        MohReport.report_year == year,
+    ).first()
+    if existing:
+        return jsonify({"status": "success", "report": existing.to_dict()}), 200
+    report = _generate_moh_report(user, moh_area_ids[0], month, year)
+    return jsonify({"status": "success", "report": report.to_dict()}), 201
+
+
+@bp.route("/send-report-to-rdhs/<int:report_id>", methods=["POST"])
+@moh_required
+def send_report_to_rdhs(report_id: int):
+    """Mark report as sent to RDHS."""
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+    report = db.session.get(MohReport, report_id)
+    if not report:
+        return jsonify({"status": "error", "message": "Report not found"}), 404
+    if report.moh_id != user.id or report.moh_area_id not in moh_area_ids:
+        return jsonify({"status": "error", "message": "Report not in your area"}), 403
+    report.sent_to_rdhs = True
+    report.sent_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"status": "success", "report": report.to_dict()}), 200
+
+
+# ---------------------------------------------------------------------------
+# MOH areas and PHM areas (for assign dropdown)
+# ---------------------------------------------------------------------------
+@bp.route("/areas", methods=["GET"])
+@moh_required
+def get_moh_areas():
+    """Return MOH areas and child PHM areas for the current MOH (for transfer/assign UI)."""
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+    moh_areas = db.session.query(Area).filter(
+        Area.id.in_(moh_area_ids),
+        Area.is_active == True,
+    ).all()
+    phm_areas = db.session.query(Area).filter(
+        Area.parent_id.in_(moh_area_ids),
+        Area.level == AreaLevel.PHM.value,
+        Area.is_active == True,
+    ).order_by(Area.name).all()
+    return jsonify({
+        "status": "success",
+        "moh_areas": [a.to_dict() for a in moh_areas],
+        "phm_areas": [a.to_dict() for a in phm_areas],
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# MOH dashboard summary
+# ---------------------------------------------------------------------------
+@bp.route("/dashboard", methods=["GET"])
+@moh_required
+def moh_dashboard():
+    """
+    Dashboard: total children, Normal/MAM/SAM, pending escalations,
+    midwife performance summary, nutritionist referral summary.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    children = db.session.query(Child).filter(
+        Child.moh_area_id.in_(moh_area_ids),
+        Child.status == "ACTIVE",
+    ).all()
+    total_children = len(children)
+    normal_count = sum(1 for c in children if c.current_risk_level == RiskLevel.NORMAL.value)
+    mam_count = sum(1 for c in children if c.current_risk_level == RiskLevel.MAM.value)
+    sam_count = sum(1 for c in children if c.current_risk_level == RiskLevel.SAM.value)
+    pending_escalations = db.session.query(ChildEscalation).filter(
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.moh_id.in_(moh_area_ids),
+        ChildEscalation.status == EscalationRecordStatus.PENDING.value,
+    ).count()
+    referrals_to_nutritionist = db.session.query(Child).filter(
+        Child.moh_area_id.in_(moh_area_ids),
+        Child.escalation_status == EscalationStatus.ESCALATED_TO_NUTRITIONIST.value,
+    ).count()
+
+    phm_ids = [r[0] for r in db.session.query(Area.id).filter(
+        Area.parent_id.in_(moh_area_ids),
+        Area.level == AreaLevel.PHM.value,
+        Area.is_active == True,
+    ).all()]
+    midwife_count = 0
+    if phm_ids:
+        midwife_count = db.session.query(WorkerAreaMapping.user_id).filter(
+            WorkerAreaMapping.area_id.in_(phm_ids),
+            WorkerAreaMapping.is_active == True,
+        ).distinct().count()
+    midwife_count += db.session.query(User).filter(
+        User.role == UserRole.MIDWIFE.value,
+        User.moh_id == user.id,
+        User.is_active == True,
+    ).count()
+
+    return jsonify({
+        "status": "success",
+        "dashboard": {
+            "total_children": total_children,
+            "normal_count": normal_count,
+            "mam_count": mam_count,
+            "sam_count": sam_count,
+            "pending_escalations": pending_escalations,
+            "referrals_to_nutritionist": referrals_to_nutritionist,
+            "midwife_count": midwife_count,
+        },
+    }), 200

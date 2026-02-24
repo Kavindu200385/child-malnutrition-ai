@@ -1,10 +1,11 @@
 /**
  * Assign Child to Area View
- * Midwife can search for unassigned children and assign them to their PHM area
+ * Midwife can search for unassigned children and assign them to THEIR OWN PHM area
+ * (no need to see full PHM area list; we auto-use midwife's area from backend).
  */
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Search, MapPin, User, CheckCircle, AlertCircle } from 'lucide-react';
-import { childrenAPI, areasHierarchicalAPI } from '../../services/api';
+import { childrenAPI, midwifeAPI } from '../../services/api';
 
 interface AssignChildViewProps {
   onBack: () => void;
@@ -16,27 +17,36 @@ export function AssignChildView({ onBack, onSuccess }: AssignChildViewProps) {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedChild, setSelectedChild] = useState<any>(null);
-  const [availableAreas, setAvailableAreas] = useState<any[]>([]);
   const [selectedAreaId, setSelectedAreaId] = useState<number | null>(null);
+  const [phmAreaLabel, setPhmAreaLabel] = useState<string>('');
   const [isAssigning, setIsAssigning] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Load available PHM areas on mount
+  // Load current midwife's PHM area on mount (no /api/areas call – midwife isn't allowed)
   useEffect(() => {
-    loadAreas();
-  }, []);
-
-  const loadAreas = async () => {
-    try {
-      const response = await areasHierarchicalAPI.list({ level: 'phm' });
-      if (response.data.status === 'success') {
-        setAvailableAreas(response.data.areas || []);
+    const bootstrap = async () => {
+      try {
+        // Ask backend which PHM area this midwife actually belongs to
+        const res = await midwifeAPI.getDashboardStats();
+        const phmId = res.data?.phm_area_id ?? res.data?.stats?.phm_area_id;
+        if (phmId) {
+          const idNum = Number(phmId);
+          setSelectedAreaId(idNum);
+          // Show ONLY the PHM area name as requested
+          const label = res.data?.phm_area_name || '';
+          setPhmAreaLabel(label);
+        } else {
+          setError('Your PHM area is not configured. Please contact the administrator.');
+        }
+      } catch (err: any) {
+        console.error('Failed to load PHM area:', err);
+        setError(err?.response?.data?.message || 'Failed to load your PHM area');
       }
-    } catch (err: any) {
-      console.error('Failed to load areas:', err);
-    }
-  };
+    };
+
+    bootstrap();
+  }, []);
 
   const handleSearch = async () => {
     if (!searchTerm.trim()) {
@@ -81,7 +91,7 @@ export function AssignChildView({ onBack, onSuccess }: AssignChildViewProps) {
     }
 
     if (!selectedAreaId) {
-      setError('Please select an area');
+      setError('Your PHM area is not configured. Cannot assign.');
       return;
     }
 
@@ -215,22 +225,16 @@ export function AssignChildView({ onBack, onSuccess }: AssignChildViewProps) {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-900 mb-2">
-                Select PHM Area <span className="text-red-500">*</span>
+                PHM Area <span className="text-red-500">*</span>
               </label>
               <div className="relative">
                 <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <select
-                  value={selectedAreaId || ''}
-                  onChange={(e) => setSelectedAreaId(Number(e.target.value))}
-                  className="w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select PHM Area</option>
-                  {availableAreas.map((area) => (
-                    <option key={area.id} value={area.id}>
-                      {area.name} {area.full_path ? `(${area.full_path})` : ''}
-                    </option>
-                  ))}
-                </select>
+                <input
+                  type="text"
+                  value={phmAreaLabel || ''}
+                  disabled
+                  className="w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-lg bg-gray-50 text-gray-700"
+                />
               </div>
             </div>
 

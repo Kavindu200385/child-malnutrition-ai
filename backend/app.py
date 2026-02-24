@@ -60,6 +60,9 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                 ("phone", "VARCHAR(40)" if is_mysql else "TEXT", None),
                 ("hospital_id", "INTEGER", None),
                 ("phm_area_id", "INTEGER", None),
+                ("moh_id", "INTEGER", None),
+                ("staff_id", "VARCHAR(64)" if is_mysql else "TEXT", None),
+                ("assignment_status", "VARCHAR(32)" if is_mysql else "TEXT", None),
                 ("is_active", "TINYINT(1)" if is_mysql else "INTEGER", "NOT NULL DEFAULT 1"),
                 ("is_protected", "TINYINT(1)" if is_mysql else "INTEGER", "NOT NULL DEFAULT 0"),
                 (
@@ -217,6 +220,45 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                     )
                 """))
         
+        # moh_reports table (MOH monthly reports to RDHS)
+        if "moh_reports" not in tables:
+            if is_mysql:
+                conn.execute(text("""
+                    CREATE TABLE moh_reports (
+                        id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                        moh_id INTEGER NOT NULL,
+                        moh_area_id INTEGER NOT NULL,
+                        total_children INTEGER NOT NULL DEFAULT 0,
+                        normal_count INTEGER NOT NULL DEFAULT 0,
+                        mam_count INTEGER NOT NULL DEFAULT 0,
+                        sam_count INTEGER NOT NULL DEFAULT 0,
+                        total_escalations INTEGER NOT NULL DEFAULT 0,
+                        month INTEGER NOT NULL,
+                        report_year INTEGER NOT NULL,
+                        sent_to_rdhs TINYINT(1) NOT NULL DEFAULT 0,
+                        sent_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE moh_reports (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        moh_id INTEGER NOT NULL,
+                        moh_area_id INTEGER NOT NULL,
+                        total_children INTEGER NOT NULL DEFAULT 0,
+                        normal_count INTEGER NOT NULL DEFAULT 0,
+                        mam_count INTEGER NOT NULL DEFAULT 0,
+                        sam_count INTEGER NOT NULL DEFAULT 0,
+                        total_escalations INTEGER NOT NULL DEFAULT 0,
+                        month INTEGER NOT NULL,
+                        report_year INTEGER NOT NULL,
+                        sent_to_rdhs INTEGER NOT NULL DEFAULT 0,
+                        sent_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+        
         # children table additions
         add_missing_columns(
             "children",
@@ -268,7 +310,7 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
 
 def seed_superadmin() -> None:
     """
-    Seed superadmin user for system developers.
+    Seed system developer (superadmin) user.
     This user is protected and cannot be deleted.
     Username: superadmin
     Password: 200385
@@ -278,21 +320,21 @@ def seed_superadmin() -> None:
     
     existing = User.query.filter_by(username=superadmin_username).first()
     if existing:
-        # Update password if changed, ensure protected flag is set
+        # Update password if changed, ensure protected flag and display name
         if not existing.is_protected:
             existing.is_protected = True
         if not existing.check_password(superadmin_password):
             existing.set_password(superadmin_password)
-        # Ensure superadmin is always active and has health_ministry role
+        existing.name = "System Developer"
         existing.is_active = True
         existing.role = "health_ministry"
         db.session.commit()
         return
     
-    # Create new superadmin
+    # Create new system developer (superadmin)
     superadmin = User(
         username=superadmin_username,
-        name="System Superadmin",
+        name="System Developer",
         role="health_ministry",
         is_active=True,
         is_protected=True,  # Protected from deletion
@@ -331,7 +373,12 @@ def create_app() -> Flask:
     from backend.routes.worker_management import bp as worker_management_bp
     from backend.routes.reporting import bp as reporting_bp
     from backend.routes.hospital import bp as hospital_bp  # Hospital role routes
-    # from backend.routes.midwife import bp as midwife_bp  # Midwife role routes - temporarily disabled
+    from backend.routes.moh import bp as moh_bp  # MOH role routes (area supervisor)
+    from backend.routes.midwife import bp as midwife_bp  # Midwife role routes (reports, children, dashboard)
+    from backend.routes.nutritionist import bp as nutritionist_bp  # Nutritionist specialist role
+    from backend.routes.rdhs import bp as rdhs_bp  # RDHS District Admin
+    from backend.routes.pdhs import bp as pdhs_bp  # PDHS Province Admin
+    from backend.routes.admin_routes import bp as admin_routes_bp  # Health Ministry admin (dashboard, messaging, settings)
 
     # Register all blueprints
     app.register_blueprint(auth_bp)
@@ -344,7 +391,12 @@ def create_app() -> Flask:
     app.register_blueprint(worker_management_bp)
     app.register_blueprint(reporting_bp)
     app.register_blueprint(hospital_bp)  # Hospital role routes
-    # app.register_blueprint(midwife_bp)  # Midwife role routes - temporarily disabled
+    app.register_blueprint(moh_bp)  # MOH role routes
+    app.register_blueprint(midwife_bp)  # Midwife role routes
+    app.register_blueprint(nutritionist_bp)  # Nutritionist role routes
+    app.register_blueprint(rdhs_bp)  # RDHS District Admin routes
+    app.register_blueprint(pdhs_bp)  # PDHS Province Admin routes
+    app.register_blueprint(admin_routes_bp)  # Admin dashboard, messaging, settings
 
     @app.route("/health")
     def health():
@@ -358,8 +410,16 @@ def create_app() -> Flask:
             "version": "2.0.0",
         }
 
-    # Create tables + seed superadmin on startup
+    # Create tables + seed superadmin on startup; verify DB connection
     with app.app_context():
+        try:
+            db.session.execute(text("SELECT 1"))
+            db.session.commit()
+            print("[OK] Database connected successfully")
+        except Exception as e:
+            print(f"[ERROR] Database connection failed: {e}")
+            print("  Check backend/.env: DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, DB_NAME")
+            print("  For MySQL: ensure MySQL is running and the database 'cmras' exists.")
         db.create_all()
         _ensure_db_schema_compatible(app)
         seed_superadmin()
@@ -372,7 +432,8 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5173"))
+    # Use 5001 to avoid conflict with macOS AirPlay Receiver on 5000
+    port = int(os.environ.get("PORT", "5001"))
     node_env = os.environ.get("NODE_ENV", "development").lower()
     debug = node_env != "production"
     app.run(debug=debug, host="0.0.0.0", port=port)
