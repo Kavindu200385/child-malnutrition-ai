@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { User } from '../../App';
 import { BirthRegistrationView } from '../health-worker/BirthRegistrationView';
+import { ChildProfileView } from '../health-worker/ChildProfileView';
 import { HospitalChildrenListView } from './HospitalChildrenListView';
 import { HospitalStatsView } from './HospitalStatsView';
 import { HospitalStatisticsView } from './HospitalStatisticsView';
@@ -23,10 +24,11 @@ interface HospitalDashboardProps {
   onLogout: () => void;
 }
 
-type HospitalView = 'dashboard' | 'register' | 'children' | 'stats';
+type HospitalView = 'dashboard' | 'register' | 'children' | 'profile' | 'stats';
 
 export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
   const [currentView, setCurrentView] = useState<HospitalView>('dashboard');
+  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
 
   const navigationItems = [
     { id: 'dashboard' as HospitalView, label: 'Dashboard', icon: LayoutDashboard },
@@ -98,7 +100,10 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
         {currentView === 'dashboard' && (
           <HospitalStatsView
             user={user}
-            onViewChild={() => setCurrentView('children')}
+            onViewChild={(id) => {
+              setSelectedChildId(String(id));
+              setCurrentView('profile');
+            }}
           />
         )}
         {currentView === 'register' && (
@@ -109,7 +114,26 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
             }}
           />
         )}
-        {currentView === 'children' && <HospitalChildrenListView user={user} />}
+        {currentView === 'children' && (
+          <HospitalChildrenListView
+            user={user}
+            onViewChild={(id) => {
+              setSelectedChildId(id);
+              setCurrentView('profile');
+            }}
+          />
+        )}
+        {currentView === 'profile' && selectedChildId && (
+          <ChildProfileView
+            childId={selectedChildId}
+            onBack={() => {
+              setCurrentView('children');
+              setSelectedChildId(null);
+            }}
+            onAddMeasurement={() => {}}
+            user={user}
+          />
+        )}
         {currentView === 'stats' && <HospitalStatisticsView user={user} />}
       </main>
     </div>

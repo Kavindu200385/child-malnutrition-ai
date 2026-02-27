@@ -5,13 +5,14 @@
 import { useState, useEffect } from 'react';
 import { User } from '../../App';
 import { hospitalAPI } from '../../services/api';
-import { Search, Filter, AlertTriangle, CheckCircle, ArrowRight, Loader2 } from 'lucide-react';
+import { Search, Filter, AlertTriangle, CheckCircle, ArrowRight, Loader2, Eye } from 'lucide-react';
 
 interface HospitalChildrenListViewProps {
   user: User;
+  onViewChild?: (childId: string) => void;
 }
 
-export function HospitalChildrenListView({ user }: HospitalChildrenListViewProps) {
+export function HospitalChildrenListView({ user, onViewChild }: HospitalChildrenListViewProps) {
   const [children, setChildren] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -264,6 +265,18 @@ export function HospitalChildrenListView({ user }: HospitalChildrenListViewProps
                       )}
                       <p><span className="font-medium">Registered:</span> {child.registration_date ? new Date(child.registration_date).toLocaleDateString() : '-'}</p>
                     </div>
+
+                    {onViewChild && (
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={() => onViewChild(child.child_unique_id || child.child_id || String(child.id))}
+                          className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-700 border border-indigo-300 hover:bg-indigo-50 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          <Eye className="w-4 h-4 text-indigo-600" />
+                          View / Edit details
+                        </button>
+                      </div>
+                    )}
 
                     {/* SAM Alert */}
                     {child.birth_risk_level === 'SAM' && !child.is_transferred && (

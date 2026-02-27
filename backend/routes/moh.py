@@ -5,12 +5,15 @@ risk escalation to nutritionist, return to midwife, reports to RDHS.
 Strict area isolation: all data filtered by moh_area_id.
 """
 from datetime import datetime
+from decimal import Decimal
 from flask import Blueprint, jsonify, request
 
 from backend.auth_utils_hierarchical import (
     get_current_user,
     moh_required,
     get_moh_area_ids,
+    child_was_escalated_to_moh,
+    user_can_access_child,
     ROLE_MOH,
     ROLE_AMOH,
 )
@@ -32,6 +35,8 @@ from backend.models_hierarchical import (
     AreaLevel,
 )
 from backend.utils.audit import log_audit
+from backend.utils.midwife_helpers import calculate_z_scores, should_escalate_to_moh
+from backend.ai.predictor import predict_current_risk
 
 bp = Blueprint("moh", __name__, url_prefix="/api/moh")
 
@@ -47,6 +52,116 @@ def _moh_area_ids_or_403():
 
 def _child_in_moh_area(child: Child, moh_area_ids: list) -> bool:
     return child.moh_area_id is not None and child.moh_area_id in moh_area_ids
+
+
+# ---------------------------------------------------------------------------
+# Add measurement (only for children sent by midwife / escalated to MOH)
+# ---------------------------------------------------------------------------
+@bp.route("/measurement/add", methods=["POST"])
+@moh_required
+def add_measurement():
+    """
+    Add measurement for a child. MOH can only add measurements for children
+    that were sent (escalated) by a midwife to this MOH area.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    child_id = data.get("child_id")
+    if not child_id:
+        return jsonify({"status": "error", "message": "child_id is required"}), 400
+
+    child = db.session.get(Child, child_id)
+    if not child:
+        # Try by child_id string (child_unique_id)
+        child = db.session.query(Child).filter(Child.child_id == str(child_id)).first()
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+
+    if not user_can_access_child(user, child):
+        return jsonify({"status": "error", "message": "Access denied. Child is not in your MOH area."}), 403
+
+    if not child_was_escalated_to_moh(child, moh_area_ids):
+        return jsonify({
+            "status": "error",
+            "message": "You can only add measurements for children sent (escalated) by a midwife. This child has not been escalated to your area.",
+        }), 403
+
+    weight_kg = data.get("weight_kg")
+    height_cm = data.get("height_cm")
+    muac_cm = data.get("muac_cm")
+    if not weight_kg or not height_cm:
+        return jsonify({"status": "error", "message": "weight_kg and height_cm are required"}), 400
+
+    if not child.dob:
+        return jsonify({"status": "error", "message": "Child date of birth is required for measurement"}), 400
+
+    age_days = (datetime.now().date() - child.dob).days
+    age_months = age_days // 30
+    sex = "M" if child.gender == "male" else "F"
+    z_scores = calculate_z_scores(age_months, sex, float(weight_kg), float(height_cm))
+
+    try:
+        ai_result = predict_current_risk({
+            "age_months": age_months,
+            "sex": sex,
+            "weight_kg": float(weight_kg),
+            "height_cm": float(height_cm),
+        })
+        if not ai_result.get("ok"):
+            return jsonify({
+                "status": "error",
+                "message": f"AI analysis failed: {ai_result.get('error', 'Unknown error')}",
+            }), 500
+        current_risk = ai_result.get("risk_level", RiskLevel.NORMAL.value)
+        predicted_risk = ai_result.get("predicted_risk_next_2_months")
+        confidence = ai_result.get("confidence", 0.0)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"AI analysis error: {str(e)}"}), 500
+
+    previous_risk = child.current_risk_level
+    measurement = Measurement(
+        child_id=child.id,
+        measurement_date=datetime.now(),
+        weight_kg=Decimal(str(weight_kg)),
+        height_cm=Decimal(str(height_cm)),
+        muac_cm=Decimal(str(muac_cm)) if muac_cm else None,
+        z_score_wfa=Decimal(str(z_scores["z_wfa"])) if z_scores.get("z_wfa") is not None else None,
+        z_score_hfa=Decimal(str(z_scores["z_hfa"])) if z_scores.get("z_hfa") is not None else None,
+        z_score_wfh=Decimal(str(z_scores["z_wfh"])) if z_scores.get("z_wfh") is not None else None,
+        risk_level=current_risk,
+        predicted_risk_next_2_months=predicted_risk,
+        model_confidence=Decimal(str(confidence)),
+        measured_by_user_id=user.id,
+        notes=data.get("notes"),
+    )
+    db.session.add(measurement)
+    db.session.flush()
+    child.current_risk_level = current_risk
+    child.last_risk_update = datetime.now()
+    escalation_needed = should_escalate_to_moh(previous_risk, current_risk)
+
+    log_audit(
+        action="CREATE",
+        entity_type="measurement",
+        entity_id=measurement.id,
+        new_values=measurement.to_dict(),
+        user_id=user.id,
+        description=f"MOH added measurement for child {child.child_unique_id}",
+    )
+    db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "message": "Measurement recorded successfully",
+        "measurement": measurement.to_dict(),
+        "child": child.to_dict(),
+        "escalation_needed": escalation_needed,
+        "previous_risk": previous_risk,
+        "new_risk": current_risk,
+    }), 201
 
 
 # ---------------------------------------------------------------------------

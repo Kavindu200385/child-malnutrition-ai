@@ -248,7 +248,7 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
                     </div>
                     <div className="flex sm:flex-col gap-2">
                       <button
-                        onClick={() => onViewChild(child.child_id)}
+                        onClick={() => onViewChild(child.child_id ?? child.child_unique_id ?? String(child.id))}
                         className="flex items-center gap-2 flex-1 sm:flex-none px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
                       >
                         <Eye className="w-4 h-4" />

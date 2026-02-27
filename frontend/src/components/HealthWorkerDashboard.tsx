@@ -266,6 +266,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
               childId={selectedChildId} 
               onBack={() => setCurrentView('search')}
               onAddMeasurement={handleAddMeasurement}
+              user={user}
             />
           )
         )}

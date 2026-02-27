@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { calculateRiskLevel, getRiskColor, getRiskLabel } from '../../types';
 import { ArrowLeft, Save, CheckCircle, AlertTriangle, Brain, TrendingUp, Calendar, FileText, TrendingDown, Activity } from 'lucide-react';
-import { nutritionistAPI, midwifeAPI } from '../../services/api';
+import { nutritionistAPI, midwifeAPI, mohAPI, childrenAPI } from '../../services/api';
 
 interface AddMeasurementViewProps {
   user?: { role?: string } | null;
@@ -43,6 +43,7 @@ interface AIResults {
 
 export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }: AddMeasurementViewProps) {
   const isNutritionist = user?.role === 'nutritionist';
+  const isMoh = user?.role === 'moh' || user?.role === 'amoh';
   const [childId, setChildId] = useState(selectedChildId || '');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [weight, setWeight] = useState('');
@@ -63,15 +64,26 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
       nutritionistAPI.referredChildren()
         .then((res) => { if (res.data?.status === 'success') setReferredChildren(res.data.children || []); })
         .catch(() => setReferredChildren([]));
+    } else if (isMoh) {
+      childrenAPI.list({})
+        .then((res) => {
+          if (res.data?.status === 'success' && res.data?.children) {
+            const onlyEscalated = (res.data.children as any[]).filter((c: any) => c.can_moh_add_measurement === true);
+            setMidwifeChildren(onlyEscalated);
+          }
+        })
+        .catch(() => setMidwifeChildren([]));
     } else {
       midwifeAPI.listChildren({})
         .then((res) => { if (res.data?.status === 'success') setMidwifeChildren(res.data.children || []); })
         .catch(() => setMidwifeChildren([]));
     }
-  }, [isNutritionist]);
+  }, [isNutritionist, isMoh]);
 
   const selectedChild = isNutritionist
     ? referredChildren.find((r) => String(r.child?.id) === childId)?.child
+    : isMoh
+    ? midwifeChildren.find((c) => String(c.id) === String(childId) || String(c.child_id || c.child_unique_id) === String(childId))
     : midwifeChildren.find((c) => String(c.child_id || c.id) === String(childId));
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -116,8 +128,9 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
     setMidwifeLoading(true);
     setNutError('');
     const numericChildId = selectedChild?.id ?? childId;
+    const apiCall = isMoh ? mohAPI.addMeasurement : midwifeAPI.addMeasurement;
     try {
-      await midwifeAPI.addMeasurement({
+      await apiCall({
         child_id: Number(numericChildId),
         weight_kg: weightNum,
         height_cm: heightNum,
@@ -622,6 +635,9 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Child Selection */}
           <div>
+            {isMoh && (
+              <p className="text-sm text-gray-600 mb-2">Only children sent (escalated) by a midwife can be measured here.</p>
+            )}
             <label htmlFor="child" className="block text-sm font-medium text-gray-700 mb-2">
               Select Child *
             </label>
@@ -640,8 +656,8 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                     </option>
                   ))
                 : midwifeChildren.map((child) => (
-                    <option key={child.id} value={child.child_id || child.id}>
-                      {child.name || child.child_id || 'Unnamed'} ({child.child_id || child.id})
+                    <option key={child.id} value={child.id}>
+                      {child.name || child.child_id || child.child_unique_id || 'Unnamed'} ({child.child_id || child.child_unique_id || child.id})
                     </option>
                   ))}
             </select>

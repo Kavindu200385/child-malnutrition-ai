@@ -15,6 +15,7 @@ import { PdhsHealthWorkersView } from './admin/PdhsHealthWorkersView';
 import { PdhsReportsView } from './admin/PdhsReportsView';
 import { PdhsChildrenView } from './admin/PdhsChildrenView';
 import { PdhsAreaView } from './admin/PdhsAreaView';
+import { MinistryChildrenView } from './admin/MinistryChildrenView';
 import {
   LayoutDashboard,
   Users,
@@ -33,7 +34,7 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type AdminView = 'overview' | 'users' | 'areas' | 'reports' | 'analytics' | 'settings';
+type AdminView = 'overview' | 'users' | 'areas' | 'children' | 'reports' | 'analytics' | 'settings';
 type RdhsView = 'overview' | 'healthworkers' | 'reports' | 'children';
 type PdhsView = 'overview' | 'healthworkers' | 'reports' | 'children' | 'areas';
 
@@ -64,6 +65,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
         { id: 'overview' as AdminView, label: 'Overview', icon: LayoutDashboard },
         { id: 'areas' as AdminView, label: 'Area Management', icon: MapPin },
         { id: 'users' as AdminView, label: 'User Management', icon: Users },
+        { id: 'children' as AdminView, label: 'All Children', icon: Activity },
         { id: 'reports' as AdminView, label: 'Reports', icon: FileText },
         { id: 'analytics' as AdminView, label: 'System Analytics', icon: BarChart3 },
         { id: 'settings' as AdminView, label: 'Settings', icon: Settings },
@@ -163,6 +165,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
             {currentView === 'overview' && <AdminOverview />}
             {currentView === 'areas' && <AreaManagementView />}
             {currentView === 'users' && <WorkerManagementView />}
+            {currentView === 'children' && <MinistryChildrenView />}
             {currentView === 'reports' && <ReportsDashboard user={user} />}
             {currentView === 'analytics' && <SystemAnalytics />}
             {currentView === 'settings' && <SystemSettings />}

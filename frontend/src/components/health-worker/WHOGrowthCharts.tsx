@@ -556,9 +556,9 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                   </div>
                 </div>
                 <div className="w-32 text-xs text-gray-600 space-y-0.5">
-                  <div>WFA: {entry.wfa.toFixed(2)}</div>
-                  <div>HFA: {entry.hfa.toFixed(2)}</div>
-                  <div>WFH: {entry.wfh.toFixed(2)}</div>
+                  <div>WFA: {entry.wfa != null ? entry.wfa.toFixed(2) : '—'}</div>
+                  <div>HFA: {entry.hfa != null ? entry.hfa.toFixed(2) : '—'}</div>
+                  <div>WFH: {entry.wfh != null ? entry.wfh.toFixed(2) : '—'}</div>
                 </div>
               </div>
             ))}

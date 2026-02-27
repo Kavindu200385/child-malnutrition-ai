@@ -37,6 +37,7 @@ export const childrenAPI = {
   list: (params) => api.get('/api/children', { params }),
   get: (childId) => api.get(`/api/children/${childId}`),
   update: (childId, data) => api.put(`/api/children/${childId}`, data),
+  delete: (childId) => api.delete(`/api/children/${childId}`),
   assign: (childId, data) => api.post(`/api/children/${childId}/assign`, data),
   getVisits: (childId) => api.get(`/api/children/${childId}/visits`),
   assignAreas: (childId, data) => api.post(`/api/children/${childId}/assign-areas`, data),
@@ -131,6 +132,7 @@ export const nutritionistAPI = {
 // MOH API (MOH/AMOH role only)
 export const mohAPI = {
   dashboard: () => api.get('/api/moh/dashboard'),
+  addMeasurement: (data) => api.post('/api/moh/measurement/add', data),
   releaseMidwife: (midwifeId) => api.post(`/api/moh/release-midwife/${midwifeId}`),
   searchMidwife: (params) => api.get('/api/moh/search-midwife', { params }),
   assignMidwife: (midwifeId, data) => api.post(`/api/moh/assign-midwife/${midwifeId}`, data),

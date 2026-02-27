@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { getRiskColor, getRiskLabel, calculateRiskLevel, RiskLevel } from '../../types';
-import { ArrowLeft, User, Phone, MapPin, Calendar, Activity, AlertTriangle, TrendingUp, Plus, Download, TrendingDown, FileText, CheckCircle } from 'lucide-react';
+import { ArrowLeft, User, Phone, MapPin, Calendar, Activity, AlertTriangle, TrendingUp, Plus, Download, TrendingDown, FileText, CheckCircle, Pencil, Trash2 } from 'lucide-react';
 import { WHOGrowthCharts } from './WHOGrowthCharts';
 import { childrenAPI } from '../../services/api';
 import {
@@ -18,6 +18,8 @@ interface ChildProfileViewProps {
   childId: string;
   onBack: () => void;
   onAddMeasurement: (childId: string) => void;
+  /** When provided (e.g. MOH), Add Measurement is only shown if child.can_moh_add_measurement is true */
+  user?: { role?: string } | null;
 }
 
 interface PredictionData {
@@ -54,8 +56,62 @@ function mapToMeasurements(items: any[], dob: string | null) {
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
-export function ChildProfileView({ childId, onBack, onAddMeasurement }: ChildProfileViewProps) {
+/** WHO approximate reference at birth (0 months): median weight (kg), median length (cm), SD. */
+const BIRTH_REF = {
+  male: { weightMedian: 3.3, weightSd: 0.5, lengthMedian: 49.9, lengthSd: 1.9 },
+  female: { weightMedian: 3.2, weightSd: 0.48, lengthMedian: 49.1, lengthSd: 1.9 },
+};
+
+/** Build a single "birth" measurement so charts start from birth. */
+function createBirthMeasurement(apiChild: any): {
+  id: string;
+  date: string;
+  ageMonths: number;
+  weight: number;
+  height: number;
+  muac?: number;
+  weightForAge: number;
+  heightForAge: number;
+  weightForHeight: number;
+  riskLevel: RiskLevel;
+  notes?: string;
+} {
+  const dob = apiChild.dob;
+  const dateStr = dob || new Date().toISOString().slice(0, 10);
+  const gender = (apiChild.gender || 'male') === 'male' ? 'male' : 'female';
+  const ref = BIRTH_REF[gender];
+  const weight = Number(apiChild.birth_weight_kg) || 0;
+  const height = Number(apiChild.birth_height_cm) || 0;
+  const muac = apiChild.birth_muac_cm != null ? Number(apiChild.birth_muac_cm) : undefined;
+  const zWfa = weight > 0 && ref ? (weight - ref.weightMedian) / ref.weightSd : 0;
+  const zHfa = height > 0 && ref ? (height - ref.lengthMedian) / ref.lengthSd : 0;
+  const zWfh = weight > 0 && height > 0 && ref ? (weight - ref.weightMedian) / ref.weightSd : zWfa;
+  const birthRisk = (apiChild.birth_risk_level || '').toUpperCase();
+  const riskLevel: RiskLevel =
+    birthRisk === 'SAM' || birthRisk === 'CRITICAL' ? 'sam' :
+    birthRisk === 'MAM' || birthRisk === 'MODERATE' || birthRisk === 'HIGH' ? 'mam' : 'normal';
+  return {
+    id: 'birth',
+    date: dateStr,
+    ageMonths: 0,
+    weight,
+    height,
+    muac,
+    weightForAge: zWfa,
+    heightForAge: zHfa,
+    weightForHeight: zWfh,
+    riskLevel,
+    notes: 'Birth',
+  };
+}
+
+export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: ChildProfileViewProps) {
   const [showPDFDialog, setShowPDFDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [editForm, setEditForm] = useState<Record<string, string | null>>({});
   const pdfRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -78,6 +134,28 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement }: ChildPro
     return () => { cancelled = true; };
   }, [childId]);
 
+  // Keep edit form in sync when opening the Edit dialog
+  useEffect(() => {
+    if (showEditDialog && apiChild) {
+      setEditForm({
+        name: apiChild.name ?? '',
+        dob: apiChild.dob ?? '',
+        gender: apiChild.gender ?? '',
+        guardian_name: apiChild.guardian_name ?? '',
+        mother_name: apiChild.mother_name ?? '',
+        guardian_phone: apiChild.guardian_phone ?? '',
+        guardian_nic: apiChild.guardian_nic ?? '',
+        address: apiChild.address ?? '',
+        birth_weight_kg: apiChild.birth_weight_kg != null ? String(apiChild.birth_weight_kg) : '',
+        birth_height_cm: apiChild.birth_height_cm != null ? String(apiChild.birth_height_cm) : '',
+        birth_muac_cm: apiChild.birth_muac_cm != null ? String(apiChild.birth_muac_cm) : '',
+        birth_risk_level: apiChild.birth_risk_level ?? '',
+      });
+    }
+  }, [showEditDialog, apiChild]);
+
+  const isHospital = user?.role === 'hospital';
+
   const child = apiChild ? {
     id: apiChild.child_id || apiChild.id,
     name: apiChild.name,
@@ -86,8 +164,35 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement }: ChildPro
     guardianName: apiChild.guardian_name,
     guardianPhone: apiChild.guardian_phone,
     address: apiChild.address,
-    riskLevel: ((apiChild.current_risk_level || 'NORMAL').toLowerCase() === 'sam' || (apiChild.current_risk_level || '').toLowerCase() === 'critical' ? 'sam' : (apiChild.current_risk_level || '').toLowerCase() === 'mam' || (apiChild.current_risk_level || '').toLowerCase() === 'moderate' || (apiChild.current_risk_level || '').toLowerCase() === 'high' ? 'mam' : 'normal') as RiskLevel,
-    measurements: mapToMeasurements([...(apiChild.measurements || []), ...(apiChild.visits || [])], apiChild.dob),
+    riskLevel: (() => {
+      const birthRisk = (apiChild.birth_risk_level || '').toUpperCase();
+      const birthLevel: RiskLevel =
+        birthRisk === 'SAM' || birthRisk === 'CRITICAL'
+          ? 'sam'
+          : birthRisk === 'MAM' || birthRisk === 'MODERATE' || birthRisk === 'HIGH'
+          ? 'mam'
+          : 'normal';
+      if (isHospital && apiChild.birth_risk_level) {
+        return birthLevel;
+      }
+      const cur = (apiChild.current_risk_level || 'NORMAL').toLowerCase();
+      if (cur === 'sam' || cur === 'critical') return 'sam' as RiskLevel;
+      if (cur === 'mam' || cur === 'moderate' || cur === 'high') return 'mam' as RiskLevel;
+      return 'normal' as RiskLevel;
+    })(),
+    measurements: (() => {
+      const baseList = mapToMeasurements([...(apiChild.measurements || []), ...(apiChild.visits || [])], apiChild.dob);
+      const hasBirth =
+        apiChild.dob &&
+        (Number(apiChild.birth_weight_kg) > 0 ||
+          Number(apiChild.birth_height_cm) > 0 ||
+          apiChild.birth_risk_level ||
+          apiChild.birth_muac_cm != null);
+      const birth = hasBirth ? [createBirthMeasurement(apiChild)] : [];
+      // Pediatric Unit should only see birth-time measurement; others see birth + clinic visits
+      const list = isHospital ? [] : baseList;
+      return [...birth, ...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    })(),
   } : null;
 
   if (loading) {
@@ -199,7 +304,140 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement }: ChildPro
       wfh: m.weightForHeight,
     }));
 
-  const latestMeasurement = child.measurements[0];
+  const isMoh = user?.role === 'moh' || user?.role === 'amoh';
+  const isHospitalRole = user?.role === 'hospital';
+  const canAddMeasurement = isHospitalRole
+    ? false
+    : isMoh
+    ? apiChild?.can_moh_add_measurement === true
+    : true;
+
+  let canEditDelete = false;
+  if (apiChild && user?.role) {
+    if (isHospitalRole) {
+      // Pediatric Unit: can edit/delete only within 24 hours of registration
+      const reg = apiChild.registration_date ? new Date(apiChild.registration_date) : null;
+      const now = new Date();
+      const withinOneDay = reg ? now.getTime() - reg.getTime() <= 24 * 60 * 60 * 1000 : false;
+      canEditDelete = withinOneDay;
+    } else if (['midwife', 'moh', 'amoh'].includes(user.role)) {
+      canEditDelete = true;
+    }
+  }
+  const latestMeasurement = child.measurements.length > 0 ? child.measurements[0] : null;
+
+  const refetchChild = () => {
+    childrenAPI.get(childId)
+      .then((res) => {
+        if (res.data?.status === 'success' && res.data?.child) setApiChild(res.data.child);
+      })
+      .catch(() => {});
+  };
+
+  const handleEditSave = () => {
+    setIsSaving(true);
+    const payload: Record<string, string | null> = {
+      name: editForm.name || null,
+      dob: editForm.dob || null,
+      gender: editForm.gender || null,
+      guardian_name: editForm.guardian_name || null,
+      mother_name: editForm.mother_name || null,
+      guardian_phone: editForm.guardian_phone || null,
+      guardian_nic: editForm.guardian_nic || null,
+      address: editForm.address || null,
+      birth_risk_level: editForm.birth_risk_level || null,
+    };
+    if (editForm.birth_weight_kg !== '' && editForm.birth_weight_kg != null) payload.birth_weight_kg = editForm.birth_weight_kg;
+    if (editForm.birth_height_cm !== '' && editForm.birth_height_cm != null) payload.birth_height_cm = editForm.birth_height_cm;
+    if (editForm.birth_muac_cm !== '' && editForm.birth_muac_cm != null) payload.birth_muac_cm = editForm.birth_muac_cm;
+    childrenAPI.update(childId, payload)
+      .then(() => {
+        refetchChild();
+        setShowEditDialog(false);
+      })
+      .catch((err) => {
+        setError(err.response?.data?.message || 'Failed to update child');
+      })
+      .finally(() => setIsSaving(false));
+  };
+
+  const handleDeleteConfirm = () => {
+    setIsDeleting(true);
+    childrenAPI.delete(childId)
+      .then(() => {
+        setShowDeleteDialog(false);
+        onBack();
+      })
+      .catch((err) => {
+        setError(err.response?.data?.message || 'Failed to delete child');
+      })
+      .finally(() => setIsDeleting(false));
+  };
+
+  // Data source for the "Measurements at birth" panel:
+  // 1) Prefer explicit birth_* fields from the child record
+  // 2) Otherwise, fall back to the earliest measurement (if within ~1 month of birth)
+  const birthPanelData = (() => {
+    if (!apiChild?.dob) return null;
+
+    // 1) Prefer explicit birth_* fields from the child record
+    const hasExplicitBirthData =
+      apiChild.birth_weight_kg != null ||
+      apiChild.birth_height_cm != null ||
+      apiChild.birth_muac_cm != null ||
+      apiChild.birth_risk_level;
+
+    if (hasExplicitBirthData) {
+      return {
+        date: apiChild.dob as string,
+        weight: apiChild.birth_weight_kg != null && apiChild.birth_weight_kg !== '' ? Number(apiChild.birth_weight_kg) : null,
+        height: apiChild.birth_height_cm != null && apiChild.birth_height_cm !== '' ? Number(apiChild.birth_height_cm) : null,
+        muac: apiChild.birth_muac_cm != null && apiChild.birth_muac_cm !== '' ? Number(apiChild.birth_muac_cm) : null,
+        birthRiskLevel: apiChild.birth_risk_level || null,
+        fromMeasurement: false,
+      };
+    }
+
+    // 2) Fall back to birth_registration JSON if columns are missing (all roles)
+    if (apiChild.birth_registration) {
+      const br = apiChild.birth_registration as any;
+      const w = br.birthWeight ?? br.weight ?? null;
+      const h = br.birthLength ?? br.length ?? null;
+      const m = br.birthMuac ?? br.muac ?? null;
+      const hasAny = w != null || h != null || m != null || apiChild.birth_risk_level;
+      if (hasAny) {
+        return {
+          date: apiChild.dob as string,
+          weight: w != null && w !== '' ? Number(w) : null,
+          height: h != null && h !== '' ? Number(h) : null,
+          muac: m != null && m !== '' ? Number(m) : null,
+          birthRiskLevel: apiChild.birth_risk_level || null,
+          fromMeasurement: false,
+        };
+      }
+    }
+
+    // 3) Otherwise, fall back to the earliest measurement (if within ~1 month of birth)
+    if (!child.measurements.length) return null;
+
+    const sortedByAge = [...child.measurements].sort((a, b) => {
+      if (a.ageMonths !== b.ageMonths) return a.ageMonths - b.ageMonths;
+      return new Date(a.date).getTime() - new Date(b.date).getTime();
+    });
+    const earliest = sortedByAge[0];
+
+    // Only treat as "birth time" if the first measurement is very close to birth
+    if (earliest.ageMonths > 1) return null;
+
+    return {
+      date: earliest.date,
+      weight: earliest.weight || null,
+      height: earliest.height || null,
+      muac: earliest.muac ?? null,
+      birthRiskLevel: (earliest.riskLevel || child.riskLevel) as RiskLevel,
+      fromMeasurement: true,
+    };
+  })();
 
   const handleDownloadPDF = () => {
     setShowPDFDialog(true);
@@ -271,166 +509,192 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement }: ChildPro
           <h2 className="text-2xl font-bold text-gray-900">{child.name}</h2>
           <p className="text-gray-600">Child ID: {child.id}</p>
         </div>
-        <button
-          onClick={() => onAddMeasurement(child.id)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Measurement
-        </button>
-      </div>
-
-      {/* Dual Risk Status Display - Top Priority */}
-      <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-gray-200">
-        <h3 className="text-base font-bold text-gray-900 mb-4">Nutritional Status Overview</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Current Status - Solid Badge */}
-          <div className="border-2 border-gray-300 rounded-lg p-5 bg-white">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                <Activity className="w-4 h-4 text-blue-600" />
-              </div>
-              <p className="text-sm font-bold text-gray-900">Current Status</p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <span
-                className="inline-block px-4 py-3 rounded-lg text-base font-bold text-white text-center shadow-sm"
-                style={{ backgroundColor: getRiskColor(child.riskLevel) }}
-              >
-                {getRiskLabel(child.riskLevel)}
-              </span>
-              <p className="text-xs text-gray-600 mt-1">
-                📅 Based on measurements from {child.measurements[0]?.date}
-              </p>
-            </div>
-          </div>
-
-          {/* Predicted Risk - Highly Distinct Future Forecast */}
-          <div className={`border-4 rounded-lg p-5 relative overflow-hidden ${
-            prediction
-              ? prediction.actionRequired 
-                ? 'border-orange-500 bg-gradient-to-br from-orange-50 via-orange-100/50 to-orange-50' 
-                : prediction.trend === 'improving'
-                ? 'border-green-500 bg-gradient-to-br from-green-50 via-green-100/50 to-green-50'
-                : 'border-blue-500 bg-gradient-to-br from-blue-50 via-blue-100/50 to-blue-50'
-              : 'border-gray-300 bg-gray-50'
-          }`} style={{ borderStyle: 'dashed' }}>
-            {/* Forecast Badge Corner */}
-            <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white ${
-              prediction?.actionRequired ? 'bg-orange-600' : 
-              prediction?.trend === 'improving' ? 'bg-green-600' : 
-              'bg-blue-600'
-            }`} style={{ borderBottomLeftRadius: '8px' }}>
-              FORECAST
-            </div>
-            
-            <div className="flex items-center gap-2 mb-3">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                prediction?.actionRequired ? 'bg-orange-200' :
-                prediction?.trend === 'improving' ? 'bg-green-200' :
-                'bg-blue-200'
-              }`}>
-                {prediction ? (
-                  prediction.trend === 'declining' ? (
-                    <TrendingDown className={`w-5 h-5 ${prediction.actionRequired ? 'text-orange-700' : 'text-blue-700'}`} />
-                  ) : prediction.trend === 'improving' ? (
-                    <TrendingUp className="w-5 h-5 text-green-700" />
-                  ) : (
-                    <Activity className="w-5 h-5 text-blue-700" />
-                  )
-                ) : (
-                  <Activity className="w-4 h-4 text-gray-400" />
-                )}
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-bold text-gray-900">Predicted Risk</p>
-                <p className={`text-xs font-bold ${
-                  prediction?.actionRequired ? 'text-orange-700' :
-                  prediction?.trend === 'improving' ? 'text-green-700' :
-                  'text-blue-700'
-                }`}>
-                  ⏱ 1-2 Months Ahead (Future)
-                </p>
-              </div>
-            </div>
-            
-            {prediction ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="inline-block px-4 py-3 rounded-lg text-base font-bold text-white text-center flex-1 shadow-md relative"
-                    style={{ 
-                      backgroundColor: getRiskColor(prediction.predictedRiskLevel),
-                      backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px)'
-                    }}
-                  >
-                    {getRiskLabel(prediction.predictedRiskLevel)}
-                  </span>
-                  {prediction.actionRequired && (
-                    <div className="w-10 h-10 bg-orange-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg animate-pulse">
-                      <AlertTriangle className="w-5 h-5 text-white" />
-                    </div>
-                  )}
-                </div>
-                <div className={`mt-2 p-3 rounded-lg border-2 ${
-                  prediction.actionRequired ? 'bg-orange-50/50 border-orange-300' :
-                  prediction.trend === 'improving' ? 'bg-green-50/50 border-green-300' :
-                  'bg-blue-50/50 border-blue-300'
-                }`}>
-                  <p className="text-xs font-bold text-gray-900 mb-1">
-                    {prediction.actionRequired ? '⚠️ Action Required:' :
-                     prediction.trend === 'improving' ? '✅ Positive Outlook:' :
-                     '→ Expected Status:'}
-                  </p>
-                  <p className="text-xs font-medium text-gray-800">
-                    {prediction.message}
-                  </p>
-                </div>
-                <div className="flex items-center justify-between text-xs text-gray-700 mt-1">
-                  <span className="font-medium">Confidence: {prediction.confidence}%</span>
-                  <span className={`font-bold ${
-                    prediction.trend === 'declining' ? 'text-orange-700' :
-                    prediction.trend === 'improving' ? 'text-green-700' :
-                    'text-blue-700'
-                  }`}>
-                    {prediction.trend === 'declining' ? '📉 Declining' :
-                     prediction.trend === 'improving' ? '📈 Improving' :
-                     '➡️ Stable'}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="text-sm text-gray-500 italic text-center py-4">
-                <p className="font-medium">Prediction Unavailable</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  Requires at least 2 measurements
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Alert Banner for High Priority Cases */}
-        {prediction && prediction.actionRequired && (
-          <div className="mt-4 p-4 bg-orange-100 border-2 border-orange-400 rounded-lg animate-pulse">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-base font-bold text-orange-900">🚨 Early Warning Alert - Action Required</p>
-                <p className="text-sm text-orange-800 mt-1 font-medium">
-                  {prediction.predictedRiskLevel === 'sam' 
-                    ? 'This child is predicted to progress to Severe Acute Malnutrition within 1-2 months. Early intervention required before next scheduled clinic visit.'
-                    : 'This child is predicted to progress to Moderate Acute Malnutrition within 1-2 months. Increased monitoring and preventive measures recommended.'}
-                </p>
-              </div>
-            </div>
+        {canAddMeasurement ? (
+          <button
+            onClick={() => onAddMeasurement(child.id)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Measurement
+          </button>
+        ) : isMoh ? (
+          <span className="text-sm text-gray-500 italic" title="Only for children sent by midwife">
+            Add measurement only for children sent by midwife
+          </span>
+        ) : null}
+        {canEditDelete && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowEditDialog(true)}
+              className="flex items-center gap-2 px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+            >
+              <Pencil className="w-4 h-4" />
+              Edit
+            </button>
+            <button
+              onClick={() => setShowDeleteDialog(true)}
+              className="flex items-center gap-2 px-4 py-2 border-2 border-red-300 text-red-700 rounded-lg font-medium hover:bg-red-50 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete
+            </button>
           </div>
         )}
       </div>
 
-      {/* Risk Alert */}
-      {displayRisk !== 'normal' && (
+      {/* Dual Risk Status Display - Top Priority (hidden for Pediatric Unit) */}
+      {!isHospitalRole && (
+        <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-gray-200">
+          <h3 className="text-base font-bold text-gray-900 mb-4">Nutritional Status Overview</h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Current Status - Solid Badge */}
+            <div className="border-2 border-gray-300 rounded-lg p-5 bg-white">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                  <Activity className="w-4 h-4 text-blue-600" />
+                </div>
+                <p className="text-sm font-bold text-gray-900">Current Status</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span
+                  className="inline-block px-4 py-3 rounded-lg text-base font-bold text-white text-center shadow-sm"
+                  style={{ backgroundColor: getRiskColor(child.riskLevel) }}
+                >
+                  {getRiskLabel(child.riskLevel)}
+                </span>
+                <p className="text-xs text-gray-600 mt-1">
+                  📅 Based on measurements from {latestMeasurement ? latestMeasurement.date : '—'}
+                </p>
+              </div>
+            </div>
+
+            {/* Predicted Risk - Highly Distinct Future Forecast */}
+            <div className={`border-4 rounded-lg p-5 relative overflow-hidden ${
+              prediction
+                ? prediction.actionRequired 
+                  ? 'border-orange-500 bg-gradient-to-br from-orange-50 via-orange-100/50 to-orange-50' 
+                  : prediction.trend === 'improving'
+                  ? 'border-green-500 bg-gradient-to-br from-green-50 via-green-100/50 to-green-50'
+                  : 'border-blue-500 bg-gradient-to-br from-blue-50 via-blue-100/50 to-blue-50'
+                : 'border-gray-300 bg-gray-50'
+            }`} style={{ borderStyle: 'dashed' }}>
+              {/* Forecast Badge Corner */}
+              <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white ${
+                prediction?.actionRequired ? 'bg-orange-600' : 
+                prediction?.trend === 'improving' ? 'bg-green-600' : 
+                'bg-blue-600'
+              }`} style={{ borderBottomLeftRadius: '8px' }}>
+                FORECAST
+              </div>
+              
+              <div className="flex items-center gap-2 mb-3">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                  prediction?.actionRequired ? 'bg-orange-200' :
+                  prediction?.trend === 'improving' ? 'bg-green-200' :
+                  'bg-blue-200'
+                }`}>
+                  {prediction ? (
+                    prediction.trend === 'declining' ? (
+                      <TrendingDown className={`w-5 h-5 ${prediction.actionRequired ? 'text-orange-700' : 'text-blue-700'}`} />
+                    ) : prediction.trend === 'improving' ? (
+                      <TrendingUp className="w-5 h-5 text-green-700" />
+                    ) : (
+                      <Activity className="w-5 h-5 text-blue-700" />
+                    )
+                  ) : (
+                    <Activity className="w-4 h-4 text-gray-400" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-gray-900">Predicted Risk</p>
+                  <p className={`text-xs font-bold ${
+                    prediction?.actionRequired ? 'text-orange-700' :
+                    prediction?.trend === 'improving' ? 'text-green-700' :
+                    'text-blue-700'
+                  }`}>
+                    ⏱ 1-2 Months Ahead (Future)
+                  </p>
+                </div>
+              </div>
+              
+              {prediction ? (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="inline-block px-4 py-3 rounded-lg text-base font-bold text-white text-center flex-1 shadow-md relative"
+                      style={{ 
+                        backgroundColor: getRiskColor(prediction.predictedRiskLevel),
+                        backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px)'
+                      }}
+                    >
+                      {getRiskLabel(prediction.predictedRiskLevel)}
+                    </span>
+                    {prediction.actionRequired && (
+                      <div className="w-10 h-10 bg-orange-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg animate-pulse">
+                        <AlertTriangle className="w-5 h-5 text-white" />
+                      </div>
+                    )}
+                  </div>
+                  <div className={`mt-2 p-3 rounded-lg border-2 ${
+                    prediction.actionRequired ? 'bg-orange-50/50 border-orange-300' :
+                    prediction.trend === 'improving' ? 'bg-green-50/50 border-green-300' :
+                    'bg-blue-50/50 border-blue-300'
+                  }`}>
+                    <p className="text-xs font-bold text-gray-900 mb-1">
+                      {prediction.actionRequired ? '⚠️ Action Required:' :
+                       prediction.trend === 'improving' ? '✅ Positive Outlook:' :
+                       '→ Expected Status:'}
+                    </p>
+                    <p className="text-xs font-medium text-gray-800">
+                      {prediction.message}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-gray-700 mt-1">
+                    <span className="font-medium">Confidence: {prediction.confidence}%</span>
+                    <span className={`font-bold ${
+                      prediction.trend === 'declining' ? 'text-orange-700' :
+                      prediction.trend === 'improving' ? 'text-green-700' :
+                      'text-blue-700'
+                    }`}>
+                      {prediction.trend === 'declining' ? '📉 Declining' :
+                       prediction.trend === 'improving' ? '📈 Improving' :
+                       '➡️ Stable'}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500 italic text-center py-4">
+                  <p className="font-medium">Prediction Unavailable</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Requires at least 2 measurements
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Alert Banner for High Priority Cases */}
+          {prediction && prediction.actionRequired && (
+            <div className="mt-4 p-4 bg-orange-100 border-2 border-orange-400 rounded-lg animate-pulse">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-base font-bold text-orange-900">🚨 Early Warning Alert - Action Required</p>
+                  <p className="text-sm text-orange-800 mt-1 font-medium">
+                    {prediction.predictedRiskLevel === 'sam' 
+                      ? 'This child is predicted to progress to Severe Acute Malnutrition within 1-2 months. Early intervention required before next scheduled clinic visit.'
+                      : 'This child is predicted to progress to Moderate Acute Malnutrition within 1-2 months. Increased monitoring and preventive measures recommended.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Risk Alert (hidden for Pediatric Unit) */}
+      {!isHospitalRole && displayRisk !== 'normal' && (
         <div
           className={`rounded-lg p-6 border-2 ${
             displayRisk === 'sam'
@@ -538,236 +802,404 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement }: ChildPro
         </div>
       </div>
 
-      {/* Latest Measurements */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Latest Measurements</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-blue-50 rounded-lg p-4">
-            <p className="text-sm text-gray-600">Weight</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{latestMeasurement.weight} kg</p>
-          </div>
-          <div className="bg-blue-50 rounded-lg p-4">
-            <p className="text-sm text-gray-600">Height</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{latestMeasurement.height} cm</p>
-          </div>
-          <div className="bg-blue-50 rounded-lg p-4">
-            <p className="text-sm text-gray-600">MUAC</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{latestMeasurement.muac} cm</p>
-          </div>
-          <div className="bg-blue-50 rounded-lg p-4">
-            <p className="text-sm text-gray-600">Date</p>
-            <p className="text-lg font-bold text-gray-900 mt-1">{latestMeasurement.date}</p>
+      {/* Measurements at birth - visible when we have explicit birth data or an early measurement */}
+      {birthPanelData && (
+        <div className="bg-white rounded-lg shadow p-6 border-2 border-amber-200 bg-amber-50/30">
+          <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <span className="text-amber-600">
+              {birthPanelData.fromMeasurement ? 'Measurements around birth (first visit)' : 'Measurements at birth'}
+            </span>
+          </h3>
+          <p className="text-sm text-gray-600 mb-4">
+            {birthPanelData.fromMeasurement
+              ? `First recorded measurement close to birth (on: ${birthPanelData.date})`
+              : `Recorded when the child was registered (date of birth: ${birthPanelData.date})`}
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-lg p-4 border border-amber-200">
+              <p className="text-sm text-gray-600">Weight</p>
+              <p className="text-xl font-bold text-gray-900 mt-1">
+                {birthPanelData.weight != null ? `${birthPanelData.weight} kg` : '—'}
+              </p>
+            </div>
+            <div className="bg-white rounded-lg p-4 border border-amber-200">
+              <p className="text-sm text-gray-600">Length / height</p>
+              <p className="text-xl font-bold text-gray-900 mt-1">
+                {birthPanelData.height != null ? `${birthPanelData.height} cm` : '—'}
+              </p>
+            </div>
+            <div className="bg-white rounded-lg p-4 border border-amber-200">
+              <p className="text-sm text-gray-600">MUAC</p>
+              <p className="text-xl font-bold text-gray-900 mt-1">
+                {birthPanelData.muac != null ? `${birthPanelData.muac} cm` : '—'}
+              </p>
+            </div>
+            <div className="bg-white rounded-lg p-4 border border-amber-200">
+              <p className="text-sm text-gray-600">Birth risk</p>
+              <p className="mt-1">
+                {birthPanelData.birthRiskLevel ? (
+                  <span
+                    className="inline-block px-3 py-1 rounded-full text-sm font-medium text-white"
+                    style={{
+                      backgroundColor: getRiskColor(
+                        (birthPanelData.birthRiskLevel === 'SAM' || birthPanelData.birthRiskLevel === 'CRITICAL'
+                          ? 'sam'
+                          : birthPanelData.birthRiskLevel === 'MAM' ||
+                            birthPanelData.birthRiskLevel === 'MODERATE' ||
+                            birthPanelData.birthRiskLevel === 'HIGH'
+                          ? 'mam'
+                          : 'normal') as RiskLevel
+                      ),
+                    }}
+                  >
+                    {birthPanelData.birthRiskLevel}
+                  </span>
+                ) : (
+                  <span className="text-gray-500">—</span>
+                )}
+              </p>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="border border-gray-200 rounded-lg p-4">
-            <p className="text-sm text-gray-600">Weight-for-Age Z-score</p>
-            <p className={`text-2xl font-bold mt-1 ${latestMeasurement.weightForAge < -2 ? 'text-red-600' : 'text-green-600'}`}>
-              {latestMeasurement.weightForAge.toFixed(2)}
-            </p>
+      {/* Latest Measurements – hidden for Pediatric Unit (birth-only view) */}
+      {!isHospitalRole && (
+        <>
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Latest Measurements</h3>
+            {latestMeasurement ? (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <p className="text-sm text-gray-600">Weight</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">{latestMeasurement.weight} kg</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <p className="text-sm text-gray-600">Height</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">{latestMeasurement.height} cm</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <p className="text-sm text-gray-600">MUAC</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">{latestMeasurement.muac ?? '—'} cm</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <p className="text-sm text-gray-600">Date</p>
+                    <p className="text-lg font-bold text-gray-900 mt-1">{latestMeasurement.date}</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <p className="text-sm text-gray-600">Weight-for-Age Z-score</p>
+                    <p className={`text-2xl font-bold mt-1 ${(latestMeasurement.weightForAge ?? 0) < -2 ? 'text-red-600' : 'text-green-600'}`}>
+                      {(latestMeasurement.weightForAge ?? 0).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <p className="text-sm text-gray-600">Height-for-Age Z-score</p>
+                    <p className={`text-2xl font-bold mt-1 ${(latestMeasurement.heightForAge ?? 0) < -2 ? 'text-red-600' : 'text-green-600'}`}>
+                      {(latestMeasurement.heightForAge ?? 0).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <p className="text-sm text-gray-600">Weight-for-Height Z-score</p>
+                    <p className={`text-2xl font-bold mt-1 ${(latestMeasurement.weightForHeight ?? 0) < -2 ? 'text-red-600' : 'text-green-600'}`}>
+                      {(latestMeasurement.weightForHeight ?? 0).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-gray-500 py-4">No measurements recorded yet. Use &quot;Add Measurement&quot; to record the first visit.</p>
+            )}
           </div>
-          <div className="border border-gray-200 rounded-lg p-4">
-            <p className="text-sm text-gray-600">Height-for-Age Z-score</p>
-            <p className={`text-2xl font-bold mt-1 ${latestMeasurement.heightForAge < -2 ? 'text-red-600' : 'text-green-600'}`}>
-              {latestMeasurement.heightForAge.toFixed(2)}
-            </p>
+
+          {/* WHO Growth Charts */}
+          <WHOGrowthCharts measurements={child.measurements} childGender={child.gender} />
+
+          {/* Measurement History */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Measurement History</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Date</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Age</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Weight</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Height</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">MUAC</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Status</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {child.measurements.map((measurement) => (
+                    <tr key={measurement.id} className="border-b border-gray-100">
+                      <td className="py-3 px-4 text-sm text-gray-900">{measurement.date}</td>
+                      <td className="py-3 px-4 text-sm text-gray-600">{measurement.ageMonths}m</td>
+                      <td className="py-3 px-4 text-sm text-gray-900">{measurement.weight} kg</td>
+                      <td className="py-3 px-4 text-sm text-gray-900">{measurement.height} cm</td>
+                      <td className="py-3 px-4 text-sm text-gray-600">{measurement.muac != null ? `${measurement.muac} cm` : '—'}</td>
+                      <td className="py-3 px-4">
+                        <span
+                          className="inline-block px-2 py-1 rounded-full text-xs font-medium text-white"
+                          style={{ backgroundColor: getRiskColor(measurement.riskLevel) }}
+                        >
+                          {getRiskLabel(measurement.riskLevel).split(' ')[0]}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-gray-600">{measurement.notes || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div className="border border-gray-200 rounded-lg p-4">
-            <p className="text-sm text-gray-600">Weight-for-Height Z-score</p>
-            <p className={`text-2xl font-bold mt-1 ${latestMeasurement.weightForHeight < -2 ? 'text-red-600' : 'text-green-600'}`}>
-              {latestMeasurement.weightForHeight.toFixed(2)}
-            </p>
+        </>
+      )}
+
+      {/* Download PDF (hidden for Pediatric Unit) */}
+      {!isHospitalRole && (
+        <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-lg shadow-lg p-6 border-2 border-blue-200">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Download className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Download Complete Health Record PDF</h3>
+              <p className="text-sm text-gray-700 mb-4">
+                Generate a comprehensive medical report including all 5 WHO growth charts, measurement history, 
+                and clinical assessments for official documentation and patient records.
+              </p>
+              <div className="bg-white rounded-lg p-4 mb-4">
+                <p className="text-xs font-semibold text-gray-700 mb-2">PDF Contents:</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-600">
+                  <div>✓ Child Demographics & Information</div>
+                  <div>✓ Current Risk Assessment</div>
+                  <div>✓ Latest Measurements & Z-scores</div>
+                  <div>✓ Chart 1: Weight-for-Age (0-5 years)</div>
+                  <div>✓ Chart 2a: Length-for-Age (0-2 years)</div>
+                  <div>✓ Chart 2b: Height-for-Age (2-5 years)</div>
+                  <div>✓ Chart 3a: Weight-for-Length (0-2 years)</div>
+                  <div>✓ Chart 3b: Weight-for-Height (2-5 years)</div>
+                  <div>✓ Chart 4: BMI-for-Age</div>
+                  <div>✓ Chart 5: Head Circumference-for-Age</div>
+                  <div>✓ Complete Measurement History</div>
+                  <div>✓ Clinical Notes & Recommendations</div>
+                </div>
+              </div>
+              <button
+                onClick={handleDownloadPDF}
+                className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-md"
+              >
+                <Download className="w-5 h-5" />
+                Download Complete Health Record (PDF)
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* WHO Growth Charts */}
-      <WHOGrowthCharts measurements={child.measurements} childGender={child.gender} />
+      {/* PDF Generation Dialog (hidden for Pediatric Unit) */}
+      {!isHospitalRole && (
+        <AlertDialog open={showPDFDialog} onOpenChange={setShowPDFDialog}>
+          <AlertDialogContent className="max-w-2xl">
+            <AlertDialogHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                  <FileText className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <AlertDialogTitle className="text-xl">
+                    Generating Comprehensive Health Record PDF
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-sm text-gray-600 mt-1">
+                    for {child.name}
+                  </AlertDialogDescription>
+                </div>
+              </div>
+            </AlertDialogHeader>
+            
+            {/* Content outside AlertDialogDescription to avoid nesting issues */}
+            <div className="mt-4 space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="font-semibold text-gray-900 mb-3">This PDF includes:</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-700">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>Child Demographics & Basic Information</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>Current Nutritional Status & Risk Assessment</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>Latest Measurements with Z-scores</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>WHO Chart 1: Weight-for-Age (Birth to 5 Years)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>WHO Chart 2a: Length-for-Age (Birth to 2 Years)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>WHO Chart 2b: Height-for-Age (2 to 5 Years)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>WHO Chart 3a: Weight-for-Length (Birth to 2 Years)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>WHO Chart 3b: Weight-for-Height (2 to 5 Years)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>WHO Chart 4: BMI-for-Age Trend</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>WHO Chart 5: Head Circumference-for-Age</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>Complete Measurement History Table</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>Clinical Notes & Recommendations</span>
+                  </div>
+                </div>
+              </div>
 
-      {/* Measurement History */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Measurement History</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Date</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Age</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Weight</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Height</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">MUAC</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Status</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {child.measurements.map((measurement) => (
-                <tr key={measurement.id} className="border-b border-gray-100">
-                  <td className="py-3 px-4 text-sm text-gray-900">{measurement.date}</td>
-                  <td className="py-3 px-4 text-sm text-gray-600">{measurement.ageMonths}m</td>
-                  <td className="py-3 px-4 text-sm text-gray-900">{measurement.weight} kg</td>
-                  <td className="py-3 px-4 text-sm text-gray-900">{measurement.height} cm</td>
-                  <td className="py-3 px-4 text-sm text-gray-900">{measurement.muac} cm</td>
-                  <td className="py-3 px-4">
-                    <span
-                      className="inline-block px-2 py-1 rounded-full text-xs font-medium text-white"
-                      style={{ backgroundColor: getRiskColor(measurement.riskLevel) }}
-                    >
-                      {getRiskLabel(measurement.riskLevel).split(' ')[0]}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-sm text-gray-600">{measurement.notes || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Download PDF */}
-      <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-lg shadow-lg p-6 border-2 border-blue-200">
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
-            <Download className="w-6 h-6 text-white" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Download Complete Health Record PDF</h3>
-            <p className="text-sm text-gray-700 mb-4">
-              Generate a comprehensive medical report including all 5 WHO growth charts, measurement history, 
-              and clinical assessments for official documentation and patient records.
-            </p>
-            <div className="bg-white rounded-lg p-4 mb-4">
-              <p className="text-xs font-semibold text-gray-700 mb-2">PDF Contents:</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-600">
-                <div>✓ Child Demographics & Information</div>
-                <div>✓ Current Risk Assessment</div>
-                <div>✓ Latest Measurements & Z-scores</div>
-                <div>✓ Chart 1: Weight-for-Age (0-5 years)</div>
-                <div>✓ Chart 2a: Length-for-Age (0-2 years)</div>
-                <div>✓ Chart 2b: Height-for-Age (2-5 years)</div>
-                <div>✓ Chart 3a: Weight-for-Length (0-2 years)</div>
-                <div>✓ Chart 3b: Weight-for-Height (2-5 years)</div>
-                <div>✓ Chart 4: BMI-for-Age</div>
-                <div>✓ Chart 5: Head Circumference-for-Age</div>
-                <div>✓ Complete Measurement History</div>
-                <div>✓ Clinical Notes & Recommendations</div>
+              <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700">
+                <div className="flex justify-between">
+                  <span className="font-medium">Generated on:</span>
+                  <span>{new Date().toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}</span>
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="font-medium">Child ID:</span>
+                  <span className="font-mono">{child.id}</span>
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="font-medium">Clinic:</span>
+                  <span>Colombo PHM Clinic</span>
+                </div>
               </div>
             </div>
-            <button
-              onClick={handleDownloadPDF}
-              className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-md"
-            >
-              <Download className="w-5 h-5" />
-              Download Complete Health Record (PDF)
-            </button>
-          </div>
-        </div>
-      </div>
 
-      {/* PDF Generation Dialog */}
-      <AlertDialog open={showPDFDialog} onOpenChange={setShowPDFDialog}>
-        <AlertDialogContent className="max-w-2xl">
+            <AlertDialogFooter className="mt-6">
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleConfirmDownload}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Generate & Download PDF
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+
+      {/* Edit Child Dialog */}
+      <AlertDialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <AlertDialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <AlertDialogHeader>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                <FileText className="w-6 h-6 text-blue-600" />
-              </div>
-              <div>
-                <AlertDialogTitle className="text-xl">
-                  Generating Comprehensive Health Record PDF
-                </AlertDialogTitle>
-                <AlertDialogDescription className="text-sm text-gray-600 mt-1">
-                  for {child.name}
-                </AlertDialogDescription>
-              </div>
-            </div>
+            <AlertDialogTitle>Edit child details</AlertDialogTitle>
+            <AlertDialogDescription>Update basic information and birth measurements. Changes are saved immediately.</AlertDialogDescription>
           </AlertDialogHeader>
-          
-          {/* Content outside AlertDialogDescription to avoid nesting issues */}
-          <div className="mt-4 space-y-4">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="font-semibold text-gray-900 mb-3">This PDF includes:</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-700">
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>Child Demographics & Basic Information</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>Current Nutritional Status & Risk Assessment</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>Latest Measurements with Z-scores</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>WHO Chart 1: Weight-for-Age (Birth to 5 Years)</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>WHO Chart 2a: Length-for-Age (Birth to 2 Years)</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>WHO Chart 2b: Height-for-Age (2 to 5 Years)</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>WHO Chart 3a: Weight-for-Length (Birth to 2 Years)</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>WHO Chart 3b: Weight-for-Height (2 to 5 Years)</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>WHO Chart 4: BMI-for-Age Trend</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>WHO Chart 5: Head Circumference-for-Age</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>Complete Measurement History Table</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                  <span>Clinical Notes & Recommendations</span>
-                </div>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+              <input value={editForm.name ?? ''} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
             </div>
-
-            <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700">
-              <div className="flex justify-between">
-                <span className="font-medium">Generated on:</span>
-                <span>{new Date().toLocaleDateString('en-US', { 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
-                })}</span>
-              </div>
-              <div className="flex justify-between mt-1">
-                <span className="font-medium">Child ID:</span>
-                <span className="font-mono">{child.id}</span>
-              </div>
-              <div className="flex justify-between mt-1">
-                <span className="font-medium">Clinic:</span>
-                <span>Colombo PHM Clinic</span>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date of birth</label>
+              <input type="date" value={editForm.dob ?? ''} onChange={(e) => setEditForm({ ...editForm, dob: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+              <select value={editForm.gender ?? ''} onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })} className="w-full px-3 py-2 border rounded-lg">
+                <option value="">Select</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Guardian name</label>
+              <input value={editForm.guardian_name ?? ''} onChange={(e) => setEditForm({ ...editForm, guardian_name: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mother name</label>
+              <input value={editForm.mother_name ?? ''} onChange={(e) => setEditForm({ ...editForm, mother_name: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Guardian phone</label>
+              <input value={editForm.guardian_phone ?? ''} onChange={(e) => setEditForm({ ...editForm, guardian_phone: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Guardian NIC</label>
+              <input value={editForm.guardian_nic ?? ''} onChange={(e) => setEditForm({ ...editForm, guardian_nic: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+              <textarea value={editForm.address ?? ''} onChange={(e) => setEditForm({ ...editForm, address: e.target.value })} rows={2} className="w-full px-3 py-2 border rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Birth weight (kg)</label>
+              <input type="number" step="0.01" value={editForm.birth_weight_kg ?? ''} onChange={(e) => setEditForm({ ...editForm, birth_weight_kg: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Birth height (cm)</label>
+              <input type="number" step="0.1" value={editForm.birth_height_cm ?? ''} onChange={(e) => setEditForm({ ...editForm, birth_height_cm: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Birth MUAC (cm)</label>
+              <input type="number" step="0.1" value={editForm.birth_muac_cm ?? ''} onChange={(e) => setEditForm({ ...editForm, birth_muac_cm: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Birth risk level</label>
+              <select value={editForm.birth_risk_level ?? ''} onChange={(e) => setEditForm({ ...editForm, birth_risk_level: e.target.value })} className="w-full px-3 py-2 border rounded-lg">
+                <option value="">—</option>
+                <option value="NORMAL">Normal</option>
+                <option value="MAM">MAM</option>
+                <option value="SAM">SAM</option>
+              </select>
             </div>
           </div>
-
-          <AlertDialogFooter className="mt-6">
+          <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmDownload}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Generate & Download PDF
+            <AlertDialogAction onClick={handleEditSave} disabled={isSaving} className="bg-blue-600 hover:bg-blue-700 text-white">
+              {isSaving ? 'Saving...' : 'Save changes'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Child Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete child record</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {child.name}? This will permanently remove the child and all associated measurements and history. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm} disabled={isDeleting} className="bg-red-600 hover:bg-red-700 text-white">
+              {isDeleting ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

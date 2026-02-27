@@ -10,8 +10,6 @@ from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 
 from backend.extensions import db
 from backend.models_hierarchical import User, Area, WorkerAreaMapping, Child, UserRole, AreaLevel
-
-# Area level for filtering
 AREA_LEVEL_MOH = "moh"
 
 
@@ -103,6 +101,14 @@ def user_can_access_child(user: User, child: Child) -> bool:
     if user.role == ROLE_HEALTH_MINISTRY:
         return True  # Super admin can access all
 
+    # Hospital (Pediatric Unit): can access any child registered at their hospital
+    if user.role == ROLE_HOSPITAL:
+        if getattr(user, "hospital_id", None) and child.hospital_id == user.hospital_id:
+            return True
+        if not child.current_assigned_area_id and child.registered_by_user_id == user.id:
+            return True
+        return False
+
     # MOH/AMOH: strict area isolation by moh_area_id only
     if user.role in (ROLE_MOH, ROLE_AMOH):
         if not child.moh_area_id:
@@ -147,6 +153,22 @@ def user_can_access_child(user: User, child: Child) -> bool:
         return False
     
     return user_can_access_area(user, child.current_assigned_area_id)
+
+
+def child_was_escalated_to_moh(child: Child, moh_area_ids: List[int]) -> bool:
+    """
+    True if this child was sent (escalated) to MOH by a midwife.
+    MOH can add measurements only for such children.
+    """
+    if not child or not moh_area_ids:
+        return False
+    from backend.models_hierarchical import ChildEscalation
+    exists = db.session.query(ChildEscalation).filter(
+        ChildEscalation.child_id == child.id,
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.moh_id.in_(moh_area_ids),
+    ).first()
+    return exists is not None
 
 
 def get_user_accessible_areas(user: User) -> List[Area]:
@@ -411,9 +433,11 @@ def child_access_required(fn):
         child_id = kwargs.get('child_id') or request.json.get('child_id') if request.is_json else None
         
         if child_id:
-            # Try to get child by child_id (string) or id (int)
+            # Try to get child by child_id (string) or by primary key (if numeric)
             if isinstance(child_id, str):
                 child = db.session.query(Child).filter(Child.child_id == child_id).first()
+                if not child and child_id.isdigit():
+                    child = db.session.get(Child, int(child_id))
             else:
                 child = db.session.get(Child, child_id)
             

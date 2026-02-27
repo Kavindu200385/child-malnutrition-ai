@@ -3,13 +3,16 @@ Children CRUD Routes - Hierarchical System
 Updated with area-based access control and hierarchical filtering
 """
 from datetime import datetime
+from decimal import Decimal
 from flask import Blueprint, jsonify, request
 
 from backend.auth_utils_hierarchical import (
     get_current_user,
     user_can_access_child,
     get_user_accessible_areas,
+    get_moh_area_ids,
     get_rdhs_district_area_ids,
+    child_was_escalated_to_moh,
     hospital_required,
     measurement_required,
     child_access_required,
@@ -27,6 +30,7 @@ from backend.extensions import db
 from backend.models_hierarchical import Child, Visit, Area, RiskLevel
 from backend.utils.audit import log_audit
 from backend.utils.midwife_helpers import get_area_hierarchy
+from backend.utils.hospital_helpers import calculate_birth_risk_level
 
 bp = Blueprint("children_crud_hierarchical", __name__, url_prefix="/api/children")
 
@@ -75,6 +79,54 @@ def create_child():
             child.dob = datetime.fromisoformat(dob).date()
         except ValueError:
             return jsonify({"status": "error", "message": "dob must be ISO date (YYYY-MM-DD)"}), 400
+
+    # Optional birth measurements (BirthRegistrationView wizard or direct payload)
+    birth_reg = data.get("birth_registration") or {}
+
+    # Allow both direct fields and nested birth_registration fields
+    birth_weight_raw = data.get("birth_weight_kg")
+    birth_height_raw = data.get("birth_height_cm")
+    birth_muac_raw = data.get("birth_muac_cm")
+
+    if not birth_weight_raw and isinstance(birth_reg, dict):
+        birth_weight_raw = birth_reg.get("birthWeight")
+    if not birth_height_raw and isinstance(birth_reg, dict):
+        birth_height_raw = birth_reg.get("birthLength")
+    if not birth_muac_raw and isinstance(birth_reg, dict):
+        birth_muac_raw = birth_reg.get("birthMuac") or birth_reg.get("muac")
+
+    def _to_float(value):
+        try:
+            if value is None or value == "":
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    birth_weight = _to_float(birth_weight_raw)
+    birth_height = _to_float(birth_height_raw)
+    birth_muac = _to_float(birth_muac_raw)
+
+    if birth_weight is not None:
+        child.birth_weight_kg = Decimal(str(birth_weight))
+    if birth_height is not None:
+        child.birth_height_cm = Decimal(str(birth_height))
+    if birth_muac is not None:
+        child.birth_muac_cm = Decimal(str(birth_muac))
+
+    # If DOB and birth measurements are available, derive an initial birth_risk_level
+    if child.dob and birth_weight is not None:
+        age_days = (datetime.utcnow().date() - child.dob).days
+        birth_risk_level, _reason = calculate_birth_risk_level(
+            birth_weight_kg=birth_weight,
+            birth_height_cm=birth_height,
+            birth_muac_cm=birth_muac,
+            age_days=age_days,
+        )
+        child.birth_risk_level = birth_risk_level
+        # Keep child's current_risk_level in sync if it is still at the default NORMAL
+        if not child.current_risk_level or str(child.current_risk_level) == str(RiskLevel.NORMAL.value):
+            child.current_risk_level = birth_risk_level
 
     db.session.add(child)
     db.session.flush()
@@ -139,7 +191,7 @@ def list_children():
     query = db.session.query(Child)
     
     if user.role == ROLE_HEALTH_MINISTRY:
-        # Super admin sees all
+        # Health Ministry (admin/superadmin): all island children – no area filter
         pass
     elif user.role in [ROLE_PDHS, ROLE_RDHS]:
         # PDHS/RDHS see children in their areas
@@ -236,10 +288,18 @@ def list_children():
     for child in children:
         if user_can_access_child(user, child):
             accessible_children.append(child)
-    
+
+    # Build response; for MOH/AMOH add can_moh_add_measurement (only for children sent by midwife)
+    moh_area_ids = get_moh_area_ids(user) if user.role in (ROLE_MOH, ROLE_AMOH) else []
+    def child_dict(c):
+        d = c.to_dict()
+        if moh_area_ids:
+            d["can_moh_add_measurement"] = child_was_escalated_to_moh(c, moh_area_ids)
+        return d
+
     return jsonify({
         "status": "success",
-        "children": [c.to_dict() for c in accessible_children],
+        "children": [child_dict(c) for c in accessible_children],
         "count": len(accessible_children),
     }), 200
 
@@ -249,9 +309,12 @@ def list_children():
 def get_child(child_id: str):
     """
     Get child details with area-based access control.
+    Accepts either child_id (string, e.g. registration number) or numeric primary key id.
     """
     user = get_current_user()
     child = db.session.query(Child).filter(Child.child_id == child_id).first()
+    if not child and child_id.isdigit():
+        child = db.session.get(Child, int(child_id))
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
     
@@ -263,33 +326,49 @@ def get_child(child_id: str):
     include_visits = user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS]
     include_transfers = user.role in [ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS]
     
+    child_data = child.to_dict(include_visits=include_visits, include_transfers=include_transfers)
+    if user.role in (ROLE_MOH, ROLE_AMOH):
+        moh_area_ids = get_moh_area_ids(user)
+        child_data["can_moh_add_measurement"] = child_was_escalated_to_moh(child, moh_area_ids)
+    
     return jsonify({
         "status": "success",
-        "child": child.to_dict(include_visits=include_visits, include_transfers=include_transfers)
+        "child": child_data
     }), 200
 
 
 @bp.route("/<child_id>", methods=["PUT"])
-@hospital_required
+@role_required(ROLE_HOSPITAL, ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_HEALTH_MINISTRY)
 @child_access_required
 def update_child(child_id: str):
     """
-    Update child information (Hospital only - for managing registered children).
+    Update child information. Pediatric Unit, Midwife, MOH/AMOH, and Health Ministry
+    can edit children they have access to.
     """
     user = get_current_user()
     child = db.session.query(Child).filter(Child.child_id == child_id).first()
+    if not child and child_id.isdigit():
+        child = db.session.get(Child, int(child_id))
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
-    
-    # Check if hospital registered this child
-    if child.registered_by_user_id != user.id and user.role != ROLE_HEALTH_MINISTRY:
-        return jsonify({"status": "error", "message": "Can only update children you registered"}), 403
-    
+
+    if not user_can_access_child(user, child):
+        return jsonify({"status": "error", "message": "No access to this child"}), 403
+
+    # Pediatric Unit can only edit within 1 day of registration
+    if user.role == ROLE_HOSPITAL:
+        if not child.registration_date:
+            return jsonify({"status": "error", "message": "Cannot edit: registration date missing"}), 403
+        now = datetime.utcnow()
+        diff = now - child.registration_date
+        if diff.total_seconds() > 24 * 60 * 60:
+            return jsonify({"status": "error", "message": "Pediatric Unit can edit child details only within 1 day of registration"}), 403
+
     data = request.get_json() or {}
     old_values = child.to_dict()
 
-    # Update fields
-    for field in ["name", "gender", "guardian_name", "guardian_phone", "guardian_nic", "address"]:
+    # Update basic fields
+    for field in ["name", "gender", "guardian_name", "mother_name", "guardian_phone", "guardian_nic", "address"]:
         if field in data:
             setattr(child, field, data[field])
 
@@ -309,8 +388,40 @@ def update_child(child_id: str):
             except ValueError:
                 return jsonify({"status": "error", "message": "dob must be ISO date (YYYY-MM-DD)"}), 400
 
+    # Optional birth measurements
+    birth_fields_updated = False
+    if "birth_weight_kg" in data:
+        v = data["birth_weight_kg"]
+        child.birth_weight_kg = Decimal(str(v)) if v is not None and v != "" else None
+        birth_fields_updated = True
+    if "birth_height_cm" in data:
+        v = data["birth_height_cm"]
+        child.birth_height_cm = Decimal(str(v)) if v is not None and v != "" else None
+        birth_fields_updated = True
+    if "birth_muac_cm" in data:
+        v = data["birth_muac_cm"]
+        child.birth_muac_cm = Decimal(str(v)) if v is not None and v != "" else None
+        birth_fields_updated = True
+    if "birth_risk_level" in data:
+        # Explicit override from client, used as-is
+        child.birth_risk_level = data["birth_risk_level"] if data["birth_risk_level"] else None
+    elif birth_fields_updated and child.dob:
+        # Automatically recalculate birth_risk_level when birth measurements change
+        bw = float(child.birth_weight_kg) if child.birth_weight_kg is not None else None
+        bh = float(child.birth_height_cm) if child.birth_height_cm is not None else None
+        bm = float(child.birth_muac_cm) if child.birth_muac_cm is not None else None
+        if bw is not None:
+            age_days = (datetime.utcnow().date() - child.dob).days
+            new_birth_risk, _reason = calculate_birth_risk_level(
+                birth_weight_kg=bw,
+                birth_height_cm=bh,
+                birth_muac_cm=bm,
+                age_days=age_days,
+            )
+            child.birth_risk_level = new_birth_risk
+
     db.session.flush()
-    
+
     log_audit(
         action="UPDATE",
         entity_type="child",
@@ -320,28 +431,39 @@ def update_child(child_id: str):
         user_id=user.id,
         description=f"Updated child {child_id}",
     )
-    
+
     db.session.commit()
     return jsonify({"status": "success", "child": child.to_dict()}), 200
 
 
 @bp.route("/<child_id>", methods=["DELETE"])
+@role_required(ROLE_HOSPITAL, ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_HEALTH_MINISTRY)
+@child_access_required
 def delete_child(child_id: str):
-    """Delete child - Health Ministry only"""
+    """Delete child. Pediatric Unit, Midwife, MOH/AMOH, and Health Ministry can delete children they have access to."""
     user = get_current_user()
-    if not user:
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    if user.role != ROLE_HEALTH_MINISTRY:
-        return jsonify({"status": "error", "message": "Only Health Ministry can delete children"}), 403
-    
     child = db.session.query(Child).filter(Child.child_id == child_id).first()
+    if not child and child_id.isdigit():
+        child = db.session.get(Child, int(child_id))
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
-    
+
+    if not user_can_access_child(user, child):
+        return jsonify({"status": "error", "message": "No access to this child"}), 403
+
+    # Pediatric Unit can only delete within 1 day of registration
+    if user.role == ROLE_HOSPITAL:
+        if not child.registration_date:
+            return jsonify({"status": "error", "message": "Cannot delete: registration date missing"}), 403
+        now = datetime.utcnow()
+        diff = now - child.registration_date
+        if diff.total_seconds() > 24 * 60 * 60:
+            return jsonify({"status": "error", "message": "Pediatric Unit can delete child only within 1 day of registration"}), 403
+
     old_values = child.to_dict()
     db.session.delete(child)
     db.session.flush()
-    
+
     log_audit(
         action="DELETE",
         entity_type="child",
@@ -350,7 +472,7 @@ def delete_child(child_id: str):
         user_id=user.id,
         description=f"Deleted child {child_id}",
     )
-    
+
     db.session.commit()
     return jsonify({"status": "success"}), 200
 
@@ -412,11 +534,27 @@ def assign_child_to_area(child_id: str):
     child.current_assigned_area_id = area_id
     child.current_assigned_user_id = user.id
     
-    # Update area-specific fields
+    # Update area-specific fields and full hierarchy so child appears in MOH, RDHS, PDHS
     if user.role == ROLE_MIDWIFE:
         child.phm_area_id = area_id
+        try:
+            hierarchy = get_area_hierarchy(area_id)
+            child.moh_area_id = hierarchy.get("moh_id")
+            child.district_id = hierarchy.get("district_id")
+            child.province_id = hierarchy.get("province_id")
+        except ValueError:
+            pass  # area may not be PHM or hierarchy incomplete
+        child.assigned_date = datetime.utcnow()
     elif user.role in [ROLE_MOH, ROLE_AMOH]:
         child.moh_area_id = area_id
+        # Set district/province from MOH area's parents so RDHS/PDHS see the child
+        moh_area = db.session.get(Area, area_id)
+        if moh_area and moh_area.parent_id:
+            child.district_id = moh_area.parent_id  # RDHS
+            rdhs_area = db.session.get(Area, moh_area.parent_id)
+            if rdhs_area and rdhs_area.parent_id:
+                child.province_id = rdhs_area.parent_id  # PDHS
+        child.assigned_date = datetime.utcnow()
     
     child.status = "ACTIVE"
     child.is_draft = False

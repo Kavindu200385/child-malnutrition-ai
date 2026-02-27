@@ -106,7 +106,10 @@ export function SharedDashboardLayout({
     return new Date(db).getTime() - new Date(da).getTime();
   }).slice(0, 5);
 
-  const childIdForView = (c: any) => c.child_id ?? c.child_unique_id ?? c.id;
+  const childIdForView = (c: any) => {
+    const id = c.child_id ?? c.child_unique_id ?? c.id;
+    return id != null ? String(id) : '';
+  };
 
   return (
     <div className="space-y-6">
