@@ -1,7 +1,9 @@
+import React from 'react';
 import { useRef, useState, useEffect } from 'react';
 import { getRiskColor, getRiskLabel, calculateRiskLevel, RiskLevel } from '../../types';
 import { ArrowLeft, User, Phone, MapPin, Calendar, Activity, AlertTriangle, TrendingUp, Plus, Download, TrendingDown, FileText, CheckCircle, Pencil, Trash2 } from 'lucide-react';
 import { WHOGrowthCharts } from './WHOGrowthCharts';
+import { HiddenPdfCharts, generateProfessionalPdf } from './PdfReportGenerator';
 import { childrenAPI } from '../../services/api';
 import {
   AlertDialog,
@@ -149,6 +151,10 @@ function createBirthMeasurement(apiChild: any): {
   };
 }
 
+// ─── PDF helpers ─────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: ChildProfileViewProps) {
   const [showPDFDialog, setShowPDFDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -157,6 +163,16 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
   const [isDeleting, setIsDeleting] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string | null>>({});
   const pdfRef = useRef<HTMLDivElement | null>(null);
+
+  // Hidden chart refs for PDF generation
+  const chartRefs = {
+    wfa: useRef<HTMLDivElement>(null),
+    hfa0_24: useRef<HTMLDivElement>(null),
+    hfa24_60: useRef<HTMLDivElement>(null),
+    wfh: useRef<HTMLDivElement>(null),
+    zscore: useRef<HTMLDivElement>(null),
+  };
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [apiChild, setApiChild] = useState<any>(null);
@@ -486,51 +502,34 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
 
   const handleConfirmDownload = async () => {
     setShowPDFDialog(false);
-
-    // Client-side PDF generation from the rendered profile view.
-    // Includes charts + tables as they appear on screen.
     try {
-      const el = pdfRef.current;
-      if (!el) return;
-
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ]);
-
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-      });
-
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-
-      // Calculate image dimensions to fit A4 width
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pdfHeight;
-
-      while (heightLeft > 0) {
-        position -= pdfHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pdfHeight;
-      }
-
-      const safeName = String(child.name || 'child').replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
-      pdf.save(`CMRAS_Health_Record_${safeName}_${child.id}.pdf`);
+      if (!child) return;
+      await generateProfessionalPdf(
+        {
+          id: child.id,
+          name: child.name,
+          dob: child.dob,
+          gender: child.gender,
+          guardianName: child.guardianName,
+          guardianPhone: child.guardianPhone,
+          address: child.address,
+          riskLevel: child.riskLevel,
+          measurements: child.measurements,
+          motherName: apiChild?.mother_name ?? undefined,
+          guardianNic: apiChild?.guardian_nic ?? undefined,
+          birthWeightKg: apiChild?.birth_weight_kg ?? null,
+          birthHeightCm: apiChild?.birth_height_cm ?? null,
+          birthRiskLevel: apiChild?.birth_risk_level ?? null,
+        },
+        {
+          wfa: chartRefs.wfa.current,
+          hfa0_24: chartRefs.hfa0_24.current,
+          hfa24_60: chartRefs.hfa24_60.current,
+          wfh: chartRefs.wfh.current,
+          zscore: chartRefs.zscore.current,
+        }
+      );
     } catch (e) {
-      // fallback: at least show something useful to the user
       console.error('PDF generation failed', e);
       alert('PDF generation failed. Please try again.');
     }
@@ -538,6 +537,15 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
 
   return (
     <div className="space-y-6" ref={pdfRef}>
+      {/* Hidden charts rendered off-screen for PDF capture */}
+      {!isHospitalRole && child && (
+        <HiddenPdfCharts
+          measurements={child.measurements}
+          gender={child.gender}
+          refs={chartRefs}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-4">
         <button
