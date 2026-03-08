@@ -127,9 +127,21 @@ def should_escalate_to_moh(
 def can_midwife_access_child(midwife_user, child: Child) -> bool:
     """
     Check if midwife can access a child.
-    Midwife can only access children in her PHM area.
+    Midwife can access children assigned to her PHM area.
+    Looks up PHM area via WorkerAreaMapping (authoritative) then falls back to User.phm_area_id.
     """
-    if not midwife_user.phm_area_id:
+    from backend.models_hierarchical import WorkerAreaMapping, Area, AreaLevel
+
+    # Resolve midwife's PHM area from WorkerAreaMapping (authoritative source)
+    phm_mapping = db.session.query(WorkerAreaMapping).join(Area).filter(
+        WorkerAreaMapping.user_id == midwife_user.id,
+        WorkerAreaMapping.is_active == True,
+        Area.level == AreaLevel.PHM.value
+    ).first()
+
+    midwife_phm_area_id = phm_mapping.area_id if phm_mapping else getattr(midwife_user, "phm_area_id", None)
+
+    if not midwife_phm_area_id:
         return False
-    
-    return child.phm_area_id == midwife_user.phm_area_id
+
+    return child.phm_area_id == midwife_phm_area_id

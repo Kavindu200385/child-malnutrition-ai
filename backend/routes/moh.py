@@ -36,9 +36,21 @@ from backend.models_hierarchical import (
 )
 from backend.utils.audit import log_audit
 from backend.utils.midwife_helpers import calculate_z_scores, should_escalate_to_moh
-from backend.ai.predictor import predict_current_risk
+from backend.ai.predictor import predict_current_risk, predict_future_risk, compute_z_scores as ai_compute_z_scores
 
 bp = Blueprint("moh", __name__, url_prefix="/api/moh")
+
+
+def _normalize_ai_risk(label: str) -> str:
+    """Map raw AI model output to standard DB risk strings."""
+    s = str(label).strip().lower()
+    if s == 'normal':
+        return 'NORMAL'
+    if s == 'mam':
+        return 'MAM'
+    if s in ('sam', 'severe_stunting', 'severe stunting'):
+        return 'SAM'
+    return 'NORMAL'
 
 
 def _moh_area_ids_or_403():
@@ -101,7 +113,15 @@ def add_measurement():
     age_days = (datetime.now().date() - child.dob).days
     age_months = age_days // 30
     sex = "M" if child.gender == "male" else "F"
-    z_scores = calculate_z_scores(age_months, sex, float(weight_kg), float(height_cm))
+
+    # Real WHO Z-scores
+    try:
+        wfa_z, hfa_z, wfh_z = ai_compute_z_scores(
+            age_months=age_months, sex=sex,
+            weight_kg=float(weight_kg), height_cm=float(height_cm)
+        )
+    except Exception:
+        wfa_z = hfa_z = wfh_z = None
 
     try:
         ai_result = predict_current_risk({
@@ -115,11 +135,21 @@ def add_measurement():
                 "status": "error",
                 "message": f"AI analysis failed: {ai_result.get('error', 'Unknown error')}",
             }), 500
-        current_risk = ai_result.get("risk_level", RiskLevel.NORMAL.value)
-        predicted_risk = ai_result.get("predicted_risk_next_2_months")
+        # KEY FIX: model returns 'model_prediction', not 'risk_level'
+        current_risk = _normalize_ai_risk(ai_result.get("model_prediction", "Normal"))
         confidence = ai_result.get("confidence", 0.0)
     except Exception as e:
         return jsonify({"status": "error", "message": f"AI analysis error: {str(e)}"}), 500
+
+    # Future risk prediction
+    try:
+        future_result = predict_future_risk({
+            "age_months": age_months, "sex": sex,
+            "weight_kg": float(weight_kg), "height_cm": float(height_cm),
+        })
+        predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
+    except Exception:
+        predicted_risk = None
 
     previous_risk = child.current_risk_level
     measurement = Measurement(
@@ -128,12 +158,12 @@ def add_measurement():
         weight_kg=Decimal(str(weight_kg)),
         height_cm=Decimal(str(height_cm)),
         muac_cm=Decimal(str(muac_cm)) if muac_cm else None,
-        z_score_wfa=Decimal(str(z_scores["z_wfa"])) if z_scores.get("z_wfa") is not None else None,
-        z_score_hfa=Decimal(str(z_scores["z_hfa"])) if z_scores.get("z_hfa") is not None else None,
-        z_score_wfh=Decimal(str(z_scores["z_wfh"])) if z_scores.get("z_wfh") is not None else None,
+        z_score_wfa=Decimal(str(round(wfa_z, 4))) if wfa_z is not None else None,
+        z_score_hfa=Decimal(str(round(hfa_z, 4))) if hfa_z is not None else None,
+        z_score_wfh=Decimal(str(round(wfh_z, 4))) if wfh_z is not None else None,
         risk_level=current_risk,
         predicted_risk_next_2_months=predicted_risk,
-        model_confidence=Decimal(str(confidence)),
+        model_confidence=Decimal(str(confidence)) if confidence else None,
         measured_by_user_id=user.id,
         notes=data.get("notes"),
     )

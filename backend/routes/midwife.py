@@ -27,9 +27,24 @@ from backend.utils.midwife_helpers import (
     can_midwife_access_child
 )
 from backend.utils.audit import log_audit
-from backend.ai.predictor import predict_current_risk, predict_future_risk
+from backend.ai.predictor import predict_current_risk, predict_future_risk, compute_z_scores as ai_compute_z_scores
 
 bp = Blueprint("midwife", __name__, url_prefix="/api/midwife")
+
+
+def _normalize_ai_risk(label: str) -> str:
+    """
+    Map raw AI model output labels to standard DB risk strings.
+    Model outputs: 'Normal', 'MAM', 'SAM', 'Severe_Stunting'  →  'NORMAL', 'MAM', 'SAM'
+    """
+    s = str(label).strip().lower()
+    if s == 'normal':
+        return RiskLevel.NORMAL.value
+    if s == 'mam':
+        return RiskLevel.MAM.value
+    if s in ('sam', 'severe_stunting', 'severe stunting'):
+        return RiskLevel.SAM.value
+    return RiskLevel.NORMAL.value
 
 
 def midwife_required(f):
@@ -120,41 +135,60 @@ def assign_child(child_id: int):
     Automatically maps to MOH, RDHS, PDHS based on hierarchy.
     """
     user = get_current_user()
-    
+
     child = db.session.get(Child, child_id)
     if not child:
         return jsonify({
             "status": "error",
             "message": "Child not found"
         }), 404
-    
+
+    # Resolve midwife's PHM area from WorkerAreaMapping (authoritative)
+    from backend.models_hierarchical import WorkerAreaMapping
+    phm_mapping = db.session.query(WorkerAreaMapping).join(Area).filter(
+        WorkerAreaMapping.user_id == user.id,
+        WorkerAreaMapping.is_active == True,
+        Area.level == AreaLevel.PHM.value
+    ).first()
+
+    if not phm_mapping:
+        return jsonify({
+            "status": "error",
+            "message": "Your PHM area is not configured"
+        }), 400
+
+    midwife_phm_area_id = phm_mapping.area_id
+
     # Check if already assigned to another area
-    if child.phm_area_id is not None and child.phm_area_id != user.phm_area_id:
+    if child.phm_area_id is not None and child.phm_area_id != midwife_phm_area_id:
         return jsonify({
             "status": "error",
             "message": "Child is already assigned to another PHM area. Cannot reassign."
         }), 400
-    
+
     # Get area hierarchy
     try:
-        hierarchy = get_area_hierarchy(user.phm_area_id)
+        hierarchy = get_area_hierarchy(midwife_phm_area_id)
     except ValueError as e:
         return jsonify({
             "status": "error",
             "message": str(e)
         }), 400
-    
+
     # Assign child to this midwife's area
     child.phm_area_id = hierarchy["phm_area_id"]
     child.moh_area_id = hierarchy["moh_id"]
     child.district_id = hierarchy["district_id"]
     child.province_id = hierarchy["province_id"]
-    child.assigned_date = datetime.now()
+    child.current_assigned_area_id = midwife_phm_area_id
     child.current_assigned_role = UserRole.MIDWIFE.value
     child.current_assigned_user_id = user.id
-    
+    child.assigned_date = datetime.now()
+    child.status = "ACTIVE"
+    child.is_draft = False
+
     db.session.flush()
-    
+
     log_audit(
         action="UPDATE",
         entity_type="child",
@@ -162,11 +196,11 @@ def assign_child(child_id: int):
         old_values={"phm_area_id": None},
         new_values={"phm_area_id": child.phm_area_id, "moh_area_id": child.moh_area_id},
         user_id=user.id,
-        description=f"Assigned child {child.child_unique_id} to PHM area",
+        description=f"Assigned child {child.child_unique_id or child.child_id} to PHM area {midwife_phm_area_id}",
     )
-    
+
     db.session.commit()
-    
+
     return jsonify({
         "status": "success",
         "message": "Child assigned to your PHM area successfully",
@@ -236,8 +270,15 @@ def add_measurement():
             "status": "error",
             "message": "child_id is required"
         }), 400
-    
-    child = db.session.get(Child, child_id)
+
+    # Accept both numeric DB id and string child_id/child_unique_id
+    child = None
+    if isinstance(child_id, int) or (isinstance(child_id, str) and child_id.isdigit()):
+        child = db.session.get(Child, int(child_id))
+    if not child:
+        child = db.session.query(Child).filter(
+            (Child.child_id == str(child_id)) | (Child.child_unique_id == str(child_id))
+        ).first()
     if not child:
         return jsonify({
             "status": "error",
@@ -271,12 +312,19 @@ def add_measurement():
     
     age_days = (datetime.now().date() - child.dob).days
     age_months = age_days // 30
-    
-    # Calculate Z-scores
+
     sex = "M" if child.gender == "male" else "F"
-    z_scores = calculate_z_scores(age_months, sex, float(weight_kg), float(height_cm))
-    
-    # Run AI analysis
+
+    # Use real WHO Z-score computation from AI module
+    try:
+        wfa_z, hfa_z, wfh_z = ai_compute_z_scores(
+            age_months=age_months, sex=sex,
+            weight_kg=float(weight_kg), height_cm=float(height_cm)
+        )
+    except Exception:
+        wfa_z = hfa_z = wfh_z = None
+
+    # Run AI current-risk analysis
     try:
         ai_result = predict_current_risk({
             "age_months": age_months,
@@ -284,25 +332,36 @@ def add_measurement():
             "weight_kg": float(weight_kg),
             "height_cm": float(height_cm),
         })
-        
+
         if not ai_result.get("ok"):
             return jsonify({
                 "status": "error",
                 "message": f"AI analysis failed: {ai_result.get('error', 'Unknown error')}"
             }), 500
-        
-        current_risk = ai_result.get("risk_level", RiskLevel.NORMAL.value)
-        predicted_risk = ai_result.get("predicted_risk_next_2_months")
+
+        # *** KEY FIX: model returns 'model_prediction', NOT 'risk_level' ***
+        raw_label = ai_result.get("model_prediction", "Normal")
+        current_risk = _normalize_ai_risk(raw_label)
         confidence = ai_result.get("confidence", 0.0)
     except Exception as e:
         return jsonify({
             "status": "error",
             "message": f"AI analysis error: {str(e)}"
         }), 500
-    
+
+    # Run future-risk prediction
+    try:
+        future_result = predict_future_risk({
+            "age_months": age_months, "sex": sex,
+            "weight_kg": float(weight_kg), "height_cm": float(height_cm),
+        })
+        predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
+    except Exception:
+        predicted_risk = None
+
     # Get previous risk level for escalation check
     previous_risk = child.current_risk_level
-    
+
     # Create measurement record
     measurement = Measurement(
         child_id=child.id,
@@ -310,28 +369,28 @@ def add_measurement():
         weight_kg=Decimal(str(weight_kg)),
         height_cm=Decimal(str(height_cm)),
         muac_cm=Decimal(str(muac_cm)) if muac_cm else None,
-        z_score_wfa=Decimal(str(z_scores["z_wfa"])) if z_scores["z_wfa"] else None,
-        z_score_hfa=Decimal(str(z_scores["z_hfa"])) if z_scores["z_hfa"] else None,
-        z_score_wfh=Decimal(str(z_scores["z_wfh"])) if z_scores["z_wfh"] else None,
+        z_score_wfa=Decimal(str(round(wfa_z, 4))) if wfa_z is not None else None,
+        z_score_hfa=Decimal(str(round(hfa_z, 4))) if hfa_z is not None else None,
+        z_score_wfh=Decimal(str(round(wfh_z, 4))) if wfh_z is not None else None,
         risk_level=current_risk,
         predicted_risk_next_2_months=predicted_risk,
-        model_confidence=Decimal(str(confidence)),
+        model_confidence=Decimal(str(confidence)) if confidence else None,
         measured_by_user_id=user.id,
         notes=data.get("notes"),
     )
-    
+
     db.session.add(measurement)
     db.session.flush()
-    
+
     # Update child's current risk level
     child.current_risk_level = current_risk
     child.last_risk_update = datetime.now()
-    
+
     # Check if escalation needed
     escalation_needed = should_escalate_to_moh(previous_risk, current_risk)
-    
+
     db.session.commit()
-    
+
     log_audit(
         action="CREATE",
         entity_type="measurement",

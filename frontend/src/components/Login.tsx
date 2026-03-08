@@ -154,7 +154,7 @@ export function Login({ onLogin }: LoginProps) {
       if (response.data.status === 'success' && response.data.access_token) {
         // Store JWT token in localStorage
         localStorage.setItem('token', response.data.access_token);
-        
+
         // Map backend user role to frontend role
         const backendUser = response.data.user;
         const frontendUser: User = {
@@ -191,15 +191,15 @@ export function Login({ onLogin }: LoginProps) {
       {/* Left Side - Background Image with Overlay */}
       <div className="hidden lg:flex lg:w-3/5 relative">
         {/* Background Image */}
-        <div 
+        <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ 
-            backgroundImage: `url('${BACKGROUND_IMAGES[currentImageIndex]}')` 
+          style={{
+            backgroundImage: `url('${BACKGROUND_IMAGES[currentImageIndex]}')`
           }}
         />
         {/* Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-br from-blue-600/90 via-blue-500/80 to-green-500/70" />
-        
+
         {/* Content */}
         <div className="relative z-10 flex flex-col justify-center px-12 text-white">
           <div className="max-w-lg">
@@ -212,11 +212,11 @@ export function Login({ onLogin }: LoginProps) {
                 <p className="text-blue-100 text-sm">Child Malnutrition Risk Assessment</p>
               </div>
             </div>
-            
+
             <h2 className="text-4xl font-bold mb-4 leading-tight">
               {CONTENT_VARIATIONS[currentImageIndex].headline}
             </h2>
-            
+
             <p className="text-lg text-blue-50 mb-8">
               {CONTENT_VARIATIONS[currentImageIndex].description}
             </p>
@@ -332,7 +332,7 @@ export function Login({ onLogin }: LoginProps) {
               <p className="mt-1">Contact system administrator for access</p>
             </div>
           </div>
-          
+
           {/* Mobile Ministry Info */}
           <div className="lg:hidden mt-6 text-center">
             <p className="text-sm text-gray-600">Ministry of Health - Sri Lanka</p>

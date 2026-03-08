@@ -10,10 +10,10 @@ export interface Measurement {
   ageMonths: number;
   weight: number;
   height: number;
-  muac: number;
-  weightForAge: number;
-  heightForAge: number;
-  weightForHeight: number;
+  muac?: number;
+  weightForAge?: number;
+  heightForAge?: number;
+  weightForHeight?: number;
   riskLevel: RiskLevel;
   notes?: string;
 }
@@ -102,7 +102,7 @@ export function getRiskTextColor(riskLevel: RiskLevel): string {
 export function calculateRiskLevel(wfa: number, hfa: number, wfh: number): RiskLevel {
   // Use the most severe indicator
   const minZ = Math.min(wfa, hfa, wfh);
-  
+
   if (minZ < -3) {
     return 'sam';
   } else if (minZ < -2) {

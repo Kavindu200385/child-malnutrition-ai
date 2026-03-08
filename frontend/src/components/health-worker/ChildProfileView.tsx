@@ -31,6 +31,39 @@ interface PredictionData {
   message: string;
 }
 
+/** 
+ * Simple fallback WHO Z-score approximation (for old measurements stored with null Z-scores).
+ * Uses simplified LMS interpolation. The backend now stores real Z-scores; this is a display fallback only.
+ */
+function approxWFA(weightKg: number, ageMonths: number, male: boolean): number | undefined {
+  const refs: [number, number, number][] = male
+    ? [[0, 3.35, 0.49], [6, 7.99, 0.82], [12, 9.65, 0.87], [24, 12.23, 1.08], [36, 14.31, 1.31], [60, 18.30, 1.75]]
+    : [[0, 3.23, 0.46], [6, 7.22, 0.82], [12, 8.95, 0.89], [24, 11.49, 1.06], [36, 13.88, 1.30], [60, 18.20, 1.76]];
+  const ages = refs.map(r => r[0]);
+  const idx = ages.findIndex(a => a >= ageMonths);
+  const [, m, s] = idx <= 0 ? refs[0] : idx >= refs.length ? refs[refs.length - 1]
+    : (() => {
+      const lo = refs[idx - 1], hi = refs[idx];
+      const t = (ageMonths - lo[0]) / (hi[0] - lo[0]);
+      return [0, lo[1] + t * (hi[1] - lo[1]), lo[2] + t * (hi[2] - lo[2])];
+    })();
+  return (weightKg - m) / s;
+}
+function approxHFA(heightCm: number, ageMonths: number, male: boolean): number | undefined {
+  const refs: [number, number, number][] = male
+    ? [[0, 49.88, 1.89], [6, 67.62, 2.17], [12, 75.75, 2.38], [24, 87.80, 2.89], [36, 96.10, 3.29], [60, 110.0, 3.91]]
+    : [[0, 49.15, 1.86], [6, 65.68, 2.11], [12, 74.02, 2.36], [24, 86.36, 2.86], [36, 95.10, 3.30], [60, 109.4, 3.90]];
+  const ages = refs.map(r => r[0]);
+  const idx = ages.findIndex(a => a >= ageMonths);
+  const [, m, s] = idx <= 0 ? refs[0] : idx >= refs.length ? refs[refs.length - 1]
+    : (() => {
+      const lo = refs[idx - 1], hi = refs[idx];
+      const t = (ageMonths - lo[0]) / (hi[0] - lo[0]);
+      return [0, lo[1] + t * (hi[1] - lo[1]), lo[2] + t * (hi[2] - lo[2])];
+    })();
+  return (heightCm - m) / s;
+}
+
 function mapToMeasurements(items: any[], dob: string | null) {
   if (!items || !Array.isArray(items)) return [];
   const dobDate = dob ? new Date(dob) : null;
@@ -40,21 +73,34 @@ function mapToMeasurements(items: any[], dob: string | null) {
     const ageMonths = dobDate ? Math.floor((visitDate.getTime() - dobDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)) : 0;
     const risk = (v.risk_level || v.current_risk || 'NORMAL').toLowerCase();
     const r = risk === 'sam' || risk === 'critical' ? 'sam' : risk === 'mam' || risk === 'moderate' || risk === 'high' ? 'mam' : 'normal';
+    const wKg = Number(v.weight_kg) || 0;
+    const hCm = Number(v.height_cm) || 0;
+    const male = (v.gender || '').toLowerCase() === 'male';
+
+    // Use stored Z-scores if available; fall back to approximation for chart display
+    const rawWfa = (v.z_score_wfa ?? v.z_wfa);
+    const rawHfa = (v.z_score_hfa ?? v.z_hfa);
+    const rawWfh = (v.z_score_wfh ?? v.z_wfh);
+    const weightForAge = rawWfa != null ? Number(rawWfa) : (wKg > 0 && ageMonths >= 0 ? approxWFA(wKg, ageMonths, male) : undefined);
+    const heightForAge = rawHfa != null ? Number(rawHfa) : (hCm > 0 && ageMonths >= 0 ? approxHFA(hCm, ageMonths, male) : undefined);
+    const weightForHeight = rawWfh != null ? Number(rawWfh) : (wKg > 0 && hCm > 0 ? (wKg - hCm * 0.13) / 1.5 : undefined);
+
     return {
       id: v.id || String(visitDate.getTime()),
       date: dateStr || visitDate.toISOString().slice(0, 10),
       ageMonths,
-      weight: Number(v.weight_kg) || 0,
-      height: Number(v.height_cm) || 0,
+      weight: wKg,
+      height: hCm,
       muac: v.muac_cm != null ? Number(v.muac_cm) : undefined,
-      weightForAge: (v.z_score_wfa ?? v.z_wfa) != null ? Number(v.z_score_wfa ?? v.z_wfa) : undefined,
-      heightForAge: (v.z_score_hfa ?? v.z_hfa) != null ? Number(v.z_score_hfa ?? v.z_hfa) : undefined,
-      weightForHeight: (v.z_score_wfh ?? v.z_wfh) != null ? Number(v.z_score_wfh ?? v.z_wfh) : undefined,
+      weightForAge,
+      heightForAge,
+      weightForHeight,
       riskLevel: r as RiskLevel,
       notes: v.notes,
     };
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
+
 
 /** WHO approximate reference at birth (0 months): median weight (kg), median length (cm), SD. */
 const BIRTH_REF = {
@@ -82,21 +128,19 @@ function createBirthMeasurement(apiChild: any): {
   const ref = BIRTH_REF[gender];
   const weight = Number(apiChild.birth_weight_kg) || 0;
   const height = Number(apiChild.birth_height_cm) || 0;
-  const muac = apiChild.birth_muac_cm != null ? Number(apiChild.birth_muac_cm) : undefined;
   const zWfa = weight > 0 && ref ? (weight - ref.weightMedian) / ref.weightSd : 0;
   const zHfa = height > 0 && ref ? (height - ref.lengthMedian) / ref.lengthSd : 0;
   const zWfh = weight > 0 && height > 0 && ref ? (weight - ref.weightMedian) / ref.weightSd : zWfa;
   const birthRisk = (apiChild.birth_risk_level || '').toUpperCase();
   const riskLevel: RiskLevel =
     birthRisk === 'SAM' || birthRisk === 'CRITICAL' ? 'sam' :
-    birthRisk === 'MAM' || birthRisk === 'MODERATE' || birthRisk === 'HIGH' ? 'mam' : 'normal';
+      birthRisk === 'MAM' || birthRisk === 'MODERATE' || birthRisk === 'HIGH' ? 'mam' : 'normal';
   return {
     id: 'birth',
     date: dateStr,
     ageMonths: 0,
     weight,
     height,
-    muac,
     weightForAge: zWfa,
     heightForAge: zHfa,
     weightForHeight: zWfh,
@@ -148,7 +192,6 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
         address: apiChild.address ?? '',
         birth_weight_kg: apiChild.birth_weight_kg != null ? String(apiChild.birth_weight_kg) : '',
         birth_height_cm: apiChild.birth_height_cm != null ? String(apiChild.birth_height_cm) : '',
-        birth_muac_cm: apiChild.birth_muac_cm != null ? String(apiChild.birth_muac_cm) : '',
         birth_risk_level: apiChild.birth_risk_level ?? '',
       });
     }
@@ -170,8 +213,8 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
         birthRisk === 'SAM' || birthRisk === 'CRITICAL'
           ? 'sam'
           : birthRisk === 'MAM' || birthRisk === 'MODERATE' || birthRisk === 'HIGH'
-          ? 'mam'
-          : 'normal';
+            ? 'mam'
+            : 'normal';
       if (isHospital && apiChild.birth_risk_level) {
         return birthLevel;
       }
@@ -225,29 +268,29 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
 
     // Get recent measurements (last 3)
     const recentMeasurements = child.measurements.slice(0, 3).reverse(); // Reverse to get chronological order
-    
-    // Calculate trend
+
+    // Calculate trend (guard optional Z-score fields)
     const avgWFATrend = recentMeasurements.length > 1
-      ? (recentMeasurements[recentMeasurements.length - 1].weightForAge - recentMeasurements[0].weightForAge) / recentMeasurements.length
+      ? ((recentMeasurements[recentMeasurements.length - 1].weightForAge ?? 0) - (recentMeasurements[0].weightForAge ?? 0)) / recentMeasurements.length
       : 0;
 
     const latestMeasurement = child.measurements[0];
-    
+
     // Project 1-2 months ahead
-    const predictedWFA = latestMeasurement.weightForAge + (avgWFATrend * 2);
-    const predictedHFA = latestMeasurement.heightForAge + (avgWFATrend * 0.5);
-    const predictedWFH = latestMeasurement.weightForHeight + (avgWFATrend * 1.5);
-    
+    const predictedWFA = (latestMeasurement.weightForAge ?? 0) + (avgWFATrend * 2);
+    const predictedHFA = (latestMeasurement.heightForAge ?? 0) + (avgWFATrend * 0.5);
+    const predictedWFH = (latestMeasurement.weightForHeight ?? 0) + (avgWFATrend * 1.5);
+
     const predictedRisk = calculateRiskLevel(predictedWFA, predictedHFA, predictedWFH);
-    
+
     // Determine confidence based on data consistency
     const dataConsistency = recentMeasurements.length >= 2 ? 85 : 65;
     const confidence = Math.min(95, dataConsistency + (Math.random() * 10));
-    
+
     // Determine status
     let status: 'Early Warning' | 'Stable' | 'Improving' = 'Stable';
     let trend: 'declining' | 'stable' | 'improving' = 'stable';
-    
+
     if (avgWFATrend < -0.2) {
       trend = 'declining';
       status = 'Early Warning';
@@ -255,11 +298,11 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
       trend = 'improving';
       status = 'Improving';
     }
-    
+
     // Check if action required (predicted risk is worse than current)
     const riskOrder = { 'normal': 0, 'mam': 1, 'sam': 2 };
     const actionRequired = riskOrder[predictedRisk] > riskOrder[child.riskLevel];
-    
+
     // Generate message
     let message = '';
     if (actionRequired) {
@@ -273,7 +316,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
     } else {
       message = 'Status expected to remain stable - Continue routine monitoring';
     }
-    
+
     return {
       predictedRiskLevel: predictedRisk,
       confidence: Math.round(confidence),
@@ -309,8 +352,8 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
   const canAddMeasurement = isHospitalRole
     ? false
     : isMoh
-    ? apiChild?.can_moh_add_measurement === true
-    : true;
+      ? apiChild?.can_moh_add_measurement === true
+      : true;
 
   let canEditDelete = false;
   if (apiChild && user?.role) {
@@ -331,7 +374,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
       .then((res) => {
         if (res.data?.status === 'success' && res.data?.child) setApiChild(res.data.child);
       })
-      .catch(() => {});
+      .catch(() => { });
   };
 
   const handleEditSave = () => {
@@ -349,7 +392,6 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
     };
     if (editForm.birth_weight_kg !== '' && editForm.birth_weight_kg != null) payload.birth_weight_kg = editForm.birth_weight_kg;
     if (editForm.birth_height_cm !== '' && editForm.birth_height_cm != null) payload.birth_height_cm = editForm.birth_height_cm;
-    if (editForm.birth_muac_cm !== '' && editForm.birth_muac_cm != null) payload.birth_muac_cm = editForm.birth_muac_cm;
     childrenAPI.update(childId, payload)
       .then(() => {
         refetchChild();
@@ -384,7 +426,6 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
     const hasExplicitBirthData =
       apiChild.birth_weight_kg != null ||
       apiChild.birth_height_cm != null ||
-      apiChild.birth_muac_cm != null ||
       apiChild.birth_risk_level;
 
     if (hasExplicitBirthData) {
@@ -392,7 +433,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
         date: apiChild.dob as string,
         weight: apiChild.birth_weight_kg != null && apiChild.birth_weight_kg !== '' ? Number(apiChild.birth_weight_kg) : null,
         height: apiChild.birth_height_cm != null && apiChild.birth_height_cm !== '' ? Number(apiChild.birth_height_cm) : null,
-        muac: apiChild.birth_muac_cm != null && apiChild.birth_muac_cm !== '' ? Number(apiChild.birth_muac_cm) : null,
+        muac: null,
         birthRiskLevel: apiChild.birth_risk_level || null,
         fromMeasurement: false,
       };
@@ -546,7 +587,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
       {!isHospitalRole && (
         <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-gray-200">
           <h3 className="text-base font-bold text-gray-900 mb-4">Nutritional Status Overview</h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Current Status - Solid Badge */}
             <div className="border-2 border-gray-300 rounded-lg p-5 bg-white">
@@ -570,30 +611,27 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
             </div>
 
             {/* Predicted Risk - Highly Distinct Future Forecast */}
-            <div className={`border-4 rounded-lg p-5 relative overflow-hidden ${
-              prediction
-                ? prediction.actionRequired 
-                  ? 'border-orange-500 bg-gradient-to-br from-orange-50 via-orange-100/50 to-orange-50' 
-                  : prediction.trend === 'improving'
+            <div className={`border-4 rounded-lg p-5 relative overflow-hidden ${prediction
+              ? prediction.actionRequired
+                ? 'border-orange-500 bg-gradient-to-br from-orange-50 via-orange-100/50 to-orange-50'
+                : prediction.trend === 'improving'
                   ? 'border-green-500 bg-gradient-to-br from-green-50 via-green-100/50 to-green-50'
                   : 'border-blue-500 bg-gradient-to-br from-blue-50 via-blue-100/50 to-blue-50'
-                : 'border-gray-300 bg-gray-50'
-            }`} style={{ borderStyle: 'dashed' }}>
+              : 'border-gray-300 bg-gray-50'
+              }`} style={{ borderStyle: 'dashed' }}>
               {/* Forecast Badge Corner */}
-              <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white ${
-                prediction?.actionRequired ? 'bg-orange-600' : 
-                prediction?.trend === 'improving' ? 'bg-green-600' : 
-                'bg-blue-600'
-              }`} style={{ borderBottomLeftRadius: '8px' }}>
+              <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white ${prediction?.actionRequired ? 'bg-orange-600' :
+                prediction?.trend === 'improving' ? 'bg-green-600' :
+                  'bg-blue-600'
+                }`} style={{ borderBottomLeftRadius: '8px' }}>
                 FORECAST
               </div>
-              
+
               <div className="flex items-center gap-2 mb-3">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                  prediction?.actionRequired ? 'bg-orange-200' :
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${prediction?.actionRequired ? 'bg-orange-200' :
                   prediction?.trend === 'improving' ? 'bg-green-200' :
-                  'bg-blue-200'
-                }`}>
+                    'bg-blue-200'
+                  }`}>
                   {prediction ? (
                     prediction.trend === 'declining' ? (
                       <TrendingDown className={`w-5 h-5 ${prediction.actionRequired ? 'text-orange-700' : 'text-blue-700'}`} />
@@ -608,22 +646,21 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-bold text-gray-900">Predicted Risk</p>
-                  <p className={`text-xs font-bold ${
-                    prediction?.actionRequired ? 'text-orange-700' :
+                  <p className={`text-xs font-bold ${prediction?.actionRequired ? 'text-orange-700' :
                     prediction?.trend === 'improving' ? 'text-green-700' :
-                    'text-blue-700'
-                  }`}>
+                      'text-blue-700'
+                    }`}>
                     ⏱ 1-2 Months Ahead (Future)
                   </p>
                 </div>
               </div>
-              
+
               {prediction ? (
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <span
                       className="inline-block px-4 py-3 rounded-lg text-base font-bold text-white text-center flex-1 shadow-md relative"
-                      style={{ 
+                      style={{
                         backgroundColor: getRiskColor(prediction.predictedRiskLevel),
                         backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px)'
                       }}
@@ -636,15 +673,14 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                       </div>
                     )}
                   </div>
-                  <div className={`mt-2 p-3 rounded-lg border-2 ${
-                    prediction.actionRequired ? 'bg-orange-50/50 border-orange-300' :
+                  <div className={`mt-2 p-3 rounded-lg border-2 ${prediction.actionRequired ? 'bg-orange-50/50 border-orange-300' :
                     prediction.trend === 'improving' ? 'bg-green-50/50 border-green-300' :
-                    'bg-blue-50/50 border-blue-300'
-                  }`}>
+                      'bg-blue-50/50 border-blue-300'
+                    }`}>
                     <p className="text-xs font-bold text-gray-900 mb-1">
                       {prediction.actionRequired ? '⚠️ Action Required:' :
-                       prediction.trend === 'improving' ? '✅ Positive Outlook:' :
-                       '→ Expected Status:'}
+                        prediction.trend === 'improving' ? '✅ Positive Outlook:' :
+                          '→ Expected Status:'}
                     </p>
                     <p className="text-xs font-medium text-gray-800">
                       {prediction.message}
@@ -652,14 +688,13 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                   </div>
                   <div className="flex items-center justify-between text-xs text-gray-700 mt-1">
                     <span className="font-medium">Confidence: {prediction.confidence}%</span>
-                    <span className={`font-bold ${
-                      prediction.trend === 'declining' ? 'text-orange-700' :
+                    <span className={`font-bold ${prediction.trend === 'declining' ? 'text-orange-700' :
                       prediction.trend === 'improving' ? 'text-green-700' :
-                      'text-blue-700'
-                    }`}>
+                        'text-blue-700'
+                      }`}>
                       {prediction.trend === 'declining' ? '📉 Declining' :
-                       prediction.trend === 'improving' ? '📈 Improving' :
-                       '➡️ Stable'}
+                        prediction.trend === 'improving' ? '📈 Improving' :
+                          '➡️ Stable'}
                     </span>
                   </div>
                 </div>
@@ -682,7 +717,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                 <div>
                   <p className="text-base font-bold text-orange-900">🚨 Early Warning Alert - Action Required</p>
                   <p className="text-sm text-orange-800 mt-1 font-medium">
-                    {prediction.predictedRiskLevel === 'sam' 
+                    {prediction.predictedRiskLevel === 'sam'
                       ? 'This child is predicted to progress to Severe Acute Malnutrition within 1-2 months. Early intervention required before next scheduled clinic visit.'
                       : 'This child is predicted to progress to Moderate Acute Malnutrition within 1-2 months. Increased monitoring and preventive measures recommended.'}
                   </p>
@@ -696,30 +731,26 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
       {/* Risk Alert (hidden for Pediatric Unit) */}
       {!isHospitalRole && displayRisk !== 'normal' && (
         <div
-          className={`rounded-lg p-6 border-2 ${
-            displayRisk === 'sam'
-              ? 'bg-red-50 border-red-300'
-              : 'bg-yellow-50 border-yellow-300'
-          }`}
+          className={`rounded-lg p-6 border-2 ${displayRisk === 'sam'
+            ? 'bg-red-50 border-red-300'
+            : 'bg-yellow-50 border-yellow-300'
+            }`}
         >
           <div className="flex items-start gap-3">
             <AlertTriangle
-              className={`w-6 h-6 flex-shrink-0 mt-1 ${
-                displayRisk === 'sam' ? 'text-red-600' : 'text-yellow-600'
-              }`}
+              className={`w-6 h-6 flex-shrink-0 mt-1 ${displayRisk === 'sam' ? 'text-red-600' : 'text-yellow-600'
+                }`}
             />
             <div>
               <h3
-                className={`text-lg font-bold ${
-                  displayRisk === 'sam' ? 'text-red-900' : 'text-yellow-900'
-                }`}
+                className={`text-lg font-bold ${displayRisk === 'sam' ? 'text-red-900' : 'text-yellow-900'
+                  }`}
               >
                 {getRiskLabel(displayRisk)}
               </h3>
               <p
-                className={`mt-1 ${
-                  displayRisk === 'sam' ? 'text-red-800' : 'text-yellow-800'
-                }`}
+                className={`mt-1 ${displayRisk === 'sam' ? 'text-red-800' : 'text-yellow-800'
+                  }`}
               >
                 {displayRisk === 'sam'
                   ? 'Immediate medical intervention and nutritional support required.'
@@ -847,8 +878,8 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                           : birthPanelData.birthRiskLevel === 'MAM' ||
                             birthPanelData.birthRiskLevel === 'MODERATE' ||
                             birthPanelData.birthRiskLevel === 'HIGH'
-                          ? 'mam'
-                          : 'normal') as RiskLevel
+                            ? 'mam'
+                            : 'normal') as RiskLevel
                       ),
                     }}
                   >
@@ -970,7 +1001,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
             <div className="flex-1">
               <h3 className="text-lg font-bold text-gray-900 mb-2">Download Complete Health Record PDF</h3>
               <p className="text-sm text-gray-700 mb-4">
-                Generate a comprehensive medical report including all 5 WHO growth charts, measurement history, 
+                Generate a comprehensive medical report including all 5 WHO growth charts, measurement history,
                 and clinical assessments for official documentation and patient records.
               </p>
               <div className="bg-white rounded-lg p-4 mb-4">
@@ -1021,7 +1052,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                 </div>
               </div>
             </AlertDialogHeader>
-            
+
             {/* Content outside AlertDialogDescription to avoid nesting issues */}
             <div className="mt-4 space-y-4">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -1081,10 +1112,10 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
               <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700">
                 <div className="flex justify-between">
                   <span className="font-medium">Generated on:</span>
-                  <span>{new Date().toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
+                  <span>{new Date().toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
                   })}</span>
                 </div>
                 <div className="flex justify-between mt-1">
@@ -1114,7 +1145,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
 
       {/* Edit Child Dialog */}
       <AlertDialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <AlertDialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <AlertDialogContent style={{ maxWidth: '42rem' }}>
           <AlertDialogHeader>
             <AlertDialogTitle>Edit child details</AlertDialogTitle>
             <AlertDialogDescription>Update basic information and birth measurements. Changes are saved immediately.</AlertDialogDescription>
@@ -1163,10 +1194,6 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Birth height (cm)</label>
               <input type="number" step="0.1" value={editForm.birth_height_cm ?? ''} onChange={(e) => setEditForm({ ...editForm, birth_height_cm: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Birth MUAC (cm)</label>
-              <input type="number" step="0.1" value={editForm.birth_muac_cm ?? ''} onChange={(e) => setEditForm({ ...editForm, birth_muac_cm: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Birth risk level</label>

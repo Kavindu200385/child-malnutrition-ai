@@ -3,7 +3,7 @@
  * Hospital role only - Register newborns at birth with auto-generated ID
  */
 import { useState } from 'react';
-import { AlertCircle, CheckCircle, Loader2, Baby, Scale, Ruler, Activity } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle, Loader2, Baby, Scale, Ruler, Activity } from 'lucide-react';
 import { hospitalAPI } from '../../services/api';
 
 interface HospitalRegistrationViewProps {
@@ -17,7 +17,6 @@ export function HospitalRegistrationView({ onSuccess }: HospitalRegistrationView
     gender: '',
     birth_weight_kg: '',
     birth_height_cm: '',
-    birth_muac_cm: '',
     mother_name: '',
     guardian_name: '',
     guardian_phone: '',
@@ -46,7 +45,6 @@ export function HospitalRegistrationView({ onSuccess }: HospitalRegistrationView
         gender: formData.gender,
         birth_weight_kg: parseFloat(formData.birth_weight_kg),
         birth_height_cm: formData.birth_height_cm ? parseFloat(formData.birth_height_cm) : null,
-        birth_muac_cm: formData.birth_muac_cm ? parseFloat(formData.birth_muac_cm) : null,
         mother_name: formData.mother_name,
         guardian_name: formData.guardian_name || formData.mother_name,
         guardian_phone: formData.guardian_phone || formData.contact_number,
@@ -59,7 +57,7 @@ export function HospitalRegistrationView({ onSuccess }: HospitalRegistrationView
       if (response.data.status === 'success') {
         setRegisteredChild(response.data.child);
         setSuccess(`Child registered successfully! ID: ${response.data.child.child_unique_id}`);
-        
+
         // Reset form
         setFormData({
           name: '',
@@ -67,7 +65,6 @@ export function HospitalRegistrationView({ onSuccess }: HospitalRegistrationView
           gender: '',
           birth_weight_kg: '',
           birth_height_cm: '',
-          birth_muac_cm: '',
           mother_name: '',
           guardian_name: '',
           guardian_phone: '',
@@ -103,13 +100,12 @@ export function HospitalRegistrationView({ onSuccess }: HospitalRegistrationView
 
       {/* Success Message with Risk Alert */}
       {success && registeredChild && (
-        <div className={`rounded-lg p-4 border-2 ${
-          isSamCase 
-            ? 'bg-red-50 border-red-300' 
-            : isMamCase 
+        <div className={`rounded-lg p-4 border-2 ${isSamCase
+          ? 'bg-red-50 border-red-300'
+          : isMamCase
             ? 'bg-yellow-50 border-yellow-300'
             : 'bg-green-50 border-green-300'
-        }`}>
+          }`}>
           <div className="flex items-start gap-3">
             {isSamCase ? (
               <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
@@ -117,9 +113,8 @@ export function HospitalRegistrationView({ onSuccess }: HospitalRegistrationView
               <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
             )}
             <div className="flex-1">
-              <p className={`font-semibold ${
-                isSamCase ? 'text-red-900' : isMamCase ? 'text-yellow-900' : 'text-green-900'
-              }`}>
+              <p className={`font-semibold ${isSamCase ? 'text-red-900' : isMamCase ? 'text-yellow-900' : 'text-green-900'
+                }`}>
                 {success}
               </p>
               {isSamCase && (
@@ -213,7 +208,7 @@ export function HospitalRegistrationView({ onSuccess }: HospitalRegistrationView
             <Scale className="w-5 h-5 text-blue-600" />
             Birth Measurements
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Birth Weight (kg) <span className="text-red-500">*</span>
@@ -245,23 +240,6 @@ export function HospitalRegistrationView({ onSuccess }: HospitalRegistrationView
                 className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g., 48.5"
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                MUAC (cm)
-              </label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="20"
-                value={formData.birth_muac_cm}
-                onChange={(e) => setFormData({ ...formData, birth_muac_cm: e.target.value })}
-                className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., 11.2"
-              />
-              <p className="text-xs text-gray-500 mt-1">Mid-Upper Arm Circumference</p>
             </div>
           </div>
         </div>
@@ -302,10 +280,10 @@ export function HospitalRegistrationView({ onSuccess }: HospitalRegistrationView
               <input
                 type="tel"
                 value={formData.guardian_phone || formData.contact_number}
-                onChange={(e) => setFormData({ 
-                  ...formData, 
+                onChange={(e) => setFormData({
+                  ...formData,
                   guardian_phone: e.target.value,
-                  contact_number: e.target.value 
+                  contact_number: e.target.value
                 })}
                 className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -318,10 +296,10 @@ export function HospitalRegistrationView({ onSuccess }: HospitalRegistrationView
               <input
                 type="text"
                 value={formData.guardian_nic || formData.nic}
-                onChange={(e) => setFormData({ 
-                  ...formData, 
+                onChange={(e) => setFormData({
+                  ...formData,
                   guardian_nic: e.target.value,
-                  nic: e.target.value 
+                  nic: e.target.value
                 })}
                 className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />

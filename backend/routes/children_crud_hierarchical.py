@@ -86,14 +86,11 @@ def create_child():
     # Allow both direct fields and nested birth_registration fields
     birth_weight_raw = data.get("birth_weight_kg")
     birth_height_raw = data.get("birth_height_cm")
-    birth_muac_raw = data.get("birth_muac_cm")
 
     if not birth_weight_raw and isinstance(birth_reg, dict):
         birth_weight_raw = birth_reg.get("birthWeight")
     if not birth_height_raw and isinstance(birth_reg, dict):
         birth_height_raw = birth_reg.get("birthLength")
-    if not birth_muac_raw and isinstance(birth_reg, dict):
-        birth_muac_raw = birth_reg.get("birthMuac") or birth_reg.get("muac")
 
     def _to_float(value):
         try:
@@ -105,14 +102,11 @@ def create_child():
 
     birth_weight = _to_float(birth_weight_raw)
     birth_height = _to_float(birth_height_raw)
-    birth_muac = _to_float(birth_muac_raw)
 
     if birth_weight is not None:
         child.birth_weight_kg = Decimal(str(birth_weight))
     if birth_height is not None:
         child.birth_height_cm = Decimal(str(birth_height))
-    if birth_muac is not None:
-        child.birth_muac_cm = Decimal(str(birth_muac))
 
     # If DOB and birth measurements are available, derive an initial birth_risk_level
     if child.dob and birth_weight is not None:
@@ -120,7 +114,7 @@ def create_child():
         birth_risk_level, _reason = calculate_birth_risk_level(
             birth_weight_kg=birth_weight,
             birth_height_cm=birth_height,
-            birth_muac_cm=birth_muac,
+            birth_muac_cm=None,
             age_days=age_days,
         )
         child.birth_risk_level = birth_risk_level
@@ -398,10 +392,6 @@ def update_child(child_id: str):
         v = data["birth_height_cm"]
         child.birth_height_cm = Decimal(str(v)) if v is not None and v != "" else None
         birth_fields_updated = True
-    if "birth_muac_cm" in data:
-        v = data["birth_muac_cm"]
-        child.birth_muac_cm = Decimal(str(v)) if v is not None and v != "" else None
-        birth_fields_updated = True
     if "birth_risk_level" in data:
         # Explicit override from client, used as-is
         child.birth_risk_level = data["birth_risk_level"] if data["birth_risk_level"] else None
@@ -409,13 +399,12 @@ def update_child(child_id: str):
         # Automatically recalculate birth_risk_level when birth measurements change
         bw = float(child.birth_weight_kg) if child.birth_weight_kg is not None else None
         bh = float(child.birth_height_cm) if child.birth_height_cm is not None else None
-        bm = float(child.birth_muac_cm) if child.birth_muac_cm is not None else None
         if bw is not None:
             age_days = (datetime.utcnow().date() - child.dob).days
             new_birth_risk, _reason = calculate_birth_risk_level(
                 birth_weight_kg=bw,
                 birth_height_cm=bh,
-                birth_muac_cm=bm,
+                birth_muac_cm=None,
                 age_days=age_days,
             )
             child.birth_risk_level = new_birth_risk
@@ -478,22 +467,26 @@ def delete_child(child_id: str):
 
 
 @bp.route("/<child_id>/assign", methods=["POST"])
+@role_required(ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY)
 def assign_child_to_area(child_id: str):
     """
     Assign a child to an area (Midwife/MOH/Nutritionist only).
     RDHS/PDHS cannot assign – read-only oversight.
     """
     user = get_current_user()
-    if not user:
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
     if user.role in (ROLE_RDHS, ROLE_PDHS):
         return jsonify({"status": "error", "message": "RDHS/PDHS cannot assign children. Read-only access."}), 403
     data = request.get_json() or {}
-    
+
+    # Try string child_id first, then fallback to numeric primary key
     child = db.session.query(Child).filter(Child.child_id == child_id).first()
     if not child:
+        child = db.session.query(Child).filter(Child.child_unique_id == child_id).first()
+    if not child and child_id.isdigit():
+        child = db.session.get(Child, int(child_id))
+    if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
-    
+
     # Check access
     if not user_can_access_child(user, child):
         return jsonify({"status": "error", "message": "No access to this child"}), 403

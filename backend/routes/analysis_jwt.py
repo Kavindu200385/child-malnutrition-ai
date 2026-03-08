@@ -5,9 +5,35 @@ from backend.auth_utils import visit_required
 from backend.extensions import db
 from backend.models import Child, Visit
 
-from backend.ai.predictor import predict_current_risk, predict_future_risk
+from backend.ai.predictor import predict_current_risk, predict_future_risk, compare_models
 
 bp = Blueprint("analysis_jwt", __name__, url_prefix="/api/analysis")
+
+
+@bp.route("/compare", methods=["POST"])
+@visit_required
+def compare_model_results():
+    """
+    Compare XGBoost vs Logistic Regression predictions side-by-side.
+    Useful for model evaluation and report generation.
+
+    Expected JSON: age, sex, weight, height
+    """
+    data = request.get_json() or {}
+    required = ["age", "sex", "weight", "height"]
+    missing = [f for f in required if f not in data]
+    if missing:
+        return jsonify({"status": "error", "message": f"Missing: {', '.join(missing)}"}), 400
+
+    result = compare_models({
+        "age_months": int(data["age"]),
+        "sex": str(data["sex"]),
+        "weight_kg": float(data["weight"]),
+        "height_cm": float(data["height"]),
+    })
+    return jsonify({"status": "success", "data": result}), 200
+
+
 
 
 @bp.route("/analyze", methods=["POST"])

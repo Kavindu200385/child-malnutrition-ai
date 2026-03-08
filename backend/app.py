@@ -266,7 +266,6 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                 ("child_unique_id", "VARCHAR(64)" if is_mysql else "TEXT", None),
                 ("birth_weight_kg", "DECIMAL(5,2)" if is_mysql else "REAL", None),
                 ("birth_height_cm", "DECIMAL(5,1)" if is_mysql else "REAL", None),
-                ("birth_muac_cm", "DECIMAL(4,1)" if is_mysql else "REAL", None),
                 ("mother_name", "VARCHAR(120)" if is_mysql else "TEXT", None),
                 ("hospital_id", "INTEGER", None),
                 ("birth_risk_level", "VARCHAR(20)" if is_mysql else "TEXT", None),

@@ -100,12 +100,11 @@ def register_child():
     # Calculate birth risk level
     birth_weight = float(data.get("birth_weight_kg", 0))
     birth_height = float(data.get("birth_height_cm", 0)) if data.get("birth_height_cm") else None
-    birth_muac = float(data.get("birth_muac_cm", 0)) if data.get("birth_muac_cm") else None
     
     birth_risk_level, risk_reason = calculate_birth_risk_level(
         birth_weight_kg=birth_weight,
         birth_height_cm=birth_height,
-        birth_muac_cm=birth_muac,
+        birth_muac_cm=None,
         age_days=age_days
     )
     
@@ -118,7 +117,6 @@ def register_child():
         gender=data["gender"].lower(),
         birth_weight_kg=Decimal(str(birth_weight)),
         birth_height_cm=Decimal(str(birth_height)) if birth_height else None,
-        birth_muac_cm=Decimal(str(birth_muac)) if birth_muac else None,
         mother_name=data.get("mother_name"),
         guardian_name=data.get("guardian_name") or data.get("mother_name"),
         guardian_phone=data.get("guardian_phone") or data.get("contact_number"),

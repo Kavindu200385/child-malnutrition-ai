@@ -1,12 +1,182 @@
 import os
 import math
-from typing import Any, Dict, Tuple, Optional
+import threading
+from typing import Any, Dict, List, Tuple, Optional
 
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 
 from .model_loader import prediction_model, current_birth_2_model, current_2_5_model, MODELS_DIR  # type: ignore
+
+# ---------------------------------------------------------------------------
+# LOGISTIC REGRESSION — comparison model (lazy-trained on synthetic WHO data)
+# ---------------------------------------------------------------------------
+# The model is built once on first use using synthetic data generated from
+# WHO Z-score thresholds (the same thresholds used in clinical practice).
+# Labels:  0=Normal, 1=MAM, 2=SAM
+# This allows a direct, fair comparison with the primary XGBoost model.
+
+_lr_lock = threading.Lock()
+_lr_pipeline: Optional[Pipeline] = None  # lazy singleton
+
+_LR_LABEL_MAP = {0: "Normal", 1: "MAM", 2: "SAM"}
+_LR_LABEL_MAP_INV = {v: k for k, v in _LR_LABEL_MAP.items()}
+
+
+def _build_lr_training_data(n_per_class: int = 800) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Generate synthetic training samples based on WHO Z-score thresholds.
+    Each sample is (WFA_Z, HFA_Z, WFH_Z, age_months, weight_kg, height_cm, sex_enc).
+    Labels:
+        SAM   → WFH_Z < -3  OR  WFA_Z < -3
+        MAM   → -3 <= WFH_Z < -2  OR  -3 <= WFA_Z < -2
+        Normal → otherwise
+    """
+    rng = np.random.default_rng(42)
+    rows, labels = [], []
+
+    def _sample_vitals():
+        age = rng.integers(0, 60)
+        sex = rng.integers(0, 2)  # 0=F, 1=M
+        return int(age), int(sex)
+
+    # Normal class: all Z-scores well above -2
+    for _ in range(n_per_class):
+        wfa = rng.uniform(-1.9, 2.5)
+        hfa = rng.uniform(-1.9, 2.5)
+        wfh = rng.uniform(-1.9, 2.5)
+        age, sex = _sample_vitals()
+        rows.append([wfa, hfa, wfh, age, sex])
+        labels.append(0)
+
+    # MAM class: at least one Z-score in [-3, -2)
+    for _ in range(n_per_class):
+        wfh = rng.uniform(-2.99, -2.0)
+        wfa = rng.uniform(-2.5, -1.0)
+        hfa = rng.uniform(-2.5, 0.5)
+        age, sex = _sample_vitals()
+        rows.append([wfa, hfa, wfh, age, sex])
+        labels.append(1)
+
+    # SAM class: at least one Z-score below -3
+    for _ in range(n_per_class):
+        wfh = rng.uniform(-5.0, -3.0)
+        wfa = rng.uniform(-5.0, -2.5)
+        hfa = rng.uniform(-4.5, -2.0)
+        age, sex = _sample_vitals()
+        rows.append([wfa, hfa, wfh, age, sex])
+        labels.append(2)
+
+    return np.array(rows, dtype=np.float32), np.array(labels, dtype=np.int32)
+
+
+def _get_lr_pipeline() -> Pipeline:
+    """Return the singleton LR pipeline, training it on first access."""
+    global _lr_pipeline
+    if _lr_pipeline is not None:
+        return _lr_pipeline
+    with _lr_lock:
+        if _lr_pipeline is not None:  # double-checked
+            return _lr_pipeline
+        X, y = _build_lr_training_data(n_per_class=1000)
+        pipe = Pipeline([
+            ("scaler", StandardScaler()),
+            ("lr", LogisticRegression(
+                solver="lbfgs",
+                max_iter=500,
+                C=1.0,
+                random_state=42,
+            )),
+        ])
+        pipe.fit(X, y)
+        _lr_pipeline = pipe
+    return _lr_pipeline
+
+
+def predict_with_logistic_regression(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Run the Logistic Regression comparison model.
+    Same interface as predict_current_risk().
+    """
+    try:
+        age = int(data["age_months"])
+        sex_raw = str(data["sex"])
+        weight = float(data["weight_kg"])
+        height = float(data["height_cm"])
+
+        wfa, hfa, wfh = compute_z_scores(age_months=age, sex=sex_raw, weight_kg=weight, height_cm=height)
+        sex_enc = 1 if sex_raw.upper() == "M" else 0
+
+        X = np.array([[wfa, hfa, wfh, age, sex_enc]], dtype=np.float32)
+        pipe = _get_lr_pipeline()
+        pred_int = int(pipe.predict(X)[0])
+        proba = pipe.predict_proba(X)[0]
+        confidence = round(float(np.max(proba)), 3)
+        class_probs = {_LR_LABEL_MAP[i]: round(float(p), 3) for i, p in enumerate(proba)}
+
+        return {
+            "ok": True,
+            "model_name": "Logistic Regression",
+            "model_prediction": _LR_LABEL_MAP[pred_int],
+            "confidence": confidence,
+            "class_probabilities": class_probs,
+            "z_scores": {"WFA_Z": wfa, "HFA_Z": hfa, "WFH_Z": wfh},
+        }
+    except Exception as e:
+        return {"ok": False, "model_name": "Logistic Regression", "error": str(e)}
+
+
+def compare_models(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Run BOTH the primary XGBoost Stacking Ensemble AND the Logistic Regression model
+    and return a side-by-side comparison — useful for evaluation / reporting.
+
+    Input keys: age_months, sex, weight_kg, height_cm
+    """
+    # The stacking classifier may emit numeric codes — map them to labels
+    _NUMERIC_TO_LABEL = {"0": "Normal", "1": "MAM", "2": "SAM", "3": "Severe_Stunting"}
+
+    def _clean(label: str) -> str:
+        return _NUMERIC_TO_LABEL.get(str(label).strip(), str(label).strip())
+
+    primary = predict_current_risk(data)
+    lr = predict_with_logistic_regression(data)
+
+    primary_label = _clean(primary.get("model_prediction", "Unknown")) if primary.get("ok") else "Error"
+    lr_label = lr.get("model_prediction", "Unknown") if lr.get("ok") else "Error"
+    agree = primary_label == lr_label
+
+    return {
+        "ok": True,
+        "input": {
+            "age_months": data.get("age_months"),
+            "sex": data.get("sex"),
+            "weight_kg": data.get("weight_kg"),
+            "height_cm": data.get("height_cm"),
+        },
+        "z_scores": primary.get("z_scores") if primary.get("ok") else lr.get("z_scores"),
+        "models": {
+            "primary_model": {
+                "name": "XGBoost Stacking Ensemble (primary)",
+                "prediction": primary_label,
+                "confidence": primary.get("confidence"),
+                "class_probabilities": primary.get("class_probabilities"),
+            },
+            "logistic_regression": {
+                "name": "Logistic Regression (comparison)",
+                "prediction": lr_label,
+                "confidence": lr.get("confidence"),
+                "class_probabilities": lr.get("class_probabilities"),
+            },
+        },
+        "models_agree": agree,
+        "final_prediction": primary_label,  # primary model is authoritative
+    }
+
 
 
 # -----------------------------------------------------------------------------

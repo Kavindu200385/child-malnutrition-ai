@@ -395,7 +395,6 @@ class Child(db.Model):
     # Birth measurements (for hospital registration)
     birth_weight_kg = db.Column(db.Numeric(5, 2), nullable=True)
     birth_height_cm = db.Column(db.Numeric(5, 1), nullable=True)
-    birth_muac_cm = db.Column(db.Numeric(4, 1), nullable=True)
     
     # Parent/Guardian details
     guardian_name = db.Column(db.String(120), nullable=True)
@@ -481,7 +480,6 @@ class Child(db.Model):
             "gender": self.gender,
             "birth_weight_kg": float(self.birth_weight_kg) if self.birth_weight_kg else None,
             "birth_height_cm": float(self.birth_height_cm) if self.birth_height_cm else None,
-            "birth_muac_cm": float(self.birth_muac_cm) if self.birth_muac_cm else None,
             "guardian_name": self.guardian_name,
             "mother_name": self.mother_name,
             "guardian_phone": self.guardian_phone,
