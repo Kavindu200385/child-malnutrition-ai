@@ -1,6 +1,18 @@
+import React from 'react';
 import {
-  ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer, ReferenceLine, ReferenceDot, LineChart,
+  ComposedChart,
+  Line,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  ReferenceLine,
+  ReferenceDot,
+  LineChart,
+  ReferenceArea,
 } from 'recharts';
 
 interface Measurement {
@@ -33,30 +45,99 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
 
   // ── WHO Reference Curves ──────────────────────────────────────────────────
   const whoWeightForAge = (() => {
-    const rows = [];
+    const rows: {
+      age: number;
+      plus3sd: number;
+      plus2sd: number;
+      median: number;
+      minus2sd: number;
+      minus3sd: number;
+      severeBand: number;
+      moderateBand: number;
+      normalBand: number;
+    }[] = [];
     for (let age = 0; age <= 60; age++) {
       const gf = childGender === 'male' ? 1.0 : 0.95;
       const med = (3.3 + age * 0.32) * gf;
-      rows.push({ age, plus3sd: med * 1.45, plus2sd: med * 1.30, median: med, minus2sd: med * 0.70, minus3sd: med * 0.55 });
+      const minus3sd = med * 0.55;
+      const minus2sd = med * 0.70;
+      const plus2sd = med * 1.30;
+      rows.push({
+        age,
+        plus3sd: med * 1.45,
+        plus2sd,
+        median: med,
+        minus2sd,
+        minus3sd,
+        severeBand: minus3sd,
+        moderateBand: minus2sd - minus3sd,
+        normalBand: plus2sd - minus2sd,
+      });
     }
     return rows;
   })();
 
   const whoLengthHeightForAge = (() => {
-    const rows = [];
+    const rows: {
+      age: number;
+      plus3sd: number;
+      plus2sd: number;
+      median: number;
+      minus2sd: number;
+      minus3sd: number;
+      severeBand: number;
+      moderateBand: number;
+      normalBand: number;
+    }[] = [];
     for (let age = 0; age <= 60; age++) {
       const gf = childGender === 'male' ? 1.0 : 0.98;
       const med = age <= 24 ? (49.5 + age * 2.1) * gf : (77 + (age - 24) * 0.95) * gf;
-      rows.push({ age, plus3sd: med * 1.12, plus2sd: med * 1.08, median: med, minus2sd: med * 0.92, minus3sd: med * 0.88 });
+      const minus3sd = med * 0.88;
+      const minus2sd = med * 0.92;
+      const plus2sd = med * 1.08;
+      rows.push({
+        age,
+        plus3sd: med * 1.12,
+        plus2sd,
+        median: med,
+        minus2sd,
+        minus3sd,
+        severeBand: minus3sd,
+        moderateBand: minus2sd - minus3sd,
+        normalBand: plus2sd - minus2sd,
+      });
     }
     return rows;
   })();
 
   const whoWeightForHeight = (() => {
-    const rows = [];
+    const rows: {
+      length: number;
+      plus3sd: number;
+      plus2sd: number;
+      median: number;
+      minus2sd: number;
+      minus3sd: number;
+      severeBand: number;
+      moderateBand: number;
+      normalBand: number;
+    }[] = [];
     for (let len = 45; len <= 120; len += 0.5) {
       const med = 2.5 + (len - 45) * 0.13;
-      rows.push({ length: parseFloat(len.toFixed(1)), plus3sd: med * 1.55, plus2sd: med * 1.35, median: med, minus2sd: med * 0.70, minus3sd: med * 0.55 });
+      const minus3sd = med * 0.55;
+      const minus2sd = med * 0.70;
+      const plus2sd = med * 1.35;
+      rows.push({
+        length: parseFloat(len.toFixed(1)),
+        plus3sd: med * 1.55,
+        plus2sd,
+        median: med,
+        minus2sd,
+        minus3sd,
+        severeBand: minus3sd,
+        moderateBand: minus2sd - minus3sd,
+        normalBand: plus2sd - minus2sd,
+      });
     }
     return rows;
   })();
@@ -125,16 +206,16 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
   const GradientDefs = () => (
     <defs>
       <linearGradient id="severeZone" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#DC2626" stopOpacity={0.4} />
-        <stop offset="100%" stopColor="#DC2626" stopOpacity={0.3} />
+        <stop offset="0%" stopColor="#FCA5A5" stopOpacity={0.9} />
+        <stop offset="100%" stopColor="#FCA5A5" stopOpacity={0.65} />
       </linearGradient>
       <linearGradient id="moderateZone" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#F97316" stopOpacity={0.35} />
-        <stop offset="100%" stopColor="#F97316" stopOpacity={0.25} />
+        <stop offset="0%" stopColor="#FED7AA" stopOpacity={0.85} />
+        <stop offset="100%" stopColor="#FED7AA" stopOpacity={0.6} />
       </linearGradient>
       <linearGradient id="normalZone" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#86EFAC" stopOpacity={0.3} />
-        <stop offset="100%" stopColor="#86EFAC" stopOpacity={0.15} />
+        <stop offset="0%" stopColor="#BBF7D0" stopOpacity={0.7} />
+        <stop offset="100%" stopColor="#BBF7D0" stopOpacity={0.4} />
       </linearGradient>
     </defs>
   );
@@ -174,9 +255,31 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
               <GradientDefs />
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeWidth={0.5} />
 
-              <Area type="monotone" dataKey="minus3sd" fill="url(#severeZone)" stroke="none" />
-              <Area type="monotone" dataKey="minus2sd" fill="url(#moderateZone)" stroke="none" />
-              <Area type="monotone" dataKey="plus2sd" fill="url(#normalZone)" stroke="none" />
+              {/* Highlight WHO zones as stacked colour bands (soft, low-intensity fills) */}
+              <Area
+                type="monotone"
+                dataKey="severeBand"
+                stackId="bands"
+                fill="#fecaca"         // light red
+                fillOpacity={0.45}
+                stroke="none"
+              />
+              <Area
+                type="monotone"
+                dataKey="moderateBand"
+                stackId="bands"
+                fill="#fed7aa"         // light orange
+                fillOpacity={0.4}
+                stroke="none"
+              />
+              <Area
+                type="monotone"
+                dataKey="normalBand"
+                stackId="bands"
+                fill="#bbf7d0"         // light green
+                fillOpacity={0.35}
+                stroke="none"
+              />
 
               <Line type="monotone" dataKey="plus3sd" stroke="#10B981" strokeWidth={1} strokeDasharray="3 3" dot={false} name="+3 SD" />
               <Line type="monotone" dataKey="plus2sd" stroke="#10B981" strokeWidth={1.5} dot={false} name="+2 SD" />
@@ -194,14 +297,27 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 />
               ))}
 
-              <XAxis dataKey="age"
-                label={{ value: 'Age (months)', position: 'insideBottom', offset: -15, style: { fontWeight: 'bold', fontSize: 13 } }}
-                tick={{ fontSize: 11 }} domain={[0, 60]}
-                ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24, 30, 36, 42, 48, 54, 60]} />
+              <XAxis
+                dataKey="age"
+                label={{
+                  value: 'Age (months)',
+                  position: 'insideBottom',
+                  offset: -8,
+                  style: { fontWeight: 'bold', fontSize: 13 },
+                }}
+                tick={{ fontSize: 11 }}
+                domain={[0, 60]}
+                ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24, 30, 36, 42, 48, 54, 60]}
+              />
               <YAxis label={{ value: 'Weight (kg)', angle: -90, position: 'insideLeft', style: { fontWeight: 'bold', fontSize: 13 } }}
                 tick={{ fontSize: 11 }} domain={[0, 'auto']} />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ paddingTop: 20, fontSize: 12 }} iconType="line" />
+              <Legend
+                wrapperStyle={{ fontSize: 12, marginTop: 20, paddingTop: 6 }}
+                verticalAlign="bottom"
+                align="center"
+                iconType="line"
+              />
             </ComposedChart>
           </ResponsiveContainer>
 
@@ -228,9 +344,31 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
                 <GradientDefs />
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeWidth={0.5} />
-                <Area type="monotone" dataKey="minus3sd" fill="url(#severeZone)" stroke="none" />
-                <Area type="monotone" dataKey="minus2sd" fill="url(#moderateZone)" stroke="none" />
-                <Area type="monotone" dataKey="plus2sd" fill="url(#normalZone)" stroke="none" />
+                {/* Highlight WHO zones as stacked colour bands (soft, low-intensity fills) */}
+                <Area
+                  type="monotone"
+                  dataKey="severeBand"
+                  stackId="bands"
+                  fill="#fecaca"
+                  fillOpacity={0.45}
+                  stroke="none"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="moderateBand"
+                  stackId="bands"
+                  fill="#fed7aa"
+                  fillOpacity={0.4}
+                  stroke="none"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="normalBand"
+                  stackId="bands"
+                  fill="#bbf7d0"
+                  fillOpacity={0.35}
+                  stroke="none"
+                />
                 <Line type="monotone" dataKey="plus3sd" stroke="#10B981" strokeWidth={1} strokeDasharray="3 3" dot={false} name="+3 SD" />
                 <Line type="monotone" dataKey="plus2sd" stroke="#10B981" strokeWidth={1.5} dot={false} name="+2 SD" />
                 <Line type="monotone" dataKey="median" stroke="#059669" strokeWidth={2.5} dot={false} name="Median" />
@@ -243,14 +381,27 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                   />
                 ))}
 
-                <XAxis dataKey="age"
-                  label={{ value: 'Age (months)', position: 'insideBottom', offset: -15, style: { fontWeight: 'bold', fontSize: 13 } }}
-                  tick={{ fontSize: 11 }} domain={[0, 24]}
-                  ticks={[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24]} />
+                <XAxis
+                  dataKey="age"
+                  label={{
+                    value: 'Age (months)',
+                    position: 'insideBottom',
+                    offset: -8,
+                    style: { fontWeight: 'bold', fontSize: 13 },
+                  }}
+                  tick={{ fontSize: 11 }}
+                  domain={[0, 24]}
+                  ticks={[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24]}
+                />
                 <YAxis label={{ value: 'Length (cm)', angle: -90, position: 'insideLeft', style: { fontWeight: 'bold', fontSize: 13 } }}
                   tick={{ fontSize: 11 }} domain={[40, 'auto']} />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ paddingTop: 20, fontSize: 11 }} iconType="line" />
+                <Legend
+                  wrapperStyle={{ fontSize: 11, marginTop: 20, paddingTop: 6 }}
+                  verticalAlign="bottom"
+                  align="center"
+                  iconType="line"
+                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -268,9 +419,31 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
                 <GradientDefs />
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeWidth={0.5} />
-                <Area type="monotone" dataKey="minus3sd" fill="url(#severeZone)" stroke="none" />
-                <Area type="monotone" dataKey="minus2sd" fill="url(#moderateZone)" stroke="none" />
-                <Area type="monotone" dataKey="plus2sd" fill="url(#normalZone)" stroke="none" />
+                {/* Highlight WHO zones as stacked colour bands (soft, low-intensity fills) */}
+                <Area
+                  type="monotone"
+                  dataKey="severeBand"
+                  stackId="bands"
+                  fill="#fecaca"
+                  fillOpacity={0.45}
+                  stroke="none"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="moderateBand"
+                  stackId="bands"
+                  fill="#fed7aa"
+                  fillOpacity={0.4}
+                  stroke="none"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="normalBand"
+                  stackId="bands"
+                  fill="#bbf7d0"
+                  fillOpacity={0.35}
+                  stroke="none"
+                />
                 <Line type="monotone" dataKey="plus3sd" stroke="#10B981" strokeWidth={1} strokeDasharray="3 3" dot={false} name="+3 SD" />
                 <Line type="monotone" dataKey="plus2sd" stroke="#10B981" strokeWidth={1.5} dot={false} name="+2 SD" />
                 <Line type="monotone" dataKey="median" stroke="#059669" strokeWidth={2.5} dot={false} name="Median" />
@@ -283,14 +456,27 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                   />
                 ))}
 
-                <XAxis dataKey="age"
-                  label={{ value: 'Age (months)', position: 'insideBottom', offset: -15, style: { fontWeight: 'bold', fontSize: 13 } }}
-                  tick={{ fontSize: 11 }} domain={[24, 60]}
-                  ticks={[24, 28, 32, 36, 40, 44, 48, 52, 56, 60]} />
+                <XAxis
+                  dataKey="age"
+                  label={{
+                    value: 'Age (months)',
+                    position: 'insideBottom',
+                    offset: -8,
+                    style: { fontWeight: 'bold', fontSize: 13 },
+                  }}
+                  tick={{ fontSize: 11 }}
+                  domain={[24, 60]}
+                  ticks={[24, 28, 32, 36, 40, 44, 48, 52, 56, 60]}
+                />
                 <YAxis label={{ value: 'Height (cm)', angle: -90, position: 'insideLeft', style: { fontWeight: 'bold', fontSize: 13 } }}
                   tick={{ fontSize: 11 }} domain={[75, 'auto']} />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ paddingTop: 20, fontSize: 11 }} iconType="line" />
+                <Legend
+                  wrapperStyle={{ fontSize: 11, marginTop: 20, paddingTop: 6 }}
+                  verticalAlign="bottom"
+                  align="center"
+                  iconType="line"
+                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -308,9 +494,31 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
             <ComposedChart data={whoWeightForHeight} margin={{ top: 20, right: 40, left: 20, bottom: 60 }}>
               <GradientDefs />
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeWidth={0.5} />
-              <Area type="monotone" dataKey="minus3sd" fill="url(#severeZone)" stroke="none" />
-              <Area type="monotone" dataKey="minus2sd" fill="url(#moderateZone)" stroke="none" />
-              <Area type="monotone" dataKey="plus2sd" fill="url(#normalZone)" stroke="none" />
+              {/* Highlight WHO zones as stacked colour bands (soft, low-intensity fills) */}
+              <Area
+                type="monotone"
+                dataKey="severeBand"
+                stackId="bands"
+                fill="#fecaca"
+                fillOpacity={0.45}
+                stroke="none"
+              />
+              <Area
+                type="monotone"
+                dataKey="moderateBand"
+                stackId="bands"
+                fill="#fed7aa"
+                fillOpacity={0.4}
+                stroke="none"
+              />
+              <Area
+                type="monotone"
+                dataKey="normalBand"
+                stackId="bands"
+                fill="#bbf7d0"
+                fillOpacity={0.35}
+                stroke="none"
+              />
               <Line type="monotone" dataKey="plus3sd" stroke="#9333EA" strokeWidth={1} strokeDasharray="3 3" dot={false} name="+3 SD (Obese)" />
               <Line type="monotone" dataKey="plus2sd" stroke="#A855F7" strokeWidth={1.5} dot={false} name="+2 SD (Overweight)" />
               <Line type="monotone" dataKey="median" stroke="#7C3AED" strokeWidth={2.5} dot={false} name="Median" />
@@ -324,13 +532,27 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 />
               ))}
 
-              <XAxis dataKey="length"
-                label={{ value: 'Length / Height (cm)', position: 'insideBottom', offset: -15, style: { fontWeight: 'bold', fontSize: 13 } }}
-                tick={{ fontSize: 11 }} type="number" domain={[45, 120]} />
+              <XAxis
+                dataKey="length"
+                label={{
+                  value: 'Length / Height (cm)',
+                  position: 'insideBottom',
+                  offset: -8,
+                  style: { fontWeight: 'bold', fontSize: 13 },
+                }}
+                tick={{ fontSize: 11 }}
+                type="number"
+                domain={[45, 120]}
+              />
               <YAxis label={{ value: 'Weight (kg)', angle: -90, position: 'insideLeft', style: { fontWeight: 'bold', fontSize: 13 } }}
                 tick={{ fontSize: 11 }} domain={[0, 'auto']} />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ paddingTop: 20, fontSize: 12 }} iconType="line" />
+              <Legend
+                wrapperStyle={{ fontSize: 12, marginTop: 20, paddingTop: 6 }}
+                verticalAlign="bottom"
+                align="center"
+                iconType="line"
+              />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -378,28 +600,92 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
 
               {/* Z-score trend line chart */}
               {nutritionalStatusData.length >= 2 && (
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={nutritionalStatusData} margin={{ top: 10, right: 40, left: 20, bottom: 40 }}>
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart
+                    data={nutritionalStatusData}
+                    margin={{ top: 20, right: 40, left: 20, bottom: 80 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="age"
-                      label={{ value: 'Age (months)', position: 'insideBottom', offset: -10, style: { fontSize: 12 } }}
-                      tick={{ fontSize: 10 }} />
-                    <YAxis label={{ value: 'Z-Score', angle: -90, position: 'insideLeft', style: { fontSize: 12 } }}
-                      tick={{ fontSize: 10 }} domain={[-4, 3]} />
+
+                    {/* Soft coloured bands for Z-score zones */}
+                    <ReferenceArea y1={-4} y2={-3} fill="#FCA5A5" fillOpacity={0.25} />
+                    <ReferenceArea y1={-3} y2={-2} fill="#FED7AA" fillOpacity={0.25} />
+                    <ReferenceArea y1={-2} y2={2} fill="#BBF7D0" fillOpacity={0.18} />
+                    <XAxis
+                      dataKey="age"
+                      label={{
+                        value: 'Age (months)',
+                        position: 'insideBottom',
+                        offset: -1,
+                        style: { fontSize: 13, fontWeight: 'bold' },
+                      }}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <YAxis
+                      label={{
+                        value: 'Z-Score',
+                        angle: -90,
+                        position: 'insideLeft',
+                        style: { fontSize: 13, fontWeight: 'bold' },
+                      }}
+                      tick={{ fontSize: 11 }}
+                      domain={[-4, 3]}
+                    />
                     <Tooltip content={<CustomTooltip />} />
-                    <Legend iconType="line" wrapperStyle={{ fontSize: 11 }} />
-                    <ReferenceLine y={-3} stroke="#DC2626" strokeWidth={1.5} strokeDasharray="5 5"
-                      label={{ value: '−3 SD', fill: '#DC2626', fontSize: 10 }} />
-                    <ReferenceLine y={-2} stroke="#F59E0B" strokeWidth={1.5} strokeDasharray="5 5"
-                      label={{ value: '−2 SD', fill: '#F59E0B', fontSize: 10 }} />
-                    <ReferenceLine y={0} stroke="#059669" strokeWidth={1}
-                      label={{ value: 'Median', fill: '#059669', fontSize: 10 }} />
-                    <Line type="monotone" dataKey="wfa" stroke="#2563EB" strokeWidth={2}
-                      dot={{ r: 5, fill: '#2563EB' }} name="Weight-for-Age Z" connectNulls />
-                    <Line type="monotone" dataKey="hfa" stroke="#10B981" strokeWidth={2}
-                      dot={{ r: 5, fill: '#10B981' }} name="Height-for-Age Z" connectNulls />
-                    <Line type="monotone" dataKey="wfh" stroke="#9333EA" strokeWidth={2}
-                      dot={{ r: 5, fill: '#9333EA' }} name="Weight-for-Height Z" connectNulls />
+                    <Legend
+                      iconType="line"
+                      wrapperStyle={{ fontSize: 12, marginTop: 24, paddingTop: 8 }}
+                      verticalAlign="bottom"
+                      align="center"
+                    />
+                    <ReferenceLine
+                      y={-3}
+                      stroke="#FCA5A5"
+                      strokeWidth={1.5}
+                      strokeDasharray="5 5"
+                      label={{ value: '−3 SD', fill: '#DC2626', fontSize: 11 }}
+                    />
+                    <ReferenceLine
+                      y={-2}
+                      stroke="#FED7AA"
+                      strokeWidth={1.5}
+                      strokeDasharray="5 5"
+                      label={{ value: '−2 SD', fill: '#F97316', fontSize: 11 }}
+                    />
+                    <ReferenceLine
+                      y={0}
+                      stroke="#BBF7D0"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      label={{ value: 'Median', fill: '#059669', fontSize: 11 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="wfa"
+                      stroke="#2563EB"
+                      strokeWidth={3}
+                      dot={{ r: 6, fill: '#2563EB' }}
+                      name="Weight-for-Age Z"
+                      connectNulls
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="hfa"
+                      stroke="#10B981"
+                      strokeWidth={3}
+                      dot={{ r: 6, fill: '#10B981' }}
+                      name="Height-for-Age Z"
+                      connectNulls
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="wfh"
+                      stroke="#9333EA"
+                      strokeWidth={3}
+                      dot={{ r: 6, fill: '#9333EA' }}
+                      name="Weight-for-Height Z"
+                      connectNulls
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               )}
