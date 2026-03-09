@@ -236,7 +236,6 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
         </p>
       </div>
 
-      {/* ── CHART 1: Weight-for-Age ─────────────────────────────────────── */}
       <div className="bg-white rounded-xl border-2 border-gray-200 shadow-lg overflow-hidden">
         <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-4">
           <h3 className="text-lg font-bold text-white">Chart 1: Weight-for-Age</h3>
@@ -250,8 +249,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
         </div>
         <div className="p-6">
           <ResponsiveContainer width="100%" height={500}>
-            {/* WHO curves use whoWeightForAge; child data overlaid via ReferenceDots + custom Line */}
-            <ComposedChart data={whoWeightForAge} margin={{ top: 20, right: 40, left: 20, bottom: 60 }}>
+            <ComposedChart data={whoWeightForAge} margin={{ top: 20, right: 40, left: 20, bottom: 100 }}>
               <GradientDefs />
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeWidth={0.5} />
 
@@ -302,7 +300,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 label={{
                   value: 'Age (months)',
                   position: 'insideBottom',
-                  offset: -8,
+                  offset: 0,
                   style: { fontWeight: 'bold', fontSize: 13 },
                 }}
                 tick={{ fontSize: 11 }}
@@ -313,7 +311,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 tick={{ fontSize: 11 }} domain={[0, 'auto']} />
               <Tooltip content={<CustomTooltip />} />
               <Legend
-                wrapperStyle={{ fontSize: 12, marginTop: 20, paddingTop: 6 }}
+                wrapperStyle={{ fontSize: 12, marginTop: 50, paddingTop: 14 }}
                 verticalAlign="bottom"
                 align="center"
                 iconType="line"
@@ -386,7 +384,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                   label={{
                     value: 'Age (months)',
                     position: 'insideBottom',
-                    offset: -8,
+                    offset: 0,
                     style: { fontWeight: 'bold', fontSize: 13 },
                   }}
                   tick={{ fontSize: 11 }}
@@ -461,7 +459,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                   label={{
                     value: 'Age (months)',
                     position: 'insideBottom',
-                    offset: -8,
+                    offset: 0,
                     style: { fontWeight: 'bold', fontSize: 13 },
                   }}
                   tick={{ fontSize: 11 }}
@@ -537,7 +535,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 label={{
                   value: 'Length / Height (cm)',
                   position: 'insideBottom',
-                  offset: -8,
+                  offset: 0,
                   style: { fontWeight: 'bold', fontSize: 13 },
                 }}
                 tick={{ fontSize: 11 }}
