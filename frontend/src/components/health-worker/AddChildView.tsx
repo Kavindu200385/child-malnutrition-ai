@@ -13,10 +13,13 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
     name: '',
     dob: '',
     gender: '',
+    mother_name: '',
     guardian_name: '',
     guardian_phone: '',
+    guardian_nic: '',
     address: '',
   });
+  const [guardianIsMother, setGuardianIsMother] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -80,8 +83,10 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
         name: formData.name.trim(),
         dob: formData.dob,
         gender: formData.gender,
+        mother_name: guardianIsMother ? formData.guardian_name.trim() : (formData.mother_name.trim() || null),
         guardian_name: formData.guardian_name.trim(),
         guardian_phone: formData.guardian_phone.trim(),
+        guardian_nic: formData.guardian_nic.trim() || null,
         address: formData.address.trim(),
       });
 
@@ -157,9 +162,8 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
                 type="text"
                 value={formData.child_id}
                 onChange={(e) => handleChange('child_id', e.target.value)}
-                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
-                  errors.child_id ? 'border-red-300' : 'border-gray-300'
-                }`}
+                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${errors.child_id ? 'border-red-300' : 'border-gray-300'
+                  }`}
                 placeholder="e.g., CH001, COL004"
                 required
               />
@@ -184,9 +188,8 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
                 type="text"
                 value={formData.name}
                 onChange={(e) => handleChange('name', e.target.value)}
-                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
-                  errors.name ? 'border-red-300' : 'border-gray-300'
-                }`}
+                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${errors.name ? 'border-red-300' : 'border-gray-300'
+                  }`}
                 placeholder="Enter child's full name"
                 required
               />
@@ -210,9 +213,8 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
                   value={formData.dob}
                   onChange={(e) => handleChange('dob', e.target.value)}
                   max={new Date().toISOString().split('T')[0]}
-                  className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
-                    errors.dob ? 'border-red-300' : 'border-gray-300'
-                  }`}
+                  className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${errors.dob ? 'border-red-300' : 'border-gray-300'
+                    }`}
                   required
                 />
               </div>
@@ -229,9 +231,8 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
                 id="gender"
                 value={formData.gender}
                 onChange={(e) => handleChange('gender', e.target.value)}
-                className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
-                  errors.gender ? 'border-red-300' : 'border-gray-300'
-                }`}
+                className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${errors.gender ? 'border-red-300' : 'border-gray-300'
+                  }`}
                 required
               >
                 <option value="">Select gender</option>
@@ -242,6 +243,38 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
                 <p className="mt-1 text-sm text-red-600">{errors.gender}</p>
               )}
             </div>
+          </div>
+
+          {/* Mother Name */}
+          <div>
+            <label htmlFor="mother_name" className="block text-sm font-medium text-gray-900 mb-2">
+              Mother's Name
+            </label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                id="mother_name"
+                type="text"
+                value={guardianIsMother ? formData.guardian_name : formData.mother_name}
+                onChange={(e) => handleChange('mother_name', e.target.value)}
+                disabled={guardianIsMother}
+                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${guardianIsMother ? 'bg-gray-50 text-gray-500 border-gray-200' : 'border-gray-300'
+                  }`}
+                placeholder="Enter mother's full name"
+              />
+            </div>
+            <label className="flex items-center gap-2 mt-2 cursor-pointer text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={guardianIsMother}
+                onChange={(e) => {
+                  setGuardianIsMother(e.target.checked);
+                  if (e.target.checked) handleChange('mother_name', '');
+                }}
+                className="w-4 h-4 text-blue-600 rounded"
+              />
+              Guardian is also the mother
+            </label>
           </div>
 
           {/* Guardian Name */}
@@ -256,9 +289,8 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
                 type="text"
                 value={formData.guardian_name}
                 onChange={(e) => handleChange('guardian_name', e.target.value)}
-                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
-                  errors.guardian_name ? 'border-red-300' : 'border-gray-300'
-                }`}
+                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${errors.guardian_name ? 'border-red-300' : 'border-gray-300'
+                  }`}
                 placeholder="Enter guardian's full name"
                 required
               />
@@ -266,6 +298,24 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
             {errors.guardian_name && (
               <p className="mt-1 text-sm text-red-600">{errors.guardian_name}</p>
             )}
+          </div>
+
+          {/* Guardian NIC */}
+          <div>
+            <label htmlFor="guardian_nic" className="block text-sm font-medium text-gray-900 mb-2">
+              Guardian NIC
+            </label>
+            <div className="relative">
+              <UserCircle className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                id="guardian_nic"
+                type="text"
+                value={formData.guardian_nic}
+                onChange={(e) => handleChange('guardian_nic', e.target.value)}
+                className="w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                placeholder="e.g., 901234567V"
+              />
+            </div>
           </div>
 
           {/* Guardian Phone */}
@@ -280,9 +330,8 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
                 type="tel"
                 value={formData.guardian_phone}
                 onChange={(e) => handleChange('guardian_phone', e.target.value)}
-                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
-                  errors.guardian_phone ? 'border-red-300' : 'border-gray-300'
-                }`}
+                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${errors.guardian_phone ? 'border-red-300' : 'border-gray-300'
+                  }`}
                 placeholder="e.g., 077-1234567"
                 required
               />
@@ -304,9 +353,8 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
                 value={formData.address}
                 onChange={(e) => handleChange('address', e.target.value)}
                 rows={3}
-                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none ${
-                  errors.address ? 'border-red-300' : 'border-gray-300'
-                }`}
+                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none ${errors.address ? 'border-red-300' : 'border-gray-300'
+                  }`}
                 placeholder="Enter full address"
                 required
               />

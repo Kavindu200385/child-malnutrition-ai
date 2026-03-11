@@ -1,10 +1,11 @@
 import React from 'react';
 import { useRef, useState, useEffect } from 'react';
+import { formatDate, formatDateTime } from '../../utils/formatDate';
 import { getRiskColor, getRiskLabel, calculateRiskLevel, RiskLevel } from '../../types';
 import { ArrowLeft, User, Phone, MapPin, Calendar, Activity, AlertTriangle, TrendingUp, Plus, Download, TrendingDown, FileText, CheckCircle, Pencil, Trash2 } from 'lucide-react';
 import { WHOGrowthCharts } from './WHOGrowthCharts';
 import { HiddenPdfCharts, generateProfessionalPdf } from './PdfReportGenerator';
-import { childrenAPI } from '../../services/api';
+import { childrenAPI, midwifeAPI } from '../../services/api';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -162,6 +163,10 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string | null>>({});
+  const [showEscalateDialog, setShowEscalateDialog] = useState(false);
+  const [escalateReason, setEscalateReason] = useState('');
+  const [isEscalating, setIsEscalating] = useState(false);
+  const [escalateError, setEscalateError] = useState('');
   const pdfRef = useRef<HTMLDivElement | null>(null);
 
   // Hidden chart refs for PDF generation
@@ -212,6 +217,31 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
       });
     }
   }, [showEditDialog, apiChild]);
+
+  // ── Live-updating age (hooks MUST be before any early returns) ──────────
+  const calcAge = (dob: string) => {
+    const msElapsed = Date.now() - new Date(dob).getTime();
+    const totalDays = Math.floor(msElapsed / (1000 * 60 * 60 * 24));
+    const totalMonths = Math.floor(msElapsed / (1000 * 60 * 60 * 24 * 30.44));
+    const years = Math.floor(totalMonths / 12);
+    const months = totalMonths % 12;
+    // Under 1 month → show days so newborns never display as "0 months"
+    if (totalMonths < 1) return `${totalDays} days (0 months)`;
+    if (years > 0) return `${years} yr ${months} mo (${totalMonths} months)`;
+    return `${totalMonths} months`;
+  };
+
+  const [ageDisplay, setAgeDisplay] = useState(() =>
+    apiChild?.dob ? calcAge(apiChild.dob) : '0 months'
+  );
+
+  useEffect(() => {
+    const dob = apiChild?.dob;
+    if (!dob) return;
+    setAgeDisplay(calcAge(dob));
+    const timer = setInterval(() => setAgeDisplay(calcAge(dob)), 60_000);
+    return () => clearInterval(timer);
+  }, [apiChild?.dob]);
 
   const isHospital = user?.role === 'hospital';
 
@@ -271,10 +301,6 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
       </div>
     );
   }
-
-  const age = child.dob ? Math.floor(
-    (new Date().getTime() - new Date(child.dob).getTime()) / (1000 * 60 * 60 * 24 * 30)
-  ) : 0;
 
   // Calculate prediction based on historical data
   const calculatePrediction = (): PredictionData | null => {
@@ -391,6 +417,42 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
         if (res.data?.status === 'success' && res.data?.child) setApiChild(res.data.child);
       })
       .catch(() => { });
+  };
+
+  // Derive the numeric DB id for escalation (backend expects integer)
+  const numericChildId: number | null = (() => {
+    const n = Number(apiChild?.id);
+    return isNaN(n) ? null : n;
+  })();
+
+  const isMidwife = user?.role === 'midwife';
+  const escalationStatus = apiChild?.escalation_status;
+  const alreadyEscalated = escalationStatus === 'ESCALATED_TO_MOH';
+  const riskLevel = (child.riskLevel || '').toLowerCase();
+  const riskIsElevated = riskLevel === 'mam' || riskLevel === 'sam';
+  const canEscalateToMoh = isMidwife && riskIsElevated && !alreadyEscalated;
+
+  const handleEscalateToMoh = async () => {
+    if (!numericChildId) return;
+    setIsEscalating(true);
+    setEscalateError('');
+    try {
+      const res = await midwifeAPI.escalateToMoh(numericChildId, {
+        reason: escalateReason || 'Risk level elevated — requires MOH review',
+        previous_risk_level: escalationStatus,
+      });
+      if (res.data?.status === 'success') {
+        setShowEscalateDialog(false);
+        setEscalateReason('');
+        refetchChild(); // refresh so escalation_status updates
+      } else {
+        setEscalateError(res.data?.message || 'Escalation failed');
+      }
+    } catch (err: any) {
+      setEscalateError(err?.response?.data?.message || 'Escalation failed. Please try again.');
+    } finally {
+      setIsEscalating(false);
+    }
   };
 
   const handleEditSave = () => {
@@ -571,6 +633,26 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
             Add measurement only for children sent by midwife
           </span>
         ) : null}
+
+        {/* Send to MOH escalation – midwife only, when risk is elevated */}
+        {isMidwife && riskIsElevated && (
+          alreadyEscalated ? (
+            <span className="flex items-center gap-1.5 px-4 py-2 bg-orange-100 border-2 border-orange-300 text-orange-800 rounded-lg font-medium text-sm cursor-default">
+              <CheckCircle className="w-4 h-4 text-orange-600" />
+              Sent to MOH
+            </span>
+          ) : (
+            <button
+              onClick={() => setShowEscalateDialog(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors animate-pulse"
+              title="Child's risk is elevated — send to MOH for review"
+            >
+              <AlertTriangle className="w-4 h-4" />
+              Send to MOH
+            </button>
+          )
+        )}
+
         {canEditDelete && (
           <div className="flex items-center gap-2">
             <button
@@ -613,7 +695,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                   {getRiskLabel(child.riskLevel)}
                 </span>
                 <p className="text-xs text-gray-600 mt-1">
-                  📅 Based on measurements from {latestMeasurement ? latestMeasurement.date : '—'}
+                  📅 Based on measurements from {latestMeasurement ? formatDate(latestMeasurement.date) : '—'}
                 </p>
               </div>
             </div>
@@ -792,7 +874,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
             <div>
               <p className="text-sm text-gray-600">Date of Birth / Age</p>
               <p className="font-medium text-gray-900">
-                {child.dob} ({age} months)
+                {formatDate(child.dob)} ({ageDisplay})
               </p>
             </div>
           </div>
@@ -851,8 +933,8 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
           </h3>
           <p className="text-sm text-gray-600 mb-4">
             {birthPanelData.fromMeasurement
-              ? `First recorded measurement close to birth (on: ${birthPanelData.date})`
-              : `Recorded when the child was registered (date of birth: ${birthPanelData.date})`}
+              ? `First recorded measurement close to birth (on: ${formatDate(birthPanelData.date)})`
+              : `Recorded when the child was registered (date of birth: ${formatDate(birthPanelData.date)})`}
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white rounded-lg p-4 border border-amber-200">
@@ -976,7 +1058,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                 <tbody>
                   {child.measurements.map((measurement) => (
                     <tr key={measurement.id} className="border-b border-gray-100">
-                      <td className="py-3 px-4 text-sm text-gray-900">{measurement.date}</td>
+                      <td className="py-3 px-4 text-sm text-gray-900">{formatDate(measurement.date)}</td>
                       <td className="py-3 px-4 text-sm text-gray-600">{measurement.ageMonths}m</td>
                       <td className="py-3 px-4 text-sm text-gray-900">{measurement.weight} kg</td>
                       <td className="py-3 px-4 text-sm text-gray-900">{measurement.height} cm</td>
@@ -1239,6 +1321,85 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* Escalate to MOH Confirmation Dialog */}
+      {showEscalateDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="bg-orange-600 px-6 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Send to MOH for Review</h3>
+                <p className="text-orange-100 text-sm">This will escalate {child.name} to the MOH doctor</p>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6">
+              {/* Risk summary */}
+              <div className="mb-4 p-3 rounded-lg bg-orange-50 border border-orange-200">
+                <p className="text-sm font-semibold text-orange-900">Current risk level:</p>
+                <p className="text-base font-bold mt-1" style={{ color: getRiskColor(child.riskLevel) }}>
+                  {getRiskLabel(child.riskLevel)}
+                </p>
+                <p className="text-xs text-orange-700 mt-1">
+                  The child's growth indicators are below −2 SD or −3 SD, indicating {riskLevel === 'sam' ? 'Severe Acute Malnutrition (SAM)' : 'Moderate Acute Malnutrition (MAM)'}.
+                </p>
+              </div>
+
+              {/* Reason */}
+              <div className="mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Reason for referral <span className="text-gray-400">(optional)</span>
+                </label>
+                <textarea
+                  value={escalateReason}
+                  onChange={(e) => setEscalateReason(e.target.value)}
+                  placeholder={riskLevel === 'sam'
+                    ? 'e.g. Z-score below −3 SD for two consecutive visits, weight declining'
+                    : 'e.g. Z-score −2 SD to −3 SD range, inadequate weight gain'}
+                  rows={3}
+                  className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
+                />
+              </div>
+
+              {escalateError && (
+                <p className="text-sm text-red-600 mt-2 font-medium">{escalateError}</p>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 pb-6 flex gap-3 justify-end">
+              <button
+                onClick={() => { setShowEscalateDialog(false); setEscalateError(''); setEscalateReason(''); }}
+                disabled={isEscalating}
+                className="px-5 py-2 border-2 border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEscalateToMoh}
+                disabled={isEscalating}
+                className="flex items-center gap-2 px-5 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              >
+                {isEscalating ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="w-4 h-4" />
+                    Confirm &amp; Send to MOH
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

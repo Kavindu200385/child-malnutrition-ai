@@ -103,12 +103,12 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
     user.role === 'hospital'
       ? 'Pediatric Unit'
       : user.role === 'midwife'
-      ? 'Midwife (PHM)'
-      : user.role === 'moh' || user.role === 'amoh'
-      ? user.role === 'moh' ? 'MOH' : 'AMOH'
-      : user.role === 'nutritionist'
-      ? 'Nutritionist'
-      : 'Health Worker';
+        ? 'Midwife (PHM)'
+        : user.role === 'moh' || user.role === 'amoh'
+          ? user.role === 'moh' ? 'MOH' : 'AMOH'
+          : user.role === 'nutritionist'
+            ? 'Nutritionist'
+            : 'Health Worker';
 
   const handleViewChild = (childId: string) => {
     setSelectedChildId(childId);
@@ -126,12 +126,12 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
 
   const navigationItems: { id: View; label: string; icon: any }[] = isHospital
     ? [
-        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'search', label: 'Search Child', icon: Search },
-        { id: 'add-child', label: 'Register Child', icon: UserPlus },
-      ]
+      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'search', label: 'Search Child', icon: Search },
+      { id: 'add-child', label: 'Register Child', icon: UserPlus },
+    ]
     : user.role === 'midwife'
-    ? [
+      ? [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { id: 'search', label: 'Search Child', icon: Search },
         { id: 'add-child', label: 'Register Child', icon: UserPlus },
@@ -139,31 +139,31 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
         { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
         { id: 'reports', label: 'Reports', icon: FileText },
       ]
-    : isMoh
-    ? [
-        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'search', label: 'Search Child', icon: Search },
-        { id: 'moh-escalated', label: 'Escalated Children', icon: AlertTriangle },
-        { id: 'moh-workers', label: 'Area Health Workers', icon: Users },
-        { id: 'moh-reports', label: 'MOH Reports', icon: ClipboardList },
-        { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
-        { id: 'transfers', label: 'Review Transfers', icon: ArrowRightLeft },
-      ]
-    : isNutritionist
-    ? [
-        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'nut-referred', label: 'Referred Children', icon: Users },
-        { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
-        { id: 'reports', label: 'Reports', icon: FileText },
-        { id: 'transfers', label: 'Review Transfers', icon: ArrowRightLeft },
-      ]
-    : [
-        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'search', label: 'Search Child', icon: Search },
-        { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
-        ...(canReviewTransfers ? [{ id: 'transfers' as View, label: 'Review Transfers', icon: ArrowRightLeft }] : []),
-        { id: 'reports', label: 'Reports', icon: FileText },
-      ];
+      : isMoh
+        ? [
+          { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+          { id: 'search', label: 'Search Child', icon: Search },
+          { id: 'moh-escalated', label: 'Escalated Children', icon: AlertTriangle },
+          { id: 'moh-workers', label: 'Area Health Workers', icon: Users },
+          { id: 'moh-reports', label: 'MOH Reports', icon: ClipboardList },
+          { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
+          { id: 'transfers', label: 'Review Transfers', icon: ArrowRightLeft },
+        ]
+        : isNutritionist
+          ? [
+            { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+            { id: 'nut-referred', label: 'Referred Children', icon: Users },
+            { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
+            { id: 'reports', label: 'Reports', icon: FileText },
+            { id: 'transfers', label: 'Review Transfers', icon: ArrowRightLeft },
+          ]
+          : [
+            { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+            { id: 'search', label: 'Search Child', icon: Search },
+            { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
+            ...(canReviewTransfers ? [{ id: 'transfers' as View, label: 'Review Transfers', icon: ArrowRightLeft }] : []),
+            { id: 'reports', label: 'Reports', icon: FileText },
+          ];
 
   const headerClass = getHeaderGradientClass(user.role);
   const subtitleClass = getSubtitleClass(user.role);
@@ -173,9 +173,8 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
     <div className="min-h-screen bg-gray-50">
       {/* Top bar: header + nav – hide on scroll down, show on scroll up */}
       <div
-        className={`sticky top-0 z-10 transition-transform duration-300 ease-out ${
-          topBarVisible ? 'translate-y-0' : '-translate-y-full'
-        }`}
+        className={`sticky top-0 z-10 transition-transform duration-300 ease-out ${topBarVisible ? 'translate-y-0' : '-translate-y-full'
+          }`}
       >
         {/* Header – gradient by role; inline style fallback so MOH/Midwife always visible */}
         <header className={`${headerClass} text-white shadow-lg`} style={getHeaderGradientStyle(user.role)}>
@@ -217,9 +216,8 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
                   <button
                     key={item.id}
                     onClick={() => setCurrentView(item.id)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${
-                      isActive ? navActiveClass : 'text-gray-600 hover:bg-gray-100'
-                    }`}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${isActive ? navActiveClass : 'text-gray-600 hover:bg-gray-100'
+                      }`}
                   >
                     <Icon className="w-4 h-4" />
                     {item.label}
@@ -262,8 +260,8 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
               onAddMeasurement={handleAddMeasurement}
             />
           ) : (
-            <ChildProfileView 
-              childId={selectedChildId} 
+            <ChildProfileView
+              childId={selectedChildId}
               onBack={() => setCurrentView('search')}
               onAddMeasurement={handleAddMeasurement}
               user={user}
@@ -271,7 +269,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
           )
         )}
         {currentView === 'add-measurement' && !isHospital && (
-          <AddMeasurementView 
+          <AddMeasurementView
             user={user}
             selectedChildId={selectedChildId}
             onBack={() => setCurrentView(isNutritionist ? 'nut-referred' : 'search')}

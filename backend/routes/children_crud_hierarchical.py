@@ -60,6 +60,7 @@ def create_child():
         child_id=child_id,
         name=data.get("name"),
         gender=data.get("gender"),
+        mother_name=data.get("mother_name"),
         guardian_name=data.get("guardian_name"),
         guardian_phone=data.get("guardian_phone"),
         guardian_nic=data.get("guardian_nic"),
@@ -223,30 +224,48 @@ def list_children():
             return jsonify({"status": "success", "children": [], "count": 0}), 200
         query = query.filter(Child.id.in_(ref_child_ids))
     elif user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH]:
-        # Field workers see children in their assigned areas
+        # Field workers see ONLY children assigned to their areas.
+        # The assign page may pass include_unassigned=true to see
+        # unassigned children for the purpose of assigning them.
+        include_unassigned = request.args.get("include_unassigned", "false").lower() == "true"
+
         if user.role in [ROLE_MOH, ROLE_AMOH]:
-            # MOH: strict area isolation - only children in their MOH area(s)
+            # MOH: strict area isolation — only children in their MOH area(s)
             from backend.auth_utils_hierarchical import get_moh_area_ids
             moh_area_ids = get_moh_area_ids(user)
             if not moh_area_ids:
                 return jsonify({"status": "success", "children": [], "count": 0}), 200
-            query = query.filter(Child.moh_area_id.in_(moh_area_ids))
+            if include_unassigned:
+                from sqlalchemy import or_
+                query = query.filter(
+                    or_(
+                        Child.moh_area_id.in_(moh_area_ids),
+                        Child.current_assigned_area_id.is_(None)
+                    )
+                )
+            else:
+                query = query.filter(Child.moh_area_id.in_(moh_area_ids))
         else:
+            # Midwife: only children in their PHM area(s)
             accessible_areas = get_user_accessible_areas(user)
             accessible_area_ids = [a.id for a in accessible_areas]
-            if user.role == ROLE_MIDWIFE:
-                # Midwife also sees unassigned children (to assign them)
-                if accessible_area_ids:
+            if not accessible_area_ids:
+                if include_unassigned:
+                    query = query.filter(Child.current_assigned_area_id.is_(None))
+                else:
+                    return jsonify({"status": "success", "children": [], "count": 0}), 200
+            else:
+                if include_unassigned:
+                    from sqlalchemy import or_
                     query = query.filter(
-                        (Child.current_assigned_area_id.in_(accessible_area_ids)) |
-                        (Child.current_assigned_area_id.is_(None))
+                        or_(
+                            Child.current_assigned_area_id.in_(accessible_area_ids),
+                            Child.current_assigned_area_id.is_(None)
+                        )
                     )
                 else:
-                    query = query.filter(Child.current_assigned_area_id.is_(None))
-            else:
-                if not accessible_area_ids:
-                    return jsonify({"status": "success", "children": [], "count": 0}), 200
-                query = query.filter(Child.current_assigned_area_id.in_(accessible_area_ids))
+                    # Default: only assigned children in midwife's area
+                    query = query.filter(Child.current_assigned_area_id.in_(accessible_area_ids))
     else:
         return jsonify({"status": "error", "message": "Invalid role"}), 403
     

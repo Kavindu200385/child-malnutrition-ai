@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { User } from '../../App';
 import { hospitalAPI } from '../../services/api';
 import { Search, Filter, AlertTriangle, CheckCircle, ArrowRight, Loader2, Eye } from 'lucide-react';
+import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
 
 interface HospitalChildrenListViewProps {
   user: User;
@@ -17,6 +18,7 @@ export function HospitalChildrenListView({ user, onViewChild }: HospitalChildren
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [dialog, setDialog] = useState<ConfirmDialogState | null>(null);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,25 +68,28 @@ export function HospitalChildrenListView({ user, onViewChild }: HospitalChildren
   };
 
   const handleTransferToNutritionist = async (childId: number) => {
-    if (!confirm('Transfer this SAM case to Hospital Nutritionist?')) {
-      return;
-    }
-
-    try {
-      const response = await hospitalAPI.transferToNutritionist(childId, {
-        reason: 'SAM case - immediate nutritionist referral required',
-      });
-
-      if (response.data.status === 'success') {
-        setSuccess('Child transferred to nutritionist successfully');
-        await loadChildren();
-        setTimeout(() => setSuccess(''), 3000);
-      } else {
-        setError(response.data.message || 'Failed to transfer child');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to transfer child');
-    }
+    setDialog({
+      title: 'Transfer to Nutritionist',
+      message: 'Transfer this SAM case to the Hospital Nutritionist? This action cannot be undone.',
+      variant: 'warning',
+      confirmLabel: 'Yes, Transfer',
+      onConfirm: async () => {
+        try {
+          const response = await hospitalAPI.transferToNutritionist(childId, {
+            reason: 'SAM case - immediate nutritionist referral required',
+          });
+          if (response.data.status === 'success') {
+            setSuccess('Child transferred to nutritionist successfully');
+            await loadChildren();
+            setTimeout(() => setSuccess(''), 3000);
+          } else {
+            setError(response.data.message || 'Failed to transfer child');
+          }
+        } catch (err: any) {
+          setError(err.response?.data?.message || 'Failed to transfer child');
+        }
+      },
+    });
   };
 
   const handleSearch = (e: React.FormEvent) => {
@@ -107,6 +112,7 @@ export function HospitalChildrenListView({ user, onViewChild }: HospitalChildren
 
   return (
     <div className="space-y-6">
+      <ConfirmDialog state={dialog} onClose={() => setDialog(null)} />
       {/* Header */}
       <div>
         <h2 className="text-2xl font-bold text-gray-900">Registered Children</h2>

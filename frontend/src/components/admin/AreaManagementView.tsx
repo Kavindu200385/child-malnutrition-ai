@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, ChevronRight, MapPin, AlertCircle, Building2, RefreshCw } from 'lucide-react';
 import { areasHierarchicalAPI, hospitalsAPI } from '../../services/api';
+import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
 
 interface AreaManagementViewProps {
   onBack?: () => void;
@@ -22,6 +23,7 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
   const [hospitalsLoading, setHospitalsLoading] = useState(false);
   const [showCreateHospital, setShowCreateHospital] = useState(false);
   const [editingHospital, setEditingHospital] = useState<any>(null);
+  const [dialog, setDialog] = useState<ConfirmDialogState | null>(null);
 
   useEffect(() => {
     loadHierarchy();
@@ -84,20 +86,24 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
   };
 
   const handleDelete = async (areaId: number) => {
-    if (!confirm('Are you sure you want to delete this area? This action cannot be undone.')) {
-      return;
-    }
-
-    try {
-      const response = await areasHierarchicalAPI.delete(areaId);
-      if (response.data.status === 'success') {
-        await loadHierarchy();
-      } else {
-        setError(response.data.message || 'Failed to delete area');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to delete area');
-    }
+    setDialog({
+      title: 'Delete Area',
+      message: 'Are you sure you want to delete this area? This action cannot be undone and will remove all associated data.',
+      variant: 'danger',
+      confirmLabel: 'Yes, Delete',
+      onConfirm: async () => {
+        try {
+          const response = await areasHierarchicalAPI.delete(areaId);
+          if (response.data.status === 'success') {
+            await loadHierarchy();
+          } else {
+            setError(response.data.message || 'Failed to delete area');
+          }
+        } catch (err: any) {
+          setError(err.response?.data?.message || 'Failed to delete area');
+        }
+      },
+    });
   };
 
   const loadHospitals = async () => {
@@ -144,6 +150,7 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
 
   return (
     <div className="space-y-6">
+      <ConfirmDialog state={dialog} onClose={() => setDialog(null)} />
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -230,11 +237,10 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
         </button>
         <button
           onClick={() => setSelectedLevel('all')}
-          className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-            selectedLevel === 'all'
+          className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${selectedLevel === 'all'
               ? 'bg-blue-600 text-white'
               : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
+            }`}
         >
           All Levels
         </button>
@@ -242,11 +248,10 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
           <button
             key={level}
             onClick={() => setSelectedLevel(level)}
-            className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-              selectedLevel === level
+            className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${selectedLevel === level
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+              }`}
           >
             {level.toUpperCase()}
           </button>
@@ -302,32 +307,32 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
 
       {/* Hospitals – entered separately (not part of area hierarchy); nutritionists assigned here */}
       {(selectedLevel === 'all' || selectedLevel === 'hospital') && (
-      <div className="bg-white rounded-lg shadow-lg border-2 border-gray-200">
-        <div className="px-6 py-4 border-b-2 bg-indigo-100 border-indigo-300">
-          <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <Building2 className="w-5 h-5" />
-            Hospitals ({hospitals.length} {hospitals.length === 1 ? 'hospital' : 'hospitals'})
-          </h3>
-          <p className="text-sm text-gray-600 mt-1">Add hospitals to the system. Assign nutritionists and Pediatric Unit staff to hospitals in User Management.</p>
+        <div className="bg-white rounded-lg shadow-lg border-2 border-gray-200">
+          <div className="px-6 py-4 border-b-2 bg-indigo-100 border-indigo-300">
+            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <Building2 className="w-5 h-5" />
+              Hospitals ({hospitals.length} {hospitals.length === 1 ? 'hospital' : 'hospitals'})
+            </h3>
+            <p className="text-sm text-gray-600 mt-1">Add hospitals to the system. Assign nutritionists and Pediatric Unit staff to hospitals in User Management.</p>
+          </div>
+          <div className="p-6">
+            {hospitalsLoading ? (
+              <p className="text-gray-500">Loading hospitals...</p>
+            ) : hospitals.length === 0 ? (
+              <p className="text-gray-500">No hospitals yet.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {hospitals.map((h) => (
+                  <HospitalCard
+                    key={h.id}
+                    hospital={h}
+                    onEdit={(hospital) => setEditingHospital(hospital)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="p-6">
-          {hospitalsLoading ? (
-            <p className="text-gray-500">Loading hospitals...</p>
-          ) : hospitals.length === 0 ? (
-            <p className="text-gray-500">No hospitals yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {hospitals.map((h) => (
-                <HospitalCard
-                  key={h.id}
-                  hospital={h}
-                  onEdit={(hospital) => setEditingHospital(hospital)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
       )}
     </div>
   );
@@ -423,7 +428,7 @@ function getAllAreasAtLevel(hierarchy: any[], level: string, flatFromApi?: any[]
 // Helper function to get area name by ID
 function getAreaNameById(hierarchy: any[], id: number | null): string {
   if (!id) return 'N/A';
-  
+
   function findArea(areas: any[]): any | null {
     for (const area of areas) {
       if (area.id === id) return area;
@@ -434,7 +439,7 @@ function getAreaNameById(hierarchy: any[], id: number | null): string {
     }
     return null;
   }
-  
+
   const area = findArea(hierarchy);
   return area ? area.name : `ID: ${id}`;
 }
@@ -703,16 +708,16 @@ function AreaForm({
             </p>
             <p className="text-xs text-blue-700">
               Code format: <span className="font-mono font-bold">
-                {formData.level === 'ministry' ? 'HM' : 
-                 formData.level === 'pdhs' ? 'PDHS' :
-                 formData.level === 'rdhs' ? 'RDHS' :
-                 formData.level === 'moh' ? 'MOH' :
-                 formData.level === 'phm' ? 'MWA' : 'XXX'}
-              </span> + 3-digit number (e.g., {formData.level === 'ministry' ? 'HM001' : 
-                 formData.level === 'pdhs' ? 'PDHS001' :
-                 formData.level === 'rdhs' ? 'RDHS001' :
-                 formData.level === 'moh' ? 'MOH001' :
-                 formData.level === 'phm' ? 'MWA001' : 'XXX001'})
+                {formData.level === 'ministry' ? 'HM' :
+                  formData.level === 'pdhs' ? 'PDHS' :
+                    formData.level === 'rdhs' ? 'RDHS' :
+                      formData.level === 'moh' ? 'MOH' :
+                        formData.level === 'phm' ? 'MWA' : 'XXX'}
+              </span> + 3-digit number (e.g., {formData.level === 'ministry' ? 'HM001' :
+                formData.level === 'pdhs' ? 'PDHS001' :
+                  formData.level === 'rdhs' ? 'RDHS001' :
+                    formData.level === 'moh' ? 'MOH001' :
+                      formData.level === 'phm' ? 'MWA001' : 'XXX001'})
             </p>
           </div>
         )}

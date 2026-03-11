@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { nutritionistAPI } from '../../services/api';
 import { AlertTriangle, User, PlusCircle, ArrowLeft, Loader2 } from 'lucide-react';
+import { formatDate } from '../../utils/formatDate';
 
 interface ReferredItem {
   child: any;
@@ -98,20 +99,19 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-block px-2 py-1 rounded text-xs font-medium text-white ${
-                          (current_risk_level || '').toUpperCase() === 'SAM'
-                            ? 'bg-red-500'
-                            : (current_risk_level || '').toUpperCase() === 'MAM'
+                        className={`inline-block px-2 py-1 rounded text-xs font-medium text-white ${(current_risk_level || '').toUpperCase() === 'SAM'
+                          ? 'bg-red-500'
+                          : (current_risk_level || '').toUpperCase() === 'MAM'
                             ? 'bg-yellow-500'
                             : 'bg-green-500'
-                        }`}
+                          }`}
                       >
                         {(current_risk_level || 'NORMAL').toUpperCase()}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
                       {last_measurement_date
-                        ? `${last_measurement_date.slice(0, 10)}${last_measurement_confidence != null ? ` (${(last_measurement_confidence * 100).toFixed(0)}%)` : ''}`
+                        ? `${formatDate(last_measurement_date)}${last_measurement_confidence != null ? ` (${(last_measurement_confidence * 100).toFixed(0)}%)` : ''}`
                         : '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{referral?.status || '—'}</td>

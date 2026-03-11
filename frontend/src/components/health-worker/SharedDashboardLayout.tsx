@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { AlertTriangle, Users, TrendingUp, Activity } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { getRiskColor, getRiskLabel } from '../../types';
+import { formatDateTime } from '../../utils/formatDate';
 
 function normalizeRisk(risk: string): 'normal' | 'mam' | 'sam' {
   const r = (risk || 'NORMAL').toLowerCase();
@@ -189,7 +190,7 @@ export function SharedDashboardLayout({
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-medium text-gray-900">{child.name || child.child_id || child.child_unique_id || 'Unnamed'}</p>
-                        <p className="text-sm text-gray-600">Last update: {child.last_risk_update || child.updated_at || child.registration_date || '—'}</p>
+                        <p className="text-sm text-gray-600">Last update: {formatDateTime(child.last_risk_update || child.updated_at || child.registration_date) || '—'}</p>
                       </div>
                       <button
                         onClick={() => onViewChild(childIdForView(child))}
@@ -285,7 +286,7 @@ export function SharedDashboardLayout({
                 recentChildren.map((child) => (
                   <tr key={child.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-3 px-4 text-sm text-gray-900">{child.name || child.child_id || child.child_unique_id || '—'}</td>
-                    <td className="py-3 px-4 text-sm text-gray-600">{child.last_risk_update || child.updated_at || child.registration_date || '—'}</td>
+                    <td className="py-3 px-4 text-sm text-gray-600">{formatDateTime(child.last_risk_update || child.updated_at || child.registration_date) || '—'}</td>
                     <td className="py-3 px-4">
                       <span
                         className="inline-block px-3 py-1 rounded-full text-xs font-medium text-white"

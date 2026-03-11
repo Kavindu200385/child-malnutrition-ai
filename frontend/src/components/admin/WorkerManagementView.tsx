@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, User, MapPin, AlertCircle, CheckCircle } from 'lucide-react';
 import { workersAPI, areasHierarchicalAPI, hospitalsAPI } from '../../services/api';
+import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
 
 interface WorkerManagementViewProps {
   onBack?: () => void;
@@ -19,11 +20,12 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingWorker, setEditingWorker] = useState<any>(null);
   const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [dialog, setDialog] = useState<ConfirmDialogState | null>(null);
   const [pdhsFilter, setPdhsFilter] = useState<string>('all');
   const [rdhsFilter, setRdhsFilter] = useState<string>('all');
   const [mohFilter, setMohFilter] = useState<string>('all');
   const [hospitalFilter, setHospitalFilter] = useState<string>('all');
-  
+
   // Area options for filters
   const [pdhsAreas, setPdhsAreas] = useState<any[]>([]);
   const [rdhsAreas, setRdhsAreas] = useState<any[]>([]);
@@ -99,7 +101,7 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
       if (roleFilter !== 'all') {
         params.role = roleFilter;
       }
-      
+
       // Add area filter - prioritize MOH > RDHS > PDHS (most specific first)
       if (mohFilter !== 'all') {
         params.area_id = mohFilter;
@@ -184,22 +186,26 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
   };
 
   const handleDelete = async (workerId: number) => {
-    if (!confirm('Are you sure you want to delete this user? This will deactivate their account.')) {
-      return;
-    }
-
-    try {
-      const response = await workersAPI.delete(workerId);
-      if (response.data.status === 'success') {
-        setSuccess('User deleted successfully!');
-        await loadWorkers();
-        setTimeout(() => setSuccess(''), 3000);
-      } else {
-        setError(response.data.message || 'Failed to delete user');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to delete user');
-    }
+    setDialog({
+      title: 'Delete User',
+      message: 'Are you sure you want to delete this user? This will deactivate their account and cannot be undone.',
+      variant: 'danger',
+      confirmLabel: 'Yes, Delete',
+      onConfirm: async () => {
+        try {
+          const response = await workersAPI.delete(workerId);
+          if (response.data.status === 'success') {
+            setSuccess('User deleted successfully!');
+            await loadWorkers();
+            setTimeout(() => setSuccess(''), 3000);
+          } else {
+            setError(response.data.message || 'Failed to delete user');
+          }
+        } catch (err: any) {
+          setError(err.response?.data?.message || 'Failed to delete user');
+        }
+      },
+    });
   };
 
   const roles = [
@@ -216,6 +222,7 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
 
   return (
     <div className="space-y-6">
+      <ConfirmDialog state={dialog} onClose={() => setDialog(null)} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -355,21 +362,21 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
           rdhsFilter !== 'all' ||
           mohFilter !== 'all' ||
           hospitalFilter !== 'all') && (
-          <div className="mt-4">
-            <button
-              onClick={() => {
-                setRoleFilter('all');
-                setPdhsFilter('all');
-                setRdhsFilter('all');
-                setMohFilter('all');
-                setHospitalFilter('all');
-              }}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              Clear All Filters
-            </button>
-          </div>
-        )}
+            <div className="mt-4">
+              <button
+                onClick={() => {
+                  setRoleFilter('all');
+                  setPdhsFilter('all');
+                  setRdhsFilter('all');
+                  setMohFilter('all');
+                  setHospitalFilter('all');
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Clear All Filters
+              </button>
+            </div>
+          )}
       </div>
 
       {/* Messages */}
@@ -571,7 +578,7 @@ function WorkerForm({
   const toggleArea = (areaId: number) => {
     const current = formData.area_ids || [];
     if (current.includes(areaId)) {
-      setFormData({ ...formData, area_ids: current.filter((id) => id !== areaId) });
+      setFormData({ ...formData, area_ids: current.filter((id: number) => id !== areaId) });
     } else {
       setFormData({ ...formData, area_ids: [...current, areaId] });
     }

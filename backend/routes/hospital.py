@@ -353,3 +353,18 @@ def get_hospital_stats():
         },
         "hospital_id": user.hospital_id,
     }), 200
+
+
+@bp.route("/list", methods=["GET"])
+@jwt_required(optional=True)
+def list_hospitals():
+    """
+    Public-ish endpoint: returns all active hospital names for dropdowns.
+    JWT optional – any logged-in user (midwife, MOH, etc.) can call this.
+    """
+    hospitals = db.session.query(Hospital).filter(Hospital.is_active == True).order_by(Hospital.hospital_name).all()
+    return jsonify({
+        "status": "success",
+        "hospitals": [{"id": h.id, "name": h.hospital_name, "code": h.hospital_code} for h in hospitals],
+    }), 200
+

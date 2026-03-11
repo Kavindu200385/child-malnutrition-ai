@@ -254,30 +254,9 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeWidth={0.5} />
 
               {/* Highlight WHO zones as stacked colour bands (soft, low-intensity fills) */}
-              <Area
-                type="monotone"
-                dataKey="severeBand"
-                stackId="bands"
-                fill="#fecaca"         // light red
-                fillOpacity={0.45}
-                stroke="none"
-              />
-              <Area
-                type="monotone"
-                dataKey="moderateBand"
-                stackId="bands"
-                fill="#fed7aa"         // light orange
-                fillOpacity={0.4}
-                stroke="none"
-              />
-              <Area
-                type="monotone"
-                dataKey="normalBand"
-                stackId="bands"
-                fill="#bbf7d0"         // light green
-                fillOpacity={0.35}
-                stroke="none"
-              />
+              <Area type="monotone" dataKey="severeBand" stackId="bands" fill="#fecaca" fillOpacity={0.45} stroke="none" legendType="none" />
+              <Area type="monotone" dataKey="moderateBand" stackId="bands" fill="#fed7aa" fillOpacity={0.4} stroke="none" legendType="none" />
+              <Area type="monotone" dataKey="normalBand" stackId="bands" fill="#bbf7d0" fillOpacity={0.35} stroke="none" legendType="none" />
 
               <Line type="monotone" dataKey="plus3sd" stroke="#10B981" strokeWidth={1} strokeDasharray="3 3" dot={false} name="+3 SD" />
               <Line type="monotone" dataKey="plus2sd" stroke="#10B981" strokeWidth={1.5} dot={false} name="+2 SD" />
@@ -343,30 +322,9 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 <GradientDefs />
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeWidth={0.5} />
                 {/* Highlight WHO zones as stacked colour bands (soft, low-intensity fills) */}
-                <Area
-                  type="monotone"
-                  dataKey="severeBand"
-                  stackId="bands"
-                  fill="#fecaca"
-                  fillOpacity={0.45}
-                  stroke="none"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="moderateBand"
-                  stackId="bands"
-                  fill="#fed7aa"
-                  fillOpacity={0.4}
-                  stroke="none"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="normalBand"
-                  stackId="bands"
-                  fill="#bbf7d0"
-                  fillOpacity={0.35}
-                  stroke="none"
-                />
+                <Area type="monotone" dataKey="severeBand" stackId="bands" fill="#fecaca" fillOpacity={0.45} stroke="none" legendType="none" />
+                <Area type="monotone" dataKey="moderateBand" stackId="bands" fill="#fed7aa" fillOpacity={0.4} stroke="none" legendType="none" />
+                <Area type="monotone" dataKey="normalBand" stackId="bands" fill="#bbf7d0" fillOpacity={0.35} stroke="none" legendType="none" />
                 <Line type="monotone" dataKey="plus3sd" stroke="#10B981" strokeWidth={1} strokeDasharray="3 3" dot={false} name="+3 SD" />
                 <Line type="monotone" dataKey="plus2sd" stroke="#10B981" strokeWidth={1.5} dot={false} name="+2 SD" />
                 <Line type="monotone" dataKey="median" stroke="#059669" strokeWidth={2.5} dot={false} name="Median" />
@@ -418,30 +376,9 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 <GradientDefs />
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeWidth={0.5} />
                 {/* Highlight WHO zones as stacked colour bands (soft, low-intensity fills) */}
-                <Area
-                  type="monotone"
-                  dataKey="severeBand"
-                  stackId="bands"
-                  fill="#fecaca"
-                  fillOpacity={0.45}
-                  stroke="none"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="moderateBand"
-                  stackId="bands"
-                  fill="#fed7aa"
-                  fillOpacity={0.4}
-                  stroke="none"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="normalBand"
-                  stackId="bands"
-                  fill="#bbf7d0"
-                  fillOpacity={0.35}
-                  stroke="none"
-                />
+                <Area type="monotone" dataKey="severeBand" stackId="bands" fill="#fecaca" fillOpacity={0.45} stroke="none" legendType="none" />
+                <Area type="monotone" dataKey="moderateBand" stackId="bands" fill="#fed7aa" fillOpacity={0.4} stroke="none" legendType="none" />
+                <Area type="monotone" dataKey="normalBand" stackId="bands" fill="#bbf7d0" fillOpacity={0.35} stroke="none" legendType="none" />
                 <Line type="monotone" dataKey="plus3sd" stroke="#10B981" strokeWidth={1} strokeDasharray="3 3" dot={false} name="+3 SD" />
                 <Line type="monotone" dataKey="plus2sd" stroke="#10B981" strokeWidth={1.5} dot={false} name="+2 SD" />
                 <Line type="monotone" dataKey="median" stroke="#059669" strokeWidth={2.5} dot={false} name="Median" />
@@ -493,30 +430,9 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
               <GradientDefs />
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeWidth={0.5} />
               {/* Highlight WHO zones as stacked colour bands (soft, low-intensity fills) */}
-              <Area
-                type="monotone"
-                dataKey="severeBand"
-                stackId="bands"
-                fill="#fecaca"
-                fillOpacity={0.45}
-                stroke="none"
-              />
-              <Area
-                type="monotone"
-                dataKey="moderateBand"
-                stackId="bands"
-                fill="#fed7aa"
-                fillOpacity={0.4}
-                stroke="none"
-              />
-              <Area
-                type="monotone"
-                dataKey="normalBand"
-                stackId="bands"
-                fill="#bbf7d0"
-                fillOpacity={0.35}
-                stroke="none"
-              />
+              <Area type="monotone" dataKey="severeBand" stackId="bands" fill="#fecaca" fillOpacity={0.45} stroke="none" legendType="none" />
+              <Area type="monotone" dataKey="moderateBand" stackId="bands" fill="#fed7aa" fillOpacity={0.4} stroke="none" legendType="none" />
+              <Area type="monotone" dataKey="normalBand" stackId="bands" fill="#bbf7d0" fillOpacity={0.35} stroke="none" legendType="none" />
               <Line type="monotone" dataKey="plus3sd" stroke="#9333EA" strokeWidth={1} strokeDasharray="3 3" dot={false} name="+3 SD (Obese)" />
               <Line type="monotone" dataKey="plus2sd" stroke="#A855F7" strokeWidth={1.5} dot={false} name="+2 SD (Overweight)" />
               <Line type="monotone" dataKey="median" stroke="#7C3AED" strokeWidth={2.5} dot={false} name="Median" />

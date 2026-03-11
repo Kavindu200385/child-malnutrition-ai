@@ -387,8 +387,8 @@ export async function generateProfessionalPdf(
 
   // Boxes 1-3 — Z-score boxes
   const zss = [
-    { lbl: 'Weight-for-Age Z',    val: latest?.weightForAge },
-    { lbl: 'Height-for-Age Z',    val: latest?.heightForAge },
+    { lbl: 'Weight-for-Age Z', val: latest?.weightForAge },
+    { lbl: 'Height-for-Age Z', val: latest?.heightForAge },
     { lbl: 'Weight-for-Height Z', val: latest?.weightForHeight },
   ];
   zss.forEach((z, i) => {
@@ -410,14 +410,14 @@ export async function generateProfessionalPdf(
   pdf.text('WHO Classification Thresholds:', M + 2, ty);
   const threshW = CW / 3;
   [
-    { lbl: 'SAM (Severe Acute Malnutrition)',    sub: '< -3 SD',       col: [220, 38, 38]  as [number, number, number] },
-    { lbl: 'MAM (Moderate Acute Malnutrition)',  sub: '-3 to -2 SD',   col: [245, 158, 11] as [number, number, number] },
-    { lbl: 'Normal',                             sub: '-2 to +2 SD',   col: [22, 163, 74]  as [number, number, number] },
+    { lbl: 'SAM (Severe Acute Malnutrition)', sub: '< -3 SD', col: [220, 38, 38] as [number, number, number] },
+    { lbl: 'MAM (Moderate Acute Malnutrition)', sub: '-3 to -2 SD', col: [245, 158, 11] as [number, number, number] },
+    { lbl: 'Normal', sub: '-2 to +2 SD', col: [22, 163, 74] as [number, number, number] },
   ].forEach((t, i) => {
     const tx = M + i * threshW;
     pdf.setFillColor(...t.col); pdf.circle(tx + 4, ty + 11, 2.5, 'F');
-    font(pdf, 7, 'bold',   [40, 40, 40]); pdf.text(t.lbl, tx + 10, ty + 9);
-    font(pdf, 7, 'normal', [...MGRAY]);   pdf.text(t.sub, tx + 10, ty + 15);
+    font(pdf, 7, 'bold', [40, 40, 40]); pdf.text(t.lbl, tx + 10, ty + 9);
+    font(pdf, 7, 'normal', [...MGRAY]); pdf.text(t.sub, tx + 10, ty + 15);
   });
   y += statusSectionH + 4;
 
@@ -482,9 +482,9 @@ export async function generateProfessionalPdf(
     pdf.setFillColor(248, 250, 252);
     pdf.setDrawColor(210, 210, 210); pdf.setLineWidth(0.25);
     pdf.rect(M, NOTE_Y, CW, NOTE_H, 'FD');
-    font(pdf, 6.5, 'bold',   [...NAVY]); pdf.text('Note: ', M + 3, NOTE_Y + 4.5);
+    font(pdf, 6.5, 'bold', [...NAVY]); pdf.text('Note: ', M + 3, NOTE_Y + 4.5);
     font(pdf, 6.5, 'normal', [50, 50, 50]); pdf.text(guideText, M + 14, NOTE_Y + 4.5);
-    font(pdf, 6.5, 'normal', [...MGRAY]);   pdf.text(guideText2, M + 3,  NOTE_Y + 9);
+    font(pdf, 6.5, 'normal', [...MGRAY]); pdf.text(guideText2, M + 3, NOTE_Y + 9);
 
     footer(pdf, pg, TOTAL, child.name, child.id);
   };
@@ -749,61 +749,62 @@ export function HiddenPdfCharts({ measurements, gender, refs }: HiddenChartsProp
     .filter(m => m.weight > 0 || m.height > 0)
     .sort((a, b) => a.ageMonths - b.ageMonths);
 
-  const whoWFA  = buildWhoWFA(male);
-  const whoHFA  = buildWhoHFA(male);
-  const whoWFH  = buildWhoWFH();
+  const whoWFA = buildWhoWFA(male);
+  const whoHFA = buildWhoHFA(male);
+  const whoWFH = buildWhoWFH();
 
   // ── Child measurement series merged with WHO reference data ──────────────
-  // We attach child values as extra keys on each WHO row so Recharts can draw
-  // a connected line (with dots) on the same axis as the reference curves.
+  // Strategy: for each child measurement, find the nearest integer age/height
+  // slot in the WHO reference array and write the value there. This ensures
+  // ALL measurements appear as dots even when two visits fall at the same
+  // integer age (we keep the newest in that case).
 
-  // WFA: merge child weight onto WHO age rows
-  const childWfaByAge = new Map(
-    sorted.filter(m => m.weight > 0).map(m => [m.ageMonths, { w: m.weight, risk: m.riskLevel }])
-  );
-  const wfaData = whoWFA.map(row => ({
-    ...row,
-    childW: childWfaByAge.get(row.age)?.w ?? null,
-    childRisk: childWfaByAge.get(row.age)?.risk ?? null,
-  }));
+  // Helper: snap a value to the nearest row in a sorted numeric array
+  function snapToNearest<T extends Record<string, unknown>>(rows: T[], key: keyof T, val: number): T {
+    return rows.reduce((best, row) =>
+      Math.abs(row[key] as number - val) < Math.abs(best[key] as number - val) ? row : best
+    );
+  }
 
-  // HFA 0-24: merge child height onto WHO age rows
-  const childHfaByAge = new Map(
-    sorted.filter(m => m.height > 0).map(m => [m.ageMonths, { h: m.height, risk: m.riskLevel }])
-  );
-  const hfa0_24Data = whoHFA.filter(d => d.age <= 24).map(row => ({
-    ...row,
-    childH: childHfaByAge.get(row.age)?.h ?? null,
-    childRisk: childHfaByAge.get(row.age)?.risk ?? null,
-  }));
-  const hfa24_60Data = whoHFA.filter(d => d.age >= 24).map(row => ({
-    ...row,
-    childH: childHfaByAge.get(row.age)?.h ?? null,
-    childRisk: childHfaByAge.get(row.age)?.risk ?? null,
-  }));
-
-  // WFH: merge child weight onto WHO height (len) rows
-  const childWfhByLen = new Map(
-    sorted.filter(m => m.height > 0 && m.weight > 0)
-          .map(m => [Math.round(m.height), { w: m.weight, risk: m.riskLevel }])
-  );
-  const wfhData = whoWFH.map(row => ({
-    ...row,
-    childW: childWfhByLen.get(row.len)?.w ?? null,
-    childRisk: childWfhByLen.get(row.len)?.risk ?? null,
-  }));
-
-  // Z-score chart: deduplicate by age
-  const zByAge = new Map<number, { age: number; wfa: number | null; hfa: number | null; wfh: number | null }>();
-  sorted.forEach(m => {
-    zByAge.set(m.ageMonths, {
-      age: m.ageMonths,
-      wfa: m.weightForAge ?? null,
-      hfa: m.heightForAge ?? null,
-      wfh: m.weightForHeight ?? null,
-    });
+  // WFA — snap each measurement's ageMonths to the nearest WHO age row
+  const wfaData = whoWFA.map(row => ({ ...row, childW: null as number | null, childRisk: null as string | null }));
+  sorted.filter(m => m.weight > 0).forEach(m => {
+    const nearest = snapToNearest(wfaData, 'age', m.ageMonths);
+    nearest.childW = m.weight;
+    nearest.childRisk = m.riskLevel;
   });
-  const zData = Array.from(zByAge.values()).sort((a, b) => a.age - b.age);
+
+  // HFA 0-24 — snap each measurement's ageMonths to nearest row ≤ 24
+  const hfa0_24Data = whoHFA.filter(d => d.age <= 24).map(row => ({ ...row, childH: null as number | null, childRisk: null as string | null }));
+  sorted.filter(m => m.height > 0 && m.ageMonths <= 24).forEach(m => {
+    const nearest = snapToNearest(hfa0_24Data, 'age', m.ageMonths);
+    nearest.childH = m.height;
+    nearest.childRisk = m.riskLevel;
+  });
+
+  // HFA 24-60 — snap each measurement's ageMonths to nearest row ≥ 24
+  const hfa24_60Data = whoHFA.filter(d => d.age >= 24).map(row => ({ ...row, childH: null as number | null, childRisk: null as string | null }));
+  sorted.filter(m => m.height > 0 && m.ageMonths >= 24).forEach(m => {
+    const nearest = snapToNearest(hfa24_60Data, 'age', m.ageMonths);
+    nearest.childH = m.height;
+    nearest.childRisk = m.riskLevel;
+  });
+
+  // WFH — snap each measurement's height to nearest len row
+  const wfhData = whoWFH.map(row => ({ ...row, childW: null as number | null, childRisk: null as string | null }));
+  sorted.filter(m => m.height > 0 && m.weight > 0).forEach(m => {
+    const nearest = snapToNearest(wfhData, 'len', m.height);
+    nearest.childW = m.weight;
+    nearest.childRisk = m.riskLevel;
+  });
+
+  // Z-score timeline — one point per measurement, sorted by age
+  const zData = sorted.map(m => ({
+    age: m.ageMonths,
+    wfa: m.weightForAge ?? null,
+    hfa: m.heightForAge ?? null,
+    wfh: m.weightForHeight ?? null,
+  }));
 
   // ── Custom dot renderer: colour each dot by its risk level ───────────────
   const RiskDot = (props: { cx?: number; cy?: number; payload?: { childRisk?: string } }) => {
@@ -837,7 +838,47 @@ export function HiddenPdfCharts({ measurements, gender, refs }: HiddenChartsProp
     letterSpacing: '0.01em',
   });
 
-  const commonMargin = { top: 20, right: 50, left: 60, bottom: 60 };
+  const commonMargin = { top: 20, right: 50, left: 60, bottom: 55 };
+
+  // ── External HTML legend rendered BELOW each chart ───────────────────────
+  interface LegendItem { color: string; label: string; }
+  const LegendRow = ({ items }: { items: LegendItem[] }) => (
+    <div style={{
+      display: 'flex', flexWrap: 'wrap', justifyContent: 'center',
+      gap: '6px 22px', marginTop: 18, paddingTop: 12,
+      borderTop: '1px solid #e5e7eb', fontFamily: 'Arial, sans-serif',
+    }}>
+      {items.map(it => (
+        <span key={it.label} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: '#374151' }}>
+          <span style={{
+            display: 'inline-block', width: 14, height: 14,
+            borderRadius: '50%', backgroundColor: it.color, flexShrink: 0,
+          }} />
+          {it.label}
+        </span>
+      ))}
+    </div>
+  );
+
+  const whoLegendGreen: LegendItem[] = [
+    { color: '#10B981', label: '+2 SD' },
+    { color: '#059669', label: 'Median' },
+    { color: '#F59E0B', label: '-2 SD' },
+    { color: '#DC2626', label: '-3 SD' },
+    { color: '#2563EB', label: 'Child measurements' },
+  ];
+  const whoLegendPurple: LegendItem[] = [
+    { color: '#A855F7', label: '+2 SD' },
+    { color: '#7C3AED', label: 'Median' },
+    { color: '#F59E0B', label: '-2 SD' },
+    { color: '#DC2626', label: '-3 SD' },
+    { color: '#2563EB', label: 'Child measurements' },
+  ];
+  const zLegend: LegendItem[] = [
+    { color: '#2563EB', label: 'Weight-for-Age Z' },
+    { color: '#10B981', label: 'Height-for-Age Z' },
+    { color: '#9333EA', label: 'Weight-for-Height Z' },
+  ];
 
   return (
     <div style={clipContainer}>
@@ -851,26 +892,25 @@ export function HiddenPdfCharts({ measurements, gender, refs }: HiddenChartsProp
           <GradDefs />
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <Area type="monotone" dataKey="m3" fill="url(#pdSevere)" stroke="none" isAnimationActive={false} legendType="none" />
-          <Area type="monotone" dataKey="m2" fill="url(#pdMod)"    stroke="none" isAnimationActive={false} legendType="none" />
-          <Area type="monotone" dataKey="p2" fill="url(#pdNorm)"   stroke="none" isAnimationActive={false} legendType="none" />
-          <Line type="monotone" dataKey="p2"  stroke="#10B981" strokeWidth={2}   dot={false} name="+2 SD"  isAnimationActive={false} />
-          <Line type="monotone" dataKey="med" stroke="#059669" strokeWidth={2.5} dot={false} name="Median" isAnimationActive={false} />
-          <Line type="monotone" dataKey="m2"  stroke="#F59E0B" strokeWidth={2}   dot={false} name="-2 SD"  isAnimationActive={false} />
-          <Line type="monotone" dataKey="m3"  stroke="#DC2626" strokeWidth={2}   dot={false} name="-3 SD"  isAnimationActive={false} />
-          {/* Child growth line — connected dots coloured by risk */}
+          <Area type="monotone" dataKey="m2" fill="url(#pdMod)" stroke="none" isAnimationActive={false} legendType="none" />
+          <Area type="monotone" dataKey="p2" fill="url(#pdNorm)" stroke="none" isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="p2" stroke="#10B981" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="med" stroke="#059669" strokeWidth={2.5} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="m2" stroke="#F59E0B" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="m3" stroke="#DC2626" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
           <Line
             type="monotone" dataKey="childW"
             stroke="#1d4ed8" strokeWidth={2.5}
             dot={<RiskDot />}
             activeDot={false}
             connectNulls
-            name="Child measurements"
             isAnimationActive={false}
+            legendType="none"
           />
-          <XAxis dataKey="age" label={{ value: 'Age (months)', position: 'insideBottom', offset: -18, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} ticks={[0, 6, 12, 18, 24, 30, 36, 42, 48, 54, 60]} />
+          <XAxis dataKey="age" label={{ value: 'Age (months)', position: 'insideBottom', offset: -30, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} ticks={[0, 6, 12, 18, 24, 30, 36, 42, 48, 54, 60]} />
           <YAxis label={{ value: 'Weight (kg)', angle: -90, position: 'insideLeft', offset: 14, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} />
-          <Legend wrapperStyle={{ fontSize: 13, paddingTop: 12 }} />
         </ComposedChart>
+        <LegendRow items={whoLegendGreen} />
       </div>
 
       {/* ── Chart 2a: Length-for-Age 0-24 ── */}
@@ -882,25 +922,25 @@ export function HiddenPdfCharts({ measurements, gender, refs }: HiddenChartsProp
           <GradDefs />
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <Area type="monotone" dataKey="m3" fill="url(#pdSevere)" stroke="none" isAnimationActive={false} legendType="none" />
-          <Area type="monotone" dataKey="m2" fill="url(#pdMod)"    stroke="none" isAnimationActive={false} legendType="none" />
-          <Area type="monotone" dataKey="p2" fill="url(#pdNorm)"   stroke="none" isAnimationActive={false} legendType="none" />
-          <Line type="monotone" dataKey="p2"  stroke="#10B981" strokeWidth={2}   dot={false} name="+2 SD"  isAnimationActive={false} />
-          <Line type="monotone" dataKey="med" stroke="#059669" strokeWidth={2.5} dot={false} name="Median" isAnimationActive={false} />
-          <Line type="monotone" dataKey="m2"  stroke="#F59E0B" strokeWidth={2}   dot={false} name="-2 SD"  isAnimationActive={false} />
-          <Line type="monotone" dataKey="m3"  stroke="#DC2626" strokeWidth={2}   dot={false} name="-3 SD"  isAnimationActive={false} />
+          <Area type="monotone" dataKey="m2" fill="url(#pdMod)" stroke="none" isAnimationActive={false} legendType="none" />
+          <Area type="monotone" dataKey="p2" fill="url(#pdNorm)" stroke="none" isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="p2" stroke="#10B981" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="med" stroke="#059669" strokeWidth={2.5} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="m2" stroke="#F59E0B" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="m3" stroke="#DC2626" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
           <Line
             type="monotone" dataKey="childH"
             stroke="#1d4ed8" strokeWidth={2.5}
             dot={<RiskDot />}
             activeDot={false}
             connectNulls
-            name="Child measurements"
             isAnimationActive={false}
+            legendType="none"
           />
-          <XAxis dataKey="age" label={{ value: 'Age (months)', position: 'insideBottom', offset: -18, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]} />
+          <XAxis dataKey="age" label={{ value: 'Age (months)', position: 'insideBottom', offset: -30, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]} />
           <YAxis label={{ value: 'Length (cm)', angle: -90, position: 'insideLeft', offset: 14, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} domain={[40, 'auto']} />
-          <Legend wrapperStyle={{ fontSize: 13, paddingTop: 12 }} />
         </ComposedChart>
+        <LegendRow items={whoLegendGreen} />
       </div>
 
       {/* ── Chart 2b: Height-for-Age 24-60 ── */}
@@ -912,25 +952,25 @@ export function HiddenPdfCharts({ measurements, gender, refs }: HiddenChartsProp
           <GradDefs />
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <Area type="monotone" dataKey="m3" fill="url(#pdSevere)" stroke="none" isAnimationActive={false} legendType="none" />
-          <Area type="monotone" dataKey="m2" fill="url(#pdMod)"    stroke="none" isAnimationActive={false} legendType="none" />
-          <Area type="monotone" dataKey="p2" fill="url(#pdNorm)"   stroke="none" isAnimationActive={false} legendType="none" />
-          <Line type="monotone" dataKey="p2"  stroke="#10B981" strokeWidth={2}   dot={false} name="+2 SD"  isAnimationActive={false} />
-          <Line type="monotone" dataKey="med" stroke="#059669" strokeWidth={2.5} dot={false} name="Median" isAnimationActive={false} />
-          <Line type="monotone" dataKey="m2"  stroke="#F59E0B" strokeWidth={2}   dot={false} name="-2 SD"  isAnimationActive={false} />
-          <Line type="monotone" dataKey="m3"  stroke="#DC2626" strokeWidth={2}   dot={false} name="-3 SD"  isAnimationActive={false} />
+          <Area type="monotone" dataKey="m2" fill="url(#pdMod)" stroke="none" isAnimationActive={false} legendType="none" />
+          <Area type="monotone" dataKey="p2" fill="url(#pdNorm)" stroke="none" isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="p2" stroke="#10B981" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="med" stroke="#059669" strokeWidth={2.5} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="m2" stroke="#F59E0B" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="m3" stroke="#DC2626" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
           <Line
             type="monotone" dataKey="childH"
             stroke="#1d4ed8" strokeWidth={2.5}
             dot={<RiskDot />}
             activeDot={false}
             connectNulls
-            name="Child measurements"
             isAnimationActive={false}
+            legendType="none"
           />
-          <XAxis dataKey="age" label={{ value: 'Age (months)', position: 'insideBottom', offset: -18, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} ticks={[24, 30, 36, 42, 48, 54, 60]} />
+          <XAxis dataKey="age" label={{ value: 'Age (months)', position: 'insideBottom', offset: -30, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} ticks={[24, 30, 36, 42, 48, 54, 60]} />
           <YAxis label={{ value: 'Height (cm)', angle: -90, position: 'insideLeft', offset: 14, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} domain={[75, 'auto']} />
-          <Legend wrapperStyle={{ fontSize: 13, paddingTop: 12 }} />
         </ComposedChart>
+        <LegendRow items={whoLegendGreen} />
       </div>
 
       {/* ── Chart 3: Weight-for-Height ── */}
@@ -942,25 +982,25 @@ export function HiddenPdfCharts({ measurements, gender, refs }: HiddenChartsProp
           <GradDefs />
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <Area type="monotone" dataKey="m3" fill="url(#pdSevere)" stroke="none" isAnimationActive={false} legendType="none" />
-          <Area type="monotone" dataKey="m2" fill="url(#pdMod)"    stroke="none" isAnimationActive={false} legendType="none" />
-          <Area type="monotone" dataKey="p2" fill="url(#pdNorm)"   stroke="none" isAnimationActive={false} legendType="none" />
-          <Line type="monotone" dataKey="p2"  stroke="#A855F7" strokeWidth={2}   dot={false} name="+2 SD"  isAnimationActive={false} />
-          <Line type="monotone" dataKey="med" stroke="#7C3AED" strokeWidth={2.5} dot={false} name="Median" isAnimationActive={false} />
-          <Line type="monotone" dataKey="m2"  stroke="#F59E0B" strokeWidth={2}   dot={false} name="-2 SD"  isAnimationActive={false} />
-          <Line type="monotone" dataKey="m3"  stroke="#DC2626" strokeWidth={2}   dot={false} name="-3 SD"  isAnimationActive={false} />
+          <Area type="monotone" dataKey="m2" fill="url(#pdMod)" stroke="none" isAnimationActive={false} legendType="none" />
+          <Area type="monotone" dataKey="p2" fill="url(#pdNorm)" stroke="none" isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="p2" stroke="#A855F7" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="med" stroke="#7C3AED" strokeWidth={2.5} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="m2" stroke="#F59E0B" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="m3" stroke="#DC2626" strokeWidth={2} dot={false} isAnimationActive={false} legendType="none" />
           <Line
             type="monotone" dataKey="childW"
             stroke="#1d4ed8" strokeWidth={2.5}
             dot={<RiskDot />}
             activeDot={false}
             connectNulls
-            name="Child measurements"
             isAnimationActive={false}
+            legendType="none"
           />
-          <XAxis dataKey="len" type="number" domain={[45, 120]} label={{ value: 'Length / Height (cm)', position: 'insideBottom', offset: -18, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} ticks={[45, 55, 65, 75, 85, 95, 105, 115, 120]} />
+          <XAxis dataKey="len" type="number" domain={[45, 120]} label={{ value: 'Length / Height (cm)', position: 'insideBottom', offset: -30, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} ticks={[45, 55, 65, 75, 85, 95, 105, 115, 120]} />
           <YAxis label={{ value: 'Weight (kg)', angle: -90, position: 'insideLeft', offset: 14, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} />
-          <Legend wrapperStyle={{ fontSize: 13, paddingTop: 12 }} />
         </ComposedChart>
+        <LegendRow items={whoLegendPurple} />
       </div>
 
       {/* ── Chart 4: Z-Score Timeline ── */}
@@ -974,19 +1014,19 @@ export function HiddenPdfCharts({ measurements, gender, refs }: HiddenChartsProp
             dataKey="age"
             type="number"
             domain={['dataMin', 'dataMax']}
-            label={{ value: 'Age (months)', position: 'insideBottom', offset: -18, style: { fontSize: 14, fontWeight: 600 } }}
+            label={{ value: 'Age (months)', position: 'insideBottom', offset: -30, style: { fontSize: 14, fontWeight: 600 } }}
             tick={{ fontSize: 12 }}
             tickCount={8}
           />
           <YAxis domain={[-4, 3]} label={{ value: 'Z-Score', angle: -90, position: 'insideLeft', offset: 14, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} ticks={[-4, -3, -2, -1, 0, 1, 2, 3]} />
           <ReferenceLine y={-3} stroke="#DC2626" strokeWidth={2} strokeDasharray="6 3" label={{ value: '-3 SD (SAM)', fill: '#DC2626', fontSize: 12, fontWeight: 600 }} />
           <ReferenceLine y={-2} stroke="#F59E0B" strokeWidth={2} strokeDasharray="6 3" label={{ value: '-2 SD (MAM)', fill: '#F59E0B', fontSize: 12, fontWeight: 600 }} />
-          <ReferenceLine y={0}  stroke="#059669" strokeWidth={1.5} label={{ value: 'Median', fill: '#059669', fontSize: 12 }} />
-          <Line type="monotone" dataKey="wfa" stroke="#2563EB" strokeWidth={3} dot={{ r: 7, fill: '#2563EB', stroke: '#fff', strokeWidth: 2 }} name="Weight-for-Age Z"    connectNulls isAnimationActive={false} />
-          <Line type="monotone" dataKey="hfa" stroke="#10B981" strokeWidth={3} dot={{ r: 7, fill: '#10B981', stroke: '#fff', strokeWidth: 2 }} name="Height-for-Age Z"   connectNulls isAnimationActive={false} />
-          <Line type="monotone" dataKey="wfh" stroke="#9333EA" strokeWidth={3} dot={{ r: 7, fill: '#9333EA', stroke: '#fff', strokeWidth: 2 }} name="Weight-for-Height Z" connectNulls isAnimationActive={false} />
-          <Legend wrapperStyle={{ fontSize: 13, paddingTop: 12 }} />
+          <ReferenceLine y={0} stroke="#059669" strokeWidth={1.5} label={{ value: 'Median', fill: '#059669', fontSize: 12 }} />
+          <Line type="monotone" dataKey="wfa" stroke="#2563EB" strokeWidth={3} dot={{ r: 7, fill: '#2563EB', stroke: '#fff', strokeWidth: 2 }} connectNulls isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="hfa" stroke="#10B981" strokeWidth={3} dot={{ r: 7, fill: '#10B981', stroke: '#fff', strokeWidth: 2 }} connectNulls isAnimationActive={false} legendType="none" />
+          <Line type="monotone" dataKey="wfh" stroke="#9333EA" strokeWidth={3} dot={{ r: 7, fill: '#9333EA', stroke: '#fff', strokeWidth: 2 }} connectNulls isAnimationActive={false} legendType="none" />
         </LineChart>
+        <LegendRow items={zLegend} />
       </div>
 
     </div>

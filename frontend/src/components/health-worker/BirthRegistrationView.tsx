@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, ArrowRight, Check, AlertCircle, Save, Baby, ClipboardList, Heart } from 'lucide-react';
 import api from '../../services/api';
 
@@ -28,15 +28,26 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
+  // Registered hospitals from backend
+  const [hospitals, setHospitals] = useState<{ id: number; name: string; code: string }[]>([]);
+  const [customHospitalName, setCustomHospitalName] = useState('');
+
+  useEffect(() => {
+    api.get('/api/hospital/list')
+      .then((res) => { if (res.data?.status === 'success') setHospitals(res.data.hospitals || []); })
+      .catch(() => setHospitals([])); // fail silently — user can still type manually
+  }, []);
+
+
   // Step 1: Basic Information & Identification
   const [step1Data, setStep1Data] = useState(() => ({
-    // Auto-populate MCH card number (editable if needed)
     mchCardNo: generateMchCardNo(),
     registrationDate: new Date().toISOString().split('T')[0],
     childName: '',
     childDOB: '',
     gender: '',
     motherName: '',
+    motherNic: '',
     motherAge: '',
     address: '',
     totalLivingChildren: '',
@@ -55,6 +66,9 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
     dischargeWeight: '',
     vitaminKGiven: false,
   });
+
+  // True when user picked "Other" from the dropdown
+  const isOtherHospital = step2Data.hospitalName === '__other__';
 
   // Step 3: Care & Screening
   const [step3Data, setStep3Data] = useState({
@@ -89,6 +103,7 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
     if (!step1Data.childDOB) errors.childDOB = 'Date of birth is required';
     if (!step1Data.gender) errors.gender = 'Gender is required';
     if (!step1Data.motherName.trim()) errors.motherName = 'Mother name is required';
+    if (step1Data.motherName.trim() && !step1Data.motherNic.trim()) errors.motherNic = 'NIC is required when mother name is provided';
     if (!step1Data.address.trim()) errors.address = 'Address is required';
     setStep1Errors(errors);
     return Object.keys(errors).length === 0;
@@ -108,13 +123,16 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
     if (currentStep === 1) {
       if (validateStep1()) {
         setCurrentStep(2);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } else if (currentStep === 2) {
       if (validateStep2()) {
         setCurrentStep(3);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } else if (currentStep === 3) {
       setCurrentStep('summary');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -126,6 +144,7 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
     } else if (currentStep === 2) {
       setCurrentStep(1);
     }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleSubmit = async (isDraft: boolean) => {
@@ -139,6 +158,9 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
     // Generate child_id from hospital prefix (you can customize this)
     const childId = step1Data.mchCardNo || `BR-${Date.now()}`;
 
+    // The actual hospital name to store (resolve "__other__" to custom name)
+    const resolvedHospitalName = isOtherHospital ? customHospitalName : step2Data.hospitalName;
+
     try {
       // Prepare data for backend
       const registrationData = {
@@ -146,8 +168,10 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
         name: step1Data.childName,
         dob: step1Data.childDOB,
         gender: step1Data.gender,
-        guardian_name: step1Data.motherName,
-        guardian_phone: '', // Not in form - you may want to add this
+        mother_name: step1Data.motherName,          // save as mother_name for PDF/profile display
+        guardian_name: step1Data.motherName,         // also set as guardian (mother is primary caregiver at birth)
+        guardian_nic: step1Data.motherNic || null,   // mother's NIC = guardian NIC at birth
+        guardian_phone: '',                          // not collected in this wizard — editable later
         address: step1Data.address,
         is_draft: isDraft,
         // Additional birth registration data (stored as JSON in database)
@@ -158,7 +182,7 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
           motherAge: step1Data.motherAge || null,
           totalLivingChildren: step1Data.totalLivingChildren || null,
           // Step 2: Birth Details
-          hospitalName: step2Data.hospitalName || null,
+          hospitalName: resolvedHospitalName || null,
           deliveryMethod: step2Data.deliveryMethod || null,
           apgarScores: {
             '1min': step2Data.apgar1min || null,
@@ -254,9 +278,8 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
           type="text"
           value={step1Data.childName}
           onChange={(e) => setStep1Data({ ...step1Data, childName: e.target.value })}
-          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            step1Errors.childName ? 'border-red-300' : 'border-gray-300'
-          }`}
+          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${step1Errors.childName ? 'border-red-300' : 'border-gray-300'
+            }`}
           placeholder="Enter child's full name"
           required
         />
@@ -275,9 +298,8 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
             value={step1Data.childDOB}
             onChange={(e) => setStep1Data({ ...step1Data, childDOB: e.target.value })}
             max={new Date().toISOString().split('T')[0]}
-            className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              step1Errors.childDOB ? 'border-red-300' : 'border-gray-300'
-            }`}
+            className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${step1Errors.childDOB ? 'border-red-300' : 'border-gray-300'
+              }`}
             required
           />
           {step1Errors.childDOB && (
@@ -292,9 +314,8 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
           <select
             value={step1Data.gender}
             onChange={(e) => setStep1Data({ ...step1Data, gender: e.target.value })}
-            className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              step1Errors.gender ? 'border-red-300' : 'border-gray-300'
-            }`}
+            className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${step1Errors.gender ? 'border-red-300' : 'border-gray-300'
+              }`}
             required
           >
             <option value="">Select gender</option>
@@ -329,14 +350,30 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
           type="text"
           value={step1Data.motherName}
           onChange={(e) => setStep1Data({ ...step1Data, motherName: e.target.value })}
-          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            step1Errors.motherName ? 'border-red-300' : 'border-gray-300'
-          }`}
+          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${step1Errors.motherName ? 'border-red-300' : 'border-gray-300'
+            }`}
           placeholder="Enter mother's full name"
           required
         />
         {step1Errors.motherName && (
           <p className="mt-1 text-sm text-red-600">{step1Errors.motherName}</p>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-900 mb-2">
+          Mother's NIC {step1Data.motherName.trim() ? <span className="text-red-500">*</span> : <span className="text-gray-400 text-xs font-normal">(required when name is entered)</span>}
+        </label>
+        <input
+          type="text"
+          value={step1Data.motherNic}
+          onChange={(e) => setStep1Data({ ...step1Data, motherNic: e.target.value })}
+          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${step1Errors.motherNic ? 'border-red-300' : 'border-gray-300'
+            }`}
+          placeholder="e.g., 901234567V or 199012345678"
+        />
+        {step1Errors.motherNic && (
+          <p className="mt-1 text-sm text-red-600">{step1Errors.motherNic}</p>
         )}
       </div>
 
@@ -363,9 +400,8 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
           value={step1Data.address}
           onChange={(e) => setStep1Data({ ...step1Data, address: e.target.value })}
           rows={3}
-          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${
-            step1Errors.address ? 'border-red-300' : 'border-gray-300'
-          }`}
+          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${step1Errors.address ? 'border-red-300' : 'border-gray-300'
+            }`}
           placeholder="Enter full address"
           required
         />
@@ -390,18 +426,41 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
 
       <div>
         <label className="block text-sm font-medium text-gray-900 mb-2">
-          Hospital where birth occurred <span className="text-red-500">*</span>
+          Place of Birth (Hospital / Clinic / Home) <span className="text-red-500">*</span>
         </label>
-        <input
-          type="text"
+
+        {/* Hospital dropdown */}
+        <select
           value={step2Data.hospitalName}
-          onChange={(e) => setStep2Data({ ...step2Data, hospitalName: e.target.value })}
-          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            step2Errors.hospitalName ? 'border-red-300' : 'border-gray-300'
-          }`}
-          placeholder="e.g., SJGH"
+          onChange={(e) => {
+            setStep2Data({ ...step2Data, hospitalName: e.target.value });
+            if (e.target.value !== '__other__') setCustomHospitalName('');
+          }}
+          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${step2Errors.hospitalName ? 'border-red-300' : 'border-gray-300'
+            }`}
           required
-        />
+        >
+          <option value="">-- Select hospital --</option>
+          {hospitals.map((h) => (
+            <option key={h.id} value={h.name}>{h.name}</option>
+          ))}
+          <option value="Home">Home delivery</option>
+          <option value="__other__">Other (enter manually)</option>
+        </select>
+
+        {/* Custom name input shown when "Other" is selected */}
+        {isOtherHospital && (
+          <input
+            type="text"
+            value={customHospitalName}
+            onChange={(e) => setCustomHospitalName(e.target.value)}
+            className="mt-2 w-full px-4 py-3 border-2 border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Enter hospital / clinic name"
+            autoFocus
+            required
+          />
+        )}
+
         {step2Errors.hospitalName && (
           <p className="mt-1 text-sm text-red-600">{step2Errors.hospitalName}</p>
         )}
@@ -414,9 +473,8 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
         <select
           value={step2Data.deliveryMethod}
           onChange={(e) => setStep2Data({ ...step2Data, deliveryMethod: e.target.value })}
-          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            step2Errors.deliveryMethod ? 'border-red-300' : 'border-gray-300'
-          }`}
+          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${step2Errors.deliveryMethod ? 'border-red-300' : 'border-gray-300'
+            }`}
           required
         >
           <option value="">Select delivery method</option>
@@ -483,9 +541,8 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
             min="0"
             value={step2Data.birthWeight}
             onChange={(e) => setStep2Data({ ...step2Data, birthWeight: e.target.value })}
-            className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              step2Errors.birthWeight ? 'border-red-300' : 'border-gray-300'
-            }`}
+            className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${step2Errors.birthWeight ? 'border-red-300' : 'border-gray-300'
+              }`}
             placeholder="e.g., 3.810"
             required
           />
@@ -521,9 +578,8 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
             min="0"
             value={step2Data.birthLength}
             onChange={(e) => setStep2Data({ ...step2Data, birthLength: e.target.value })}
-            className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              step2Errors.birthLength ? 'border-red-300' : 'border-gray-300'
-            }`}
+            className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${step2Errors.birthLength ? 'border-red-300' : 'border-gray-300'
+              }`}
             placeholder="e.g., 42"
             required
           />
@@ -590,7 +646,7 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
 
       <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
         <h4 className="font-semibold text-gray-900 mb-4">Breastfeeding</h4>
-        
+
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-900 mb-2">
             Was breastfeeding started within the first hour?
@@ -650,7 +706,7 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
 
       <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4">
         <h4 className="font-semibold text-gray-900 mb-4">Newborn Screening</h4>
-        
+
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-900 mb-2">
             Was the newborn screened for congenital hypothyroidism?
@@ -795,6 +851,10 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
                 <span className="ml-2 font-medium">{step1Data.motherName}</span>
               </div>
               <div>
+                <span className="text-gray-600">Mother NIC:</span>
+                <span className="ml-2 font-medium">{step1Data.motherNic || 'N/A'}</span>
+              </div>
+              <div>
                 <span className="text-gray-600">Mother Age:</span>
                 <span className="ml-2 font-medium">{step1Data.motherAge || 'N/A'}</span>
               </div>
@@ -936,13 +996,12 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
             <div key={idx} className="flex items-center flex-1">
               <div className="flex flex-col items-center flex-1">
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
-                    currentStep === step
-                      ? 'bg-blue-600 text-white'
-                      : typeof step === 'number' && currentStep > step
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${currentStep === step
+                    ? 'bg-blue-600 text-white'
+                    : typeof step === 'number' && Number(currentStep) > step
                       ? 'bg-green-500 text-white'
                       : 'bg-gray-200 text-gray-600'
-                  }`}
+                    }`}
                 >
                   {step === 'summary' ? <Check className="w-5 h-5" /> : step}
                 </div>
@@ -950,19 +1009,18 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
                   {step === 1
                     ? 'Basic Info'
                     : step === 2
-                    ? 'Birth Details'
-                    : step === 3
-                    ? 'Care & Screening'
-                    : 'Summary'}
+                      ? 'Birth Details'
+                      : step === 3
+                        ? 'Care & Screening'
+                        : 'Summary'}
                 </p>
               </div>
               {idx < 3 && (
                 <div
-                  className={`h-1 flex-1 mx-2 transition-all ${
-                    typeof step === 'number' && currentStep > step
-                      ? 'bg-green-500'
-                      : 'bg-gray-200'
-                  }`}
+                  className={`h-1 flex-1 mx-2 transition-all ${typeof step === 'number' && Number(currentStep) > step
+                    ? 'bg-green-500'
+                    : 'bg-gray-200'
+                    }`}
                 />
               )}
             </div>

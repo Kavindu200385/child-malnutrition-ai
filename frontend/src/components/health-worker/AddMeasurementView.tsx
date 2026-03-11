@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { calculateRiskLevel, getRiskColor, getRiskLabel } from '../../types';
 import { ArrowLeft, Save, CheckCircle, AlertTriangle, Brain, TrendingUp, Calendar, FileText, TrendingDown, Activity } from 'lucide-react';
 import { nutritionistAPI, midwifeAPI, mohAPI, childrenAPI } from '../../services/api';
@@ -59,6 +59,11 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
   const [nutError, setNutError] = useState('');
   const [nutSuccess, setNutSuccess] = useState(false);
 
+  // Searchable combobox state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const comboRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (isNutritionist) {
       nutritionistAPI.referredChildren()
@@ -83,8 +88,61 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
   const selectedChild = isNutritionist
     ? referredChildren.find((r) => String(r.child?.id) === childId)?.child
     : isMoh
-    ? midwifeChildren.find((c) => String(c.id) === String(childId) || String(c.child_id || c.child_unique_id) === String(childId))
-    : midwifeChildren.find((c) => String(c.child_id || c.id) === String(childId));
+      ? midwifeChildren.find((c) => String(c.id) === String(childId) || String(c.child_id || c.child_unique_id) === String(childId))
+      : midwifeChildren.find((c) => String(c.child_id || c.id) === String(childId));
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (comboRef.current && !comboRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Build flat child list for the combobox
+  const allChildren: { id: string; name: string; childUniqueId: string; dob: string; gender: string; guardianName: string }[] = isNutritionist
+    ? referredChildren.map((r) => ({
+      id: String(r.child?.id ?? ''),
+      name: r.child?.name || '',
+      childUniqueId: String(r.child?.child_id || r.child?.child_unique_id || r.child?.id || ''),
+      dob: r.child?.dob || '',
+      gender: r.child?.gender || '',
+      guardianName: r.child?.guardian_name || '',
+    }))
+    : midwifeChildren.map((c) => ({
+      id: String(c.id ?? ''),
+      name: c.name || '',
+      childUniqueId: String(c.child_id || c.child_unique_id || c.id || ''),
+      dob: c.dob || '',
+      gender: c.gender || '',
+      guardianName: c.guardian_name || '',
+    }));
+
+  const filteredChildren = searchQuery.trim()
+    ? allChildren.filter((c) => {
+      const q = searchQuery.toLowerCase();
+      return (
+        c.name.toLowerCase().includes(q) ||
+        c.childUniqueId.toLowerCase().includes(q) ||
+        c.id.includes(q)
+      );
+    })
+    : allChildren;
+
+  const handleSelectChild = (c: typeof allChildren[0]) => {
+    setChildId(c.id);
+    setSearchQuery(`${c.name} — ${c.childUniqueId}`);
+    setShowDropdown(false);
+  };
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setChildId(''); // clear selection when user types again
+    setShowDropdown(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,7 +206,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
     const heightForAge = (heightNum - 85) / 3;
     const weightForHeight = (weightNum - 11.5) / 1.8;
     const riskLevel = calculateRiskLevel(weightForAge, heightForAge, weightForHeight);
-    const prediction: PredictionData | undefined = undefined;
+    const prediction: PredictionData | undefined = undefined as PredictionData | undefined;
 
     // Generate AI-powered recommendations
     const recommendations: string[] = [];
@@ -284,23 +342,20 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
         {/* Alerts */}
         {aiResults.alerts.length > 0 && (
           <div
-            className={`rounded-lg p-6 border-2 ${
-              aiResults.riskLevel === 'sam'
-                ? 'bg-red-50 border-red-300'
-                : 'bg-yellow-50 border-yellow-300'
-            }`}
+            className={`rounded-lg p-6 border-2 ${aiResults.riskLevel === 'sam'
+              ? 'bg-red-50 border-red-300'
+              : 'bg-yellow-50 border-yellow-300'
+              }`}
           >
             <div className="flex items-start gap-3">
               <AlertTriangle
-                className={`w-6 h-6 flex-shrink-0 mt-1 ${
-                  aiResults.riskLevel === 'sam' ? 'text-red-600' : 'text-yellow-600'
-                }`}
+                className={`w-6 h-6 flex-shrink-0 mt-1 ${aiResults.riskLevel === 'sam' ? 'text-red-600' : 'text-yellow-600'
+                  }`}
               />
               <div className="flex-1">
                 <h3
-                  className={`text-lg font-bold mb-3 ${
-                    aiResults.riskLevel === 'sam' ? 'text-red-900' : 'text-yellow-900'
-                  }`}
+                  className={`text-lg font-bold mb-3 ${aiResults.riskLevel === 'sam' ? 'text-red-900' : 'text-yellow-900'
+                    }`}
                 >
                   Critical Alerts
                 </h3>
@@ -308,9 +363,8 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                   {aiResults.alerts.map((alert, index) => (
                     <li
                       key={index}
-                      className={`text-sm font-medium ${
-                        aiResults.riskLevel === 'sam' ? 'text-red-800' : 'text-yellow-800'
-                      }`}
+                      className={`text-sm font-medium ${aiResults.riskLevel === 'sam' ? 'text-red-800' : 'text-yellow-800'
+                        }`}
                     >
                       • {alert}
                     </li>
@@ -324,7 +378,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
         {/* Assessment Results */}
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Nutritional Status Assessment</h3>
-          
+
           <div className="mb-6 p-4 bg-gray-50 rounded-lg">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-gray-700">Overall Classification:</span>
@@ -339,25 +393,22 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
 
           {/* Early Prediction Section */}
           {aiResults.prediction && (
-            <div className={`mb-6 p-5 rounded-lg border-2 ${
-              aiResults.prediction.actionRequired 
-                ? 'bg-orange-50 border-orange-300' 
-                : aiResults.prediction.status === 'Improving'
+            <div className={`mb-6 p-5 rounded-lg border-2 ${aiResults.prediction.actionRequired
+              ? 'bg-orange-50 border-orange-300'
+              : aiResults.prediction.status === 'Improving'
                 ? 'bg-green-50 border-green-300'
                 : 'bg-blue-50 border-blue-300'
-            }`}>
+              }`}>
               <div className="flex items-start gap-3 mb-4">
-                <div className={`p-2 rounded-lg ${
-                  aiResults.prediction.actionRequired 
-                    ? 'bg-orange-100' 
-                    : aiResults.prediction.status === 'Improving'
+                <div className={`p-2 rounded-lg ${aiResults.prediction.actionRequired
+                  ? 'bg-orange-100'
+                  : aiResults.prediction.status === 'Improving'
                     ? 'bg-green-100'
                     : 'bg-blue-100'
-                }`}>
+                  }`}>
                   {aiResults.prediction.trend === 'declining' ? (
-                    <TrendingDown className={`w-5 h-5 ${
-                      aiResults.prediction.actionRequired ? 'text-orange-600' : 'text-blue-600'
-                    }`} />
+                    <TrendingDown className={`w-5 h-5 ${aiResults.prediction.actionRequired ? 'text-orange-600' : 'text-blue-600'
+                      }`} />
                   ) : aiResults.prediction.trend === 'improving' ? (
                     <TrendingUp className="w-5 h-5 text-green-600" />
                   ) : (
@@ -401,33 +452,29 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                   <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
                     <div className="bg-white/60 rounded p-2">
                       <p className="text-gray-600">Projected WFA</p>
-                      <p className={`font-bold ${
-                        aiResults.prediction.predictedZScores.weightForAge < -2 ? 'text-red-600' : 'text-gray-900'
-                      }`}>
+                      <p className={`font-bold ${aiResults.prediction.predictedZScores.weightForAge < -2 ? 'text-red-600' : 'text-gray-900'
+                        }`}>
                         {aiResults.prediction.predictedZScores.weightForAge.toFixed(2)}
                       </p>
                     </div>
                     <div className="bg-white/60 rounded p-2">
                       <p className="text-gray-600">Projected HFA</p>
-                      <p className={`font-bold ${
-                        aiResults.prediction.predictedZScores.heightForAge < -2 ? 'text-red-600' : 'text-gray-900'
-                      }`}>
+                      <p className={`font-bold ${aiResults.prediction.predictedZScores.heightForAge < -2 ? 'text-red-600' : 'text-gray-900'
+                        }`}>
                         {aiResults.prediction.predictedZScores.heightForAge.toFixed(2)}
                       </p>
                     </div>
                     <div className="bg-white/60 rounded p-2">
                       <p className="text-gray-600">Projected WFH</p>
-                      <p className={`font-bold ${
-                        aiResults.prediction.predictedZScores.weightForHeight < -2 ? 'text-red-600' : 'text-gray-900'
-                      }`}>
+                      <p className={`font-bold ${aiResults.prediction.predictedZScores.weightForHeight < -2 ? 'text-red-600' : 'text-gray-900'
+                        }`}>
                         {aiResults.prediction.predictedZScores.weightForHeight.toFixed(2)}
                       </p>
                     </div>
                   </div>
                   {/* Contextual Action Hint */}
-                  <div className={`mt-3 pt-3 border-t ${
-                    aiResults.prediction.actionRequired ? 'border-orange-200' : 'border-blue-200'
-                  }`}>
+                  <div className={`mt-3 pt-3 border-t ${aiResults.prediction.actionRequired ? 'border-orange-200' : 'border-blue-200'
+                    }`}>
                     <p className="text-xs font-medium text-gray-700">
                       {aiResults.prediction.actionRequired ? (
                         <>
@@ -453,9 +500,8 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
             <div className="border-2 border-gray-200 rounded-lg p-4">
               <p className="text-sm text-gray-600 mb-1">Weight-for-Age Z-score</p>
               <p
-                className={`text-3xl font-bold ${
-                  aiResults.weightForAge < -2 ? 'text-red-600' : 'text-green-600'
-                }`}
+                className={`text-3xl font-bold ${aiResults.weightForAge < -2 ? 'text-red-600' : 'text-green-600'
+                  }`}
               >
                 {aiResults.weightForAge.toFixed(2)}
               </p>
@@ -463,17 +509,16 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                 {aiResults.weightForAge < -3
                   ? 'Severely underweight'
                   : aiResults.weightForAge < -2
-                  ? 'Underweight'
-                  : 'Normal weight for age'}
+                    ? 'Underweight'
+                    : 'Normal weight for age'}
               </p>
             </div>
 
             <div className="border-2 border-gray-200 rounded-lg p-4">
               <p className="text-sm text-gray-600 mb-1">Height-for-Age Z-score</p>
               <p
-                className={`text-3xl font-bold ${
-                  aiResults.heightForAge < -2 ? 'text-red-600' : 'text-green-600'
-                }`}
+                className={`text-3xl font-bold ${aiResults.heightForAge < -2 ? 'text-red-600' : 'text-green-600'
+                  }`}
               >
                 {aiResults.heightForAge.toFixed(2)}
               </p>
@@ -481,17 +526,16 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                 {aiResults.heightForAge < -3
                   ? 'Severely stunted'
                   : aiResults.heightForAge < -2
-                  ? 'Stunted (chronic malnutrition)'
-                  : 'Normal height for age'}
+                    ? 'Stunted (chronic malnutrition)'
+                    : 'Normal height for age'}
               </p>
             </div>
 
             <div className="border-2 border-gray-200 rounded-lg p-4">
               <p className="text-sm text-gray-600 mb-1">Weight-for-Height Z-score</p>
               <p
-                className={`text-3xl font-bold ${
-                  aiResults.weightForHeight < -2 ? 'text-red-600' : 'text-green-600'
-                }`}
+                className={`text-3xl font-bold ${aiResults.weightForHeight < -2 ? 'text-red-600' : 'text-green-600'
+                  }`}
               >
                 {aiResults.weightForHeight.toFixed(2)}
               </p>
@@ -499,8 +543,8 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                 {aiResults.weightForHeight < -3
                   ? 'Severe wasting (acute malnutrition)'
                   : aiResults.weightForHeight < -2
-                  ? 'Moderate wasting'
-                  : 'Normal weight for height'}
+                    ? 'Moderate wasting'
+                    : 'Normal weight for height'}
               </p>
             </div>
           </div>
@@ -633,35 +677,61 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
           </div>
         )}
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Child Selection */}
-          <div>
-            {isMoh && (
-              <p className="text-sm text-gray-600 mb-2">Only children sent (escalated) by a midwife can be measured here.</p>
-            )}
-            <label htmlFor="child" className="block text-sm font-medium text-gray-700 mb-2">
-              Select Child *
-            </label>
-            <select
-              id="child"
-              value={childId}
-              onChange={(e) => setChildId(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            >
-              <option value="">-- Select a child --</option>
-              {isNutritionist
-                ? referredChildren.map((r) => (
-                    <option key={r.child?.id} value={r.child?.id}>
-                      {r.child?.name || r.child?.child_id || r.child?.child_unique_id} ({r.child?.id})
-                    </option>
-                  ))
-                : midwifeChildren.map((child) => (
-                    <option key={child.id} value={child.id}>
-                      {child.name || child.child_id || child.child_unique_id || 'Unnamed'} ({child.child_id || child.child_unique_id || child.id})
-                    </option>
-                  ))}
-            </select>
-          </div>
+          {/* Child Selection — searchable combobox (hidden when coming from a child profile) */}
+          {!selectedChildId ? (
+            <div>
+              {isMoh && (
+                <p className="text-sm text-gray-600 mb-2">Only children sent (escalated) by a midwife can be measured here.</p>
+              )}
+              <label htmlFor="child-search" className="block text-sm font-medium text-gray-700 mb-2">
+                Select Child * &nbsp;<span className="text-xs text-gray-400 font-normal">(search by name or ID)</span>
+              </label>
+              <div ref={comboRef} className="relative">
+                <input
+                  id="child-search"
+                  type="text"
+                  autoComplete="off"
+                  value={searchQuery}
+                  onChange={handleSearchChange}
+                  onFocus={() => setShowDropdown(true)}
+                  placeholder="Type child name or ID number…"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {/* hidden real input that provides the value for form validation */}
+                <input type="hidden" value={childId} required />
+
+                {showDropdown && (
+                  <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-64 overflow-y-auto">
+                    {filteredChildren.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-gray-500 text-center">No children found</div>
+                    ) : (
+                      filteredChildren.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onMouseDown={(e) => { e.preventDefault(); handleSelectChild(c); }}
+                          className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors flex items-center justify-between gap-4 border-b border-gray-100 last:border-0 ${c.id === childId ? 'bg-blue-50 font-semibold' : ''
+                            }`}
+                        >
+                          <div>
+                            <span className="text-sm text-gray-900 font-medium">{c.name || 'Unnamed'}</span>
+                            <span className="ml-2 text-xs text-gray-500">{c.childUniqueId}</span>
+                          </div>
+                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full shrink-0">ID #{c.id}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+              {childId && !selectedChild && (
+                <p className="mt-1 text-xs text-amber-600">⚠ Please select a child from the list</p>
+              )}
+            </div>
+          ) : (
+            /* Child is pre-selected from profile — just keep a hidden input for form logic */
+            <input type="hidden" value={childId} />
+          )}
 
           {selectedChild && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

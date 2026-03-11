@@ -15,10 +15,10 @@ from flask import Blueprint, jsonify, request
 from backend.auth_utils_hierarchical import get_current_user, nutritionist_required, user_can_access_child
 from backend.extensions import db
 from backend.models_hierarchical import (
-    User, Child, Measurement, ChildReferral, ChildEscalation,
+    User, Child, Measurement, Visit, ChildReferral, ChildEscalation,
     UserRole, RiskLevel, EscalationStatus, ReferralStatus,
 )
-from backend.ai.predictor import predict_current_risk, compute_z_scores
+from backend.ai.predictor import predict_current_risk, predict_future_risk, compute_z_scores
 from backend.utils.audit import log_audit
 
 bp = Blueprint("nutritionist", __name__, url_prefix="/api/nutritionist")
@@ -237,6 +237,37 @@ def add_measurement():
 
     child.current_risk_level = current_risk
     child.last_risk_update = datetime.now()
+
+    # ── Create Visit record so visit history is populated ──────────────────
+    try:
+        future_result = predict_future_risk({
+            "age_months": age_months,
+            "sex": sex,
+            "weight_kg": weight_kg,
+            "height_cm": height_cm,
+        })
+        predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
+    except Exception:
+        predicted_risk = None
+
+    visit = Visit(
+        child_id_fk=child.id,
+        visit_date=m_date,
+        age_months=age_months,
+        sex=sex,
+        weight_kg=weight_kg,
+        height_cm=height_cm,
+        z_wfa=z_wfa,
+        z_hfa=z_hfa,
+        z_wfh=z_wfh,
+        current_risk=current_risk,
+        predicted_risk_next_2_months=predicted_risk,
+        model_confidence=float(confidence) if confidence else None,
+        notes=specialist_notes,
+        created_by_user_id=user.id,
+    )
+    db.session.add(visit)
+    # ───────────────────────────────────────────────────────────────────────
 
     db.session.commit()
     log_audit(

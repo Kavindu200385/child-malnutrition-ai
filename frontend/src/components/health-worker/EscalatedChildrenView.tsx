@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
 import { mohAPI } from '../../services/api';
 import { getRiskLabel } from '../../types';
+import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
 
 interface EscalatedChildrenViewProps {
   onViewChild?: (childId: string) => void;
 }
 
 export function EscalatedChildrenView({ onViewChild }: EscalatedChildrenViewProps) {
-  const [list, setList] = useState([]);
+  const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [reviewChildId, setReviewChildId] = useState(null);
+  const [reviewChildId, setReviewChildId] = useState<number | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [dialog, setDialog] = useState<ConfirmDialogState | null>(null);
 
   useEffect(() => {
     load();
@@ -25,7 +27,7 @@ export function EscalatedChildrenView({ onViewChild }: EscalatedChildrenViewProp
       const res = await mohAPI.getEscalatedChildren();
       if (res.data?.status === 'success') setList(res.data.escalations || []);
       else setError(res.data?.message || 'Failed to load');
-    } catch (err) {
+    } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load');
       setList([]);
     } finally {
@@ -33,7 +35,7 @@ export function EscalatedChildrenView({ onViewChild }: EscalatedChildrenViewProp
     }
   };
 
-  const handleReview = async (childId) => {
+  const handleReview = async (childId: number) => {
     setActionLoading(true);
     setError('');
     try {
@@ -41,45 +43,60 @@ export function EscalatedChildrenView({ onViewChild }: EscalatedChildrenViewProp
       setReviewChildId(null);
       setReviewNotes('');
       load();
-    } catch (err) {
+    } catch (err: any) {
       setError(err.response?.data?.message || 'Review failed');
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleEscalateToNutritionist = async (childId) => {
-    if (!confirm('Escalate this child to Nutritionist?')) return;
-    setActionLoading(true);
-    setError('');
-    try {
-      await mohAPI.escalateToNutritionist(childId, {});
-      load();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Escalation failed');
-    } finally {
-      setActionLoading(false);
-    }
+  const handleEscalateToNutritionist = async (childId: number) => {
+    setDialog({
+      title: 'Escalate to Nutritionist',
+      message: 'Escalate this child to the Nutritionist? The child will be referred to the hospital nutritionist for specialist care.',
+      variant: 'warning',
+      confirmLabel: 'Yes, Escalate',
+      onConfirm: async () => {
+        setActionLoading(true);
+        setError('');
+        try {
+          await mohAPI.escalateToNutritionist(childId, {});
+          load();
+        } catch (err: any) {
+          setError(err.response?.data?.message || 'Escalation failed');
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    });
   };
 
-  const handleReturnToMidwife = async (childId) => {
-    if (!confirm('Return this child to midwife care (risk downgrade)?')) return;
-    setActionLoading(true);
-    setError('');
-    try {
-      await mohAPI.returnToMidwife(childId);
-      load();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Action failed');
-    } finally {
-      setActionLoading(false);
-    }
+  const handleReturnToMidwife = async (childId: number) => {
+    setDialog({
+      title: 'Return to Midwife',
+      message: 'Return this child to midwife care? This indicates the risk level has been downgraded to normal.',
+      variant: 'info',
+      confirmLabel: 'Yes, Return',
+      onConfirm: async () => {
+        setActionLoading(true);
+        setError('');
+        try {
+          await mohAPI.returnToMidwife(childId);
+          load();
+        } catch (err: any) {
+          setError(err.response?.data?.message || 'Action failed');
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    });
   };
 
   if (loading) return <div className="text-gray-600">Loading escalated children...</div>;
 
   return (
     <div className="space-y-6">
+      <ConfirmDialog state={dialog} onClose={() => setDialog(null)} />
       <div>
         <h2 className="text-2xl font-bold text-gray-900">Escalated Children</h2>
         <p className="text-gray-600 mt-1">Review and take action on children escalated to you</p>

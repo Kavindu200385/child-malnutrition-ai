@@ -16,7 +16,7 @@ from decimal import Decimal
 from backend.auth_utils_hierarchical import get_current_user, ROLE_MIDWIFE
 from backend.extensions import db
 from backend.models_hierarchical import (
-    User, Child, Area, Measurement, ChildEscalation, ClinicReport,
+    User, Child, Area, Measurement, Visit, ChildEscalation, ClinicReport,
     UserRole, RiskLevel, EscalationStatus, EscalationRecordStatus, AreaLevel
 )
 from backend.utils.midwife_helpers import (
@@ -381,6 +381,26 @@ def add_measurement():
 
     db.session.add(measurement)
     db.session.flush()
+
+    # ── Create Visit record so visit history is populated ──────────────────
+    visit = Visit(
+        child_id_fk=child.id,
+        visit_date=datetime.now(),
+        age_months=age_months,
+        sex=sex,
+        weight_kg=float(weight_kg),
+        height_cm=float(height_cm),
+        z_wfa=float(wfa_z) if wfa_z is not None else None,
+        z_hfa=float(hfa_z) if hfa_z is not None else None,
+        z_wfh=float(wfh_z) if wfh_z is not None else None,
+        current_risk=current_risk,
+        predicted_risk_next_2_months=predicted_risk,
+        model_confidence=float(confidence) if confidence else None,
+        notes=data.get("notes"),
+        created_by_user_id=user.id,
+    )
+    db.session.add(visit)
+    # ───────────────────────────────────────────────────────────────────────
 
     # Update child's current risk level
     child.current_risk_level = current_risk

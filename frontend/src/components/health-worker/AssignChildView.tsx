@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Search, MapPin, User, CheckCircle, AlertCircle } from 'lucide-react';
 import { childrenAPI, midwifeAPI } from '../../services/api';
+import { formatDate } from '../../utils/formatDate';
 
 interface AssignChildViewProps {
   onBack: () => void;
@@ -60,13 +61,13 @@ export function AssignChildView({ onBack, onSuccess }: AssignChildViewProps) {
     setSelectedChild(null);
 
     try {
-      const response = await childrenAPI.list({ q: searchTerm, status: 'active' });
+      const response = await childrenAPI.list({ q: searchTerm, status: 'active', include_unassigned: true });
       if (response.data.status === 'success') {
         const children = response.data.children || [];
         // Filter for unassigned children or children in accessible areas
         const unassigned = children.filter((c: any) => !c.current_assigned_area_id);
         setSearchResults(unassigned);
-        
+
         if (unassigned.length === 0) {
           setError('No unassigned children found with this registration number');
         }
@@ -190,18 +191,17 @@ export function AssignChildView({ onBack, onSuccess }: AssignChildViewProps) {
                 <div
                   key={child.id}
                   onClick={() => handleSelectChild(child)}
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
-                    selectedChild?.id === child.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                  className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${selectedChild?.id === child.id
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                    }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <h4 className="font-semibold text-gray-900">{child.name || 'Unnamed'}</h4>
                       <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-600">
                         <p><span className="font-medium">ID:</span> {child.child_id}</p>
-                        <p><span className="font-medium">DOB:</span> {child.dob || 'N/A'}</p>
+                        <p><span className="font-medium">DOB:</span> {formatDate(child.dob) || 'N/A'}</p>
                         <p><span className="font-medium">Gender:</span> {child.gender || 'N/A'}</p>
                         <p><span className="font-medium">Guardian:</span> {child.guardian_name || 'N/A'}</p>
                       </div>
@@ -221,7 +221,7 @@ export function AssignChildView({ onBack, onSuccess }: AssignChildViewProps) {
       {selectedChild && (
         <div className="bg-white rounded-lg shadow-lg p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Assign to PHM Area</h3>
-          
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-900 mb-2">
