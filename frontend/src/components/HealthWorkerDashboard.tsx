@@ -16,6 +16,8 @@ import { MohReportsView } from './health-worker/MohReportsView';
 import { NutritionistDashboardView } from './health-worker/NutritionistDashboardView';
 import { NutritionistReferredView } from './health-worker/NutritionistReferredView';
 import { NutritionistChildProfileView } from './health-worker/NutritionistChildProfileView';
+import { NutritionistTransferRequestsView } from './health-worker/NutritionistTransferRequestsView';
+import { nutritionistAPI } from '../services/api';
 import {
   LayoutDashboard,
   Search,
@@ -78,15 +80,37 @@ interface HealthWorkerDashboardProps {
   onLogout: () => void;
 }
 
-type View = 'dashboard' | 'search' | 'profile' | 'add-child' | 'add-measurement' | 'reports' | 'assign-child' | 'transfers' | 'moh-escalated' | 'moh-workers' | 'moh-reports' | 'nut-referred';
+type View = 'dashboard' | 'search' | 'profile' | 'add-child' | 'add-measurement' | 'reports' | 'assign-child' | 'transfers' | 'moh-escalated' | 'moh-workers' | 'moh-reports' | 'nut-referred' | 'nut-transfer-requests';
 
 export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardProps) {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
   const [topBarVisible, setTopBarVisible] = useState(true);
+  const [nutPendingCount, setNutPendingCount] = useState(0);
   const lastScrollY = React.useRef(0);
 
   const isHospital = user.role === 'hospital';
+  const isNutritionist = user.role === 'nutritionist';
+  const isMoh = user.role === 'moh' || user.role === 'amoh';
+  const canReviewTransfers = ['moh', 'amoh', 'nutritionist'].includes(user.role);
+
+  // Poll pending transfer badge count for nutritionist
+  useEffect(() => {
+    if (!isNutritionist) return;
+    const fetchBadge = async () => {
+      try {
+        const res = await nutritionistAPI.getTransferRequestsBadgeCount();
+        if (res.data?.status === 'success') {
+          setNutPendingCount(res.data.pending_count || 0);
+        }
+      } catch {
+        // silently ignore
+      }
+    };
+    fetchBadge();
+    const interval = setInterval(fetchBadge, 30000); // refresh every 30s
+    return () => clearInterval(interval);
+  }, [isNutritionist]);
 
   useEffect(() => {
     const onScroll = () => {
@@ -120,11 +144,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
     setCurrentView('add-measurement');
   };
 
-  const isMoh = user.role === 'moh' || user.role === 'amoh';
-  const isNutritionist = user.role === 'nutritionist';
-  const canReviewTransfers = ['moh', 'amoh', 'nutritionist'].includes(user.role);
-
-  const navigationItems: { id: View; label: string; icon: any }[] = isHospital
+  const navigationItems: { id: View; label: string; icon: any; badge?: number }[] = isHospital
     ? [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'search', label: 'Search Child', icon: Search },
@@ -153,9 +173,9 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
           ? [
             { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
             { id: 'nut-referred', label: 'Referred Children', icon: Users },
+            { id: 'nut-transfer-requests', label: 'Review Transfers', icon: ArrowRightLeft, badge: nutPendingCount },
             { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
             { id: 'reports', label: 'Reports', icon: FileText },
-            { id: 'transfers', label: 'Review Transfers', icon: ArrowRightLeft },
           ]
           : [
             { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -212,16 +232,25 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
               {navigationItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = currentView === item.id;
+                const hasBadge = item.badge != null && item.badge > 0;
                 return (
-                  <button
-                    key={item.id}
-                    onClick={() => setCurrentView(item.id)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${isActive ? navActiveClass : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {item.label}
-                  </button>
+                  <div key={item.id} className="relative inline-flex">
+                    <button
+                      onClick={() => setCurrentView(item.id)}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${isActive ? navActiveClass : 'text-gray-600 hover:bg-gray-100'}`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {item.label}
+                    </button>
+                    {/* Badge floats on the top-right corner of the wrapper div */}
+                    {hasBadge && (
+                      <span className="absolute -top-2 -right-2 z-20 flex items-center justify-center bg-red-500 text-white rounded-full font-bold"
+                        style={{ minWidth: '18px', height: '18px', fontSize: '10px', padding: '0 4px', lineHeight: '18px', boxShadow: '0 0 0 2px #fff' }}
+                      >
+                        {item.badge! > 99 ? '99+' : item.badge}
+                      </span>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -238,6 +267,11 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
           <NutritionistReferredView
             onViewChild={handleViewChild}
             onAddMeasurement={handleAddMeasurement}
+          />
+        )}
+        {currentView === 'nut-transfer-requests' && isNutritionist && (
+          <NutritionistTransferRequestsView
+            onViewChild={handleViewChild}
           />
         )}
         {currentView === 'search' && (

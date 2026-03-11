@@ -435,3 +435,213 @@ def dashboard_summary():
             },
         },
     }), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/nutritionist/transfer-requests
+# ---------------------------------------------------------------------------
+@bp.route("/transfer-requests", methods=["GET"])
+@nutritionist_required
+def transfer_requests():
+    """
+    List PENDING referral/transfer requests sent to this nutritionist from hospital (Pediatric Unit).
+    These are ChildReferral records with status=PENDING for this hospital.
+    """
+    user = get_current_user()
+    if not user.hospital_id:
+        return jsonify({"status": "error", "message": "Hospital not linked"}), 403
+
+    status_filter = request.args.get("status")  # PENDING, REVIEWED, all
+
+    query = db.session.query(ChildReferral, Child).join(
+        Child, Child.id == ChildReferral.child_id
+    ).filter(
+        ChildReferral.hospital_id == user.hospital_id,
+        ChildReferral.referred_to_role == "nutritionist",
+    )
+
+    if status_filter and status_filter.upper() != "ALL":
+        query = query.filter(ChildReferral.status == status_filter.upper())
+    else:
+        # Default: show PENDING only
+        query = query.filter(ChildReferral.status == ReferralStatus.PENDING.value)
+
+    refs = query.order_by(ChildReferral.created_at.desc()).all()
+
+    out = []
+    for ref, child in refs:
+        last_m = (
+            db.session.query(Measurement)
+            .filter(Measurement.child_id == child.id)
+            .order_by(Measurement.measurement_date.desc())
+            .first()
+        )
+        referred_by_user = db.session.get(User, ref.referred_by_user_id)
+        out.append({
+            "referral_id": ref.id,
+            "child": child.to_dict(),
+            "referral": ref.to_dict(),
+            "current_risk_level": child.current_risk_level,
+            "birth_risk_level": child.birth_risk_level,
+            "escalation_status": child.escalation_status,
+            "last_measurement_date": last_m.measurement_date.isoformat() if last_m and last_m.measurement_date else None,
+            "referred_by": referred_by_user.to_dict() if referred_by_user else None,
+            "transfer_reason": ref.referral_reason,
+            "transferred_at": ref.created_at.isoformat() if ref.created_at else None,
+        })
+
+    return jsonify({
+        "status": "success",
+        "transfer_requests": out,
+        "count": len(out),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/nutritionist/transfer-requests/badge-count
+# ---------------------------------------------------------------------------
+@bp.route("/transfer-requests/badge-count", methods=["GET"])
+@nutritionist_required
+def transfer_requests_badge_count():
+    """
+    Returns count of PENDING transfer requests for the red dot notification badge.
+    """
+    user = get_current_user()
+    if not user.hospital_id:
+        return jsonify({"status": "success", "pending_count": 0}), 200
+
+    count = db.session.query(ChildReferral).filter(
+        ChildReferral.hospital_id == user.hospital_id,
+        ChildReferral.referred_to_role == "nutritionist",
+        ChildReferral.status == ReferralStatus.PENDING.value,
+    ).count()
+
+    return jsonify({
+        "status": "success",
+        "pending_count": count,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/nutritionist/transfer-requests/<referral_id>/accept
+# ---------------------------------------------------------------------------
+@bp.route("/transfer-requests/<int:referral_id>/accept", methods=["POST"])
+@nutritionist_required
+def accept_transfer_request(referral_id: int):
+    """
+    Nutritionist accepts a transfer request (ChildReferral) from hospital.
+    Marks referral as REVIEWED and updates child status.
+    """
+    user = get_current_user()
+    if not user.hospital_id:
+        return jsonify({"status": "error", "message": "Hospital not linked"}), 403
+
+    referral = db.session.get(ChildReferral, referral_id)
+    if not referral:
+        return jsonify({"status": "error", "message": "Transfer request not found"}), 404
+
+    if referral.hospital_id != user.hospital_id:
+        return jsonify({"status": "error", "message": "Access denied. This referral is not for your hospital."}), 403
+
+    if referral.referred_to_role != "nutritionist":
+        return jsonify({"status": "error", "message": "This is not a nutritionist referral"}), 400
+
+    if referral.status != ReferralStatus.PENDING.value:
+        return jsonify({
+            "status": "error",
+            "message": f"Transfer request is already {referral.status}"
+        }), 400
+
+    data = request.get_json() or {}
+    notes = data.get("notes", "")
+
+    referral.status = ReferralStatus.REVIEWED.value
+    referral.reviewed_by_user_id = user.id
+    referral.reviewed_at = datetime.utcnow()
+
+    # Update child escalation status to show nutritionist is now managing
+    child = db.session.get(Child, referral.child_id)
+    if child:
+        child.escalation_status = EscalationStatus.ESCALATED_TO_NUTRITIONIST.value
+
+    db.session.commit()
+
+    log_audit(
+        action="TRANSFER_ACCEPT",
+        entity_type="child_referral",
+        entity_id=referral.id,
+        old_values={"status": "PENDING"},
+        new_values={"status": "REVIEWED"},
+        user_id=user.id,
+        description=f"Nutritionist accepted transfer request for child {referral.child_id}",
+    )
+
+    return jsonify({
+        "status": "success",
+        "message": "Transfer request accepted. Child is now under your care.",
+        "referral": referral.to_dict(),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/nutritionist/transfer-requests/<referral_id>/reject
+# ---------------------------------------------------------------------------
+@bp.route("/transfer-requests/<int:referral_id>/reject", methods=["POST"])
+@nutritionist_required
+def reject_transfer_request(referral_id: int):
+    """
+    Nutritionist rejects a transfer request from hospital.
+    Marks referral as REJECTED and reverts child transfer status.
+    """
+    user = get_current_user()
+    if not user.hospital_id:
+        return jsonify({"status": "error", "message": "Hospital not linked"}), 403
+
+    referral = db.session.get(ChildReferral, referral_id)
+    if not referral:
+        return jsonify({"status": "error", "message": "Transfer request not found"}), 404
+
+    if referral.hospital_id != user.hospital_id:
+        return jsonify({"status": "error", "message": "Access denied."}), 403
+
+    if referral.status != ReferralStatus.PENDING.value:
+        return jsonify({
+            "status": "error",
+            "message": f"Transfer request is already {referral.status}"
+        }), 400
+
+    data = request.get_json() or {}
+    rejection_reason = data.get("rejection_reason", "No reason provided")
+
+    # Use REVIEWED status with rejection note since model only has PENDING/REVIEWED
+    referral.status = ReferralStatus.REVIEWED.value
+    referral.reviewed_by_user_id = user.id
+    referral.reviewed_at = datetime.utcnow()
+    # Store rejection reason in referral_reason field with a prefix
+    referral.referral_reason = (referral.referral_reason or "") + f"\n[REJECTED by nutritionist: {rejection_reason}]"
+
+    # Revert child transfer status
+    child = db.session.get(Child, referral.child_id)
+    if child:
+        child.is_transferred = False
+        from backend.models_hierarchical import TransferStatus
+        child.transfer_status = TransferStatus.NONE.value
+        child.escalation_status = EscalationStatus.NONE.value
+
+    db.session.commit()
+
+    log_audit(
+        action="TRANSFER_REJECT",
+        entity_type="child_referral",
+        entity_id=referral.id,
+        old_values={"status": "PENDING"},
+        new_values={"status": "REVIEWED", "rejection_reason": rejection_reason},
+        user_id=user.id,
+        description=f"Nutritionist rejected transfer request for child {referral.child_id}: {rejection_reason}",
+    )
+
+    return jsonify({
+        "status": "success",
+        "message": "Transfer request rejected.",
+        "referral": referral.to_dict(),
+    }), 200

@@ -127,6 +127,11 @@ export const nutritionistAPI = {
   addMeasurement: (data) => api.post('/api/nutritionist/measurement/add', data),
   returnToMoh: (childId) => api.post(`/api/nutritionist/return-to-moh/${childId}`),
   dashboardSummary: () => api.get('/api/nutritionist/dashboard-summary'),
+  // Transfer requests from Pediatric Unit (hospital)
+  getTransferRequests: (params) => api.get('/api/nutritionist/transfer-requests', { params }),
+  getTransferRequestsBadgeCount: () => api.get('/api/nutritionist/transfer-requests/badge-count'),
+  acceptTransferRequest: (referralId, data) => api.post(`/api/nutritionist/transfer-requests/${referralId}/accept`, data),
+  rejectTransferRequest: (referralId, data) => api.post(`/api/nutritionist/transfer-requests/${referralId}/reject`, data),
 };
 
 // MOH API (MOH/AMOH role only)
