@@ -23,6 +23,7 @@ from backend.models_hierarchical import (
     ChildReferral,
     Measurement,
     RdhsReport,
+    MohReport,
     RiskLevel,
 )
 
@@ -410,3 +411,65 @@ def send_report_to_pdhs(report_id: int):
     report.sent_at = datetime.utcnow()
     db.session.commit()
     return jsonify({"status": "success", "report": report.to_dict()}), 200
+
+
+# =============================================================================
+# MOH REPORTS RECEIVED FROM MOH AREAS
+# =============================================================================
+
+@bp.route("/moh-reports", methods=["GET"])
+@rdhs_required
+def moh_reports():
+    """
+    List MOH monthly reports that have been marked sent_to_rdhs
+    for MOH areas inside this RDHS district.
+
+    Returns list grouped by MOH area so the UI can show:
+    - MOH area name
+    - For each MOH: month/year, totals, risk distribution, escalations, sent_at.
+    """
+    user, ctx, err = _rdhs_context()
+    if err:
+        return err
+    district_ids, _child_area_ids = ctx
+
+    # MOH areas under this district
+    moh_areas = db.session.query(Area).filter(
+        Area.parent_id.in_(district_ids),
+        Area.level == "moh",
+        Area.is_active == True,
+    ).all()
+    if not moh_areas:
+        return jsonify({"status": "success", "areas": [], "count": 0}), 200
+
+    moh_area_ids = [a.id for a in moh_areas]
+    year = request.args.get("year", type=int)
+    query = db.session.query(MohReport).filter(
+        MohReport.moh_area_id.in_(moh_area_ids),
+        MohReport.sent_to_rdhs == True,
+    )
+    if year:
+        query = query.filter(MohReport.report_year == year)
+
+    reports = query.order_by(MohReport.report_year.desc(), MohReport.month.desc()).all()
+    by_area: dict[int, dict] = {a.id: {"area": a, "reports": []} for a in moh_areas}
+    for r in reports:
+        rec = by_area.get(r.moh_area_id)
+        if rec is not None:
+            rec["reports"].append(r)
+
+    payload = []
+    for area_id, entry in by_area.items():
+        if not entry["reports"]:
+            continue
+        a: Area = entry["area"]
+        payload.append(
+            {
+                "moh_area_id": area_id,
+                "moh_area_name": a.name or f"MOH {area_id}",
+                "district_id": a.parent_id,
+                "reports": [rep.to_dict() for rep in entry["reports"]],
+            }
+        )
+
+    return jsonify({"status": "success", "areas": payload, "count": len(payload)}), 200

@@ -12,16 +12,45 @@ from collections import defaultdict
 
 from flask import Blueprint, jsonify, request
 
+from sqlalchemy import desc, case
+
 from backend.auth_utils_hierarchical import get_current_user, nutritionist_required, user_can_access_child
 from backend.extensions import db
 from backend.models_hierarchical import (
-    User, Child, Measurement, Visit, ChildReferral, ChildEscalation,
-    UserRole, RiskLevel, EscalationStatus, ReferralStatus,
+    User,
+    Child,
+    Measurement,
+    Visit,
+    ChildReferral,
+    ChildEscalation,
+    UserRole,
+    RiskLevel,
+    EscalationStatus,
+    ReferralStatus,
 )
 from backend.ai.predictor import predict_current_risk, predict_future_risk, compute_z_scores
 from backend.utils.audit import log_audit
 
 bp = Blueprint("nutritionist", __name__, url_prefix="/api/nutritionist")
+
+
+def _display_risk_level(child: Child) -> str:
+    """
+    Unified risk value for all nutritionist views.
+    Rule:
+    - If there is NO clinic measurement yet (last_risk_update is null) but birth_risk_level exists,
+      then use birth_risk_level (so SAM-at-birth shows as SAM until first visit).
+    - Otherwise use current_risk_level.
+    """
+    birth = (child.birth_risk_level or "").upper()
+    current = (child.current_risk_level or "").upper()
+    if not child.last_risk_update and birth:
+        return birth
+    if current:
+        return current
+    if birth:
+        return birth
+    return RiskLevel.NORMAL.value
 
 
 def _nutritionist_can_access_child(user, child):
@@ -65,8 +94,13 @@ def referred_children():
         .filter(
             ChildReferral.hospital_id == user.hospital_id,
             ChildReferral.referred_to_role == "nutritionist",
+            ChildReferral.status == ReferralStatus.REVIEWED.value,
         )
-        .order_by(ChildReferral.created_at.desc())
+        .order_by(
+            case((ChildReferral.reviewed_at.is_(None), 1), else_=0),
+            desc(ChildReferral.reviewed_at),
+            desc(ChildReferral.created_at),
+        )
         .all()
     )
     out = []
@@ -77,10 +111,13 @@ def referred_children():
             .order_by(Measurement.measurement_date.desc())
             .first()
         )
+        display_risk = _display_risk_level(child)
         out.append({
             "child": child.to_dict(),
             "referral": ref.to_dict(),
             "current_risk_level": child.current_risk_level,
+            "birth_risk_level": child.birth_risk_level,
+            "display_risk_level": display_risk,
             "escalation_status": child.escalation_status,
             "last_measurement_date": last_m.measurement_date.isoformat() if last_m and last_m.measurement_date else None,
             "last_measurement_confidence": float(last_m.model_confidence) if last_m and last_m.model_confidence else None,
@@ -364,7 +401,7 @@ def dashboard_summary():
     if not hospital_id:
         return jsonify({"status": "error", "message": "Hospital not linked"}), 403
 
-    refs = (
+    all_refs = (
         db.session.query(ChildReferral)
         .filter(
             ChildReferral.hospital_id == hospital_id,
@@ -372,12 +409,18 @@ def dashboard_summary():
         )
         .all()
     )
-    child_ids = [r.child_id for r in refs]
-    if not child_ids:
+
+    # Only accepted (REVIEWED) referrals count as "saved to your DB"
+    accepted_refs = [r for r in all_refs if r.status == ReferralStatus.REVIEWED.value]
+    pending_transfers = sum(1 for r in all_refs if r.status == ReferralStatus.PENDING.value)
+
+    accepted_child_ids = list({r.child_id for r in accepted_refs})
+    if not accepted_child_ids:
         return jsonify({
             "status": "success",
             "dashboard": {
-                "total_referred": 0,
+                "total_referred": len(accepted_refs),
+                "pending_transfers": pending_transfers,
                 "pending_cases": 0,
                 "reviewed_cases": 0,
                 "normal_count": 0,
@@ -388,18 +431,34 @@ def dashboard_summary():
             },
         }), 200
 
-    children = db.session.query(Child).filter(Child.id.in_(child_ids)).all()
+    children = db.session.query(Child).filter(Child.id.in_(accepted_child_ids)).all()
     child_map = {c.id: c for c in children}
 
-    pending_cases = sum(1 for r in refs if r.status == ReferralStatus.PENDING.value)
-    reviewed_cases = sum(1 for r in refs if r.status == ReferralStatus.REVIEWED.value)
-    normal_count = sum(1 for c in children if (c.current_risk_level or "").upper() == "NORMAL")
-    mam_count = sum(1 for c in children if (c.current_risk_level or "").upper() == "MAM")
-    sam_count = sum(1 for c in children if (c.current_risk_level or "").upper() == "SAM")
+    # Among accepted referrals, count pending (not yet acted on by nutritionist) vs reviewed
+    pending_cases = sum(1 for r in accepted_refs if (child_map.get(r.child_id) and
+                        (child_map[r.child_id].escalation_status or "") == EscalationStatus.ESCALATED_TO_NUTRITIONIST.value))
+    reviewed_cases = sum(1 for r in accepted_refs if (child_map.get(r.child_id) and
+                         (child_map[r.child_id].current_risk_level or "").upper() == "NORMAL"))
 
+    # Risk buckets based on unified display risk (birth SAM until first visit)
+    normal_count = 0
+    mam_count = 0
+    sam_count = 0
+    display_risks: dict[int, str] = {}
+    for c in children:
+        r = _display_risk_level(c)
+        display_risks[c.id] = r
+        if r == RiskLevel.NORMAL.value:
+            normal_count += 1
+        elif r == RiskLevel.MAM.value:
+            mam_count += 1
+        elif r == RiskLevel.SAM.value:
+            sam_count += 1
+
+    # Monthly accepted referrals trend
     monthly_referrals = []
     by_month = defaultdict(int)
-    for r in refs:
+    for r in accepted_refs:
         key = (r.created_at.year, r.created_at.month) if r.created_at else (datetime.now().year, datetime.now().month)
         by_month[key] += 1
     for (y, m), cnt in sorted(by_month.items(), key=lambda x: (x[0][0], x[0][1])):
@@ -407,21 +466,24 @@ def dashboard_summary():
 
     improved = 0
     not_improved = 0
-    pending_review = 0
-    for r in refs:
-        if r.status == ReferralStatus.REVIEWED.value:
-            c = child_map.get(r.child_id)
-            if c and (c.current_risk_level or "").upper() == "NORMAL":
-                improved += 1
-            else:
-                not_improved += 1
+    still_active = 0
+    for r in accepted_refs:
+        c = child_map.get(r.child_id)
+        if not c:
+            continue
+        risk = display_risks.get(c.id, (c.current_risk_level or "").upper())
+        if risk == RiskLevel.NORMAL.value:
+            improved += 1
+        elif risk in (RiskLevel.MAM.value, RiskLevel.SAM.value):
+            not_improved += 1
         else:
-            pending_review += 1
+            still_active += 1
 
     return jsonify({
         "status": "success",
         "dashboard": {
-            "total_referred": len(refs),
+            "total_referred": len(accepted_refs),
+            "pending_transfers": pending_transfers,
             "pending_cases": pending_cases,
             "reviewed_cases": reviewed_cases,
             "normal_count": normal_count,
@@ -431,7 +493,7 @@ def dashboard_summary():
             "improvement_stats": {
                 "improved": improved,
                 "not_improved": not_improved,
-                "pending_review": pending_review,
+                "pending_review": still_active,
             },
         },
     }), 200
@@ -466,7 +528,7 @@ def transfer_requests():
         # Default: show PENDING only
         query = query.filter(ChildReferral.status == ReferralStatus.PENDING.value)
 
-    refs = query.order_by(ChildReferral.created_at.desc()).all()
+    refs = query.order_by(desc(ChildReferral.created_at)).all()
 
     out = []
     for ref, child in refs:
@@ -559,10 +621,22 @@ def accept_transfer_request(referral_id: int):
     referral.reviewed_by_user_id = user.id
     referral.reviewed_at = datetime.utcnow()
 
-    # Update child escalation status to show nutritionist is now managing
+    # Update child escalation status and area hierarchy so RDHS/PDHS see the case
     child = db.session.get(Child, referral.child_id)
     if child:
         child.escalation_status = EscalationStatus.ESCALATED_TO_NUTRITIONIST.value
+        # If the child is not yet linked into the MOH/district/province tree, attach it using this hospital's MOH area
+        if not child.moh_area_id and user.moh_id:
+            from backend.models_hierarchical import Area
+            moh_area = db.session.get(Area, user.moh_id)
+            if moh_area:
+                child.moh_area_id = moh_area.id
+                rdhs_area = moh_area.parent
+                if rdhs_area:
+                    child.district_id = rdhs_area.id
+                    pdhs_area = rdhs_area.parent
+                    if pdhs_area:
+                        child.province_id = pdhs_area.id
 
     db.session.commit()
 
@@ -613,11 +687,9 @@ def reject_transfer_request(referral_id: int):
     data = request.get_json() or {}
     rejection_reason = data.get("rejection_reason", "No reason provided")
 
-    # Use REVIEWED status with rejection note since model only has PENDING/REVIEWED
-    referral.status = ReferralStatus.REVIEWED.value
+    referral.status = ReferralStatus.REJECTED.value
     referral.reviewed_by_user_id = user.id
     referral.reviewed_at = datetime.utcnow()
-    # Store rejection reason in referral_reason field with a prefix
     referral.referral_reason = (referral.referral_reason or "") + f"\n[REJECTED by nutritionist: {rejection_reason}]"
 
     # Revert child transfer status

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User } from '../App';
 import { AdminOverview } from './admin/AdminOverview';
 import { SystemAnalytics } from './admin/SystemAnalytics';
@@ -45,6 +45,25 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
   const isRdhs = user.role === 'rdhs';
   const isPdhs = user.role === 'pdhs';
   const isHealthMinistry = user.role === 'health_ministry';
+
+  // Restore last selected tab per admin role so refresh keeps the same page
+  useEffect(() => {
+    const baseKey = `admin_current_view_${user.role}`;
+    try {
+      if (isRdhs) {
+        const stored = localStorage.getItem(baseKey) as RdhsView | null;
+        if (stored) setRdhsView(stored);
+      } else if (isPdhs) {
+        const stored = localStorage.getItem(baseKey) as PdhsView | null;
+        if (stored) setPdhsView(stored);
+      } else {
+        const stored = localStorage.getItem(baseKey) as AdminView | null;
+        if (stored) setCurrentView(stored);
+      }
+    } catch {
+      // ignore storage issues
+    }
+  }, [isPdhs, isRdhs, user.role]);
 
   const navigationItems = isRdhs
     ? [
@@ -124,9 +143,32 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                 <button
                   key={item.id}
                   onClick={() => {
-                    if (isRdhs) setRdhsView(item.id as RdhsView);
-                    else if (isPdhs) setPdhsView(item.id as PdhsView);
-                    else setCurrentView(item.id as AdminView);
+                    const baseKey = `admin_current_view_${user.role}`;
+                    if (isRdhs) {
+                      const v = item.id as RdhsView;
+                      setRdhsView(v);
+                      try {
+                        localStorage.setItem(baseKey, v);
+                      } catch {
+                        // ignore
+                      }
+                    } else if (isPdhs) {
+                      const v = item.id as PdhsView;
+                      setPdhsView(v);
+                      try {
+                        localStorage.setItem(baseKey, v);
+                      } catch {
+                        // ignore
+                      }
+                    } else {
+                      const v = item.id as AdminView;
+                      setCurrentView(v);
+                      try {
+                        localStorage.setItem(baseKey, v);
+                      } catch {
+                        // ignore
+                      }
+                    }
                   }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${
                     isActive

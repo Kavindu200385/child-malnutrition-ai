@@ -151,6 +151,7 @@ export const mohAPI = {
   getMonthlyReports: (params) => api.get('/api/moh/reports/monthly', { params }),
   generateMonthlyReport: (data) => api.post('/api/moh/reports/monthly/generate', data),
   sendReportToRdhs: (reportId) => api.post(`/api/moh/send-report-to-rdhs/${reportId}`),
+  getReportSummary: (params) => api.get('/api/moh/reports/summary', { params }),
 };
 
 // RDHS API (District Admin only – district-filtered data)
@@ -162,6 +163,7 @@ export const rdhsAPI = {
   reportsMonthly: (params) => api.get('/api/rdhs/reports/monthly', { params }),
   createMonthlyReport: (data) => api.post('/api/rdhs/reports/monthly', data),
   sendReportToPdhs: (reportId) => api.post(`/api/rdhs/send-report-to-pdhs/${reportId}`),
+  mohReports: (params) => api.get('/api/rdhs/moh-reports', { params }),
 };
 
 // PDHS API (Province Admin only – province-filtered data)

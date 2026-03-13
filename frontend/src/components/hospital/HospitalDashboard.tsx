@@ -30,6 +30,18 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
   const [currentView, setCurrentView] = useState<HospitalView>('dashboard');
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
 
+  // Restore last selected hospital view so refresh stays on same page
+  React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem('hospital_current_view') as HospitalView | null;
+      if (stored) {
+        setCurrentView(stored);
+      }
+    } catch {
+      // ignore storage issues
+    }
+  }, []);
+
   const navigationItems = [
     { id: 'dashboard' as HospitalView, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'register' as HospitalView, label: 'Register Child', icon: UserPlus },
@@ -81,7 +93,14 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setCurrentView(item.id)}
+                  onClick={() => {
+                    setCurrentView(item.id);
+                    try {
+                      localStorage.setItem('hospital_current_view', item.id);
+                    } catch {
+                      // ignore
+                    }
+                  }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${
                     isActive ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100'
                   }`}

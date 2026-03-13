@@ -80,6 +80,7 @@ class ReferralStatus(str, Enum):
     """Referral status"""
     PENDING = "PENDING"
     REVIEWED = "REVIEWED"
+    REJECTED = "REJECTED"
 
 
 class ChildTransferStatus(str, Enum):

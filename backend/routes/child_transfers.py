@@ -264,11 +264,32 @@ def approve_transfer(transfer_id: int):
     child.current_assigned_area_id = transfer.to_area_id
     child.current_assigned_user_id = transfer.to_user_id
     
-    # Update area assignments based on role
+    # Update area assignments based on role, and keep full hierarchy in sync
     if transfer.to_role == ROLE_MIDWIFE:
         child.midwife_area_id = transfer.to_area_id
-    elif transfer.to_role in [ROLE_MOH, ROLE_AMOH]:
+        # Ensure PHM → MOH → RDHS → PDHS hierarchy is reflected
+        phm_area = db.session.get(Area, transfer.to_area_id)
+        if phm_area:
+            parent = phm_area.parent  # MOH
+            if parent:
+                child.moh_area_id = parent.id
+                rdhs_area = parent.parent  # RDHS
+                if rdhs_area:
+                    child.district_id = rdhs_area.id
+                    pdhs_area = rdhs_area.parent  # PDHS
+                    if pdhs_area:
+                        child.province_id = pdhs_area.id
+    elif transfer.to_role in [ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST]:
+        # MOH / AMOH / Nutritionist all operate at MOH level
         child.moh_area_id = transfer.to_area_id
+        moh_area = db.session.get(Area, transfer.to_area_id)
+        if moh_area:
+            rdhs_area = moh_area.parent  # RDHS
+            if rdhs_area:
+                child.district_id = rdhs_area.id
+                pdhs_area = rdhs_area.parent  # PDHS
+                if pdhs_area:
+                    child.province_id = pdhs_area.id
     
     # Update transfer status
     transfer.status = TransferStatus.APPROVED

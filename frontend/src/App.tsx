@@ -57,6 +57,17 @@ export default function App() {
   }, []);
 
   const handleLogin = (loggedInUser: User) => {
+    // When a user signs in, always start them on the default dashboard/home
+    // by clearing any previously remembered per-role view state.
+    try {
+      localStorage.removeItem(`hw_current_view_${loggedInUser.role}`);
+      localStorage.removeItem(`admin_current_view_${loggedInUser.role}`);
+      if (loggedInUser.role === 'hospital') {
+        localStorage.removeItem('hospital_current_view');
+      }
+    } catch {
+      // ignore storage errors
+    }
     setUser(loggedInUser);
   };
 

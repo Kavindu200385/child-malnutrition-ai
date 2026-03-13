@@ -67,6 +67,24 @@ def _child_in_moh_area(child: Child, moh_area_ids: list) -> bool:
     return child.moh_area_id is not None and child.moh_area_id in moh_area_ids
 
 
+def _display_risk_level(child: Child) -> str:
+    """
+    Shared MOH/Nutritionist rule:
+    - If there is NO clinic measurement yet (last_risk_update is null) but birth_risk_level exists,
+      use birth_risk_level so SAM-at-birth shows correctly.
+    - Otherwise use current_risk_level.
+    """
+    birth = (child.birth_risk_level or "").upper()
+    current = (child.current_risk_level or "").upper()
+    if not child.last_risk_update and birth:
+        return birth
+    if current:
+        return current
+    if birth:
+        return birth
+    return RiskLevel.NORMAL.value
+
+
 # ---------------------------------------------------------------------------
 # Add measurement (only for children sent by midwife / escalated to MOH)
 # ---------------------------------------------------------------------------
@@ -727,6 +745,143 @@ def get_monthly_reports():
     }), 200
 
 
+@bp.route("/reports/summary", methods=["GET"])
+@moh_required
+def get_reports_summary():
+    """
+    Summary for an arbitrary date range (daily / weekly / monthly) for MOH area.
+    Query params:
+      - start_date: YYYY-MM-DD
+      - end_date:   YYYY-MM-DD
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    start_str = request.args.get("start_date")
+    end_str = request.args.get("end_date")
+    if not start_str or not end_str:
+        return jsonify({"status": "error", "message": "start_date and end_date are required (YYYY-MM-DD)"}), 400
+
+    try:
+        start_date = datetime.fromisoformat(start_str).date()
+        end_date = datetime.fromisoformat(end_str).date()
+    except ValueError:
+        return jsonify({"status": "error", "message": "Invalid date format. Use YYYY-MM-DD."}), 400
+
+    if end_date < start_date:
+        return jsonify({"status": "error", "message": "end_date must be on or after start_date"}), 400
+
+    # Children in this MOH area
+    children = db.session.query(Child).filter(
+        Child.moh_area_id.in_(moh_area_ids),
+        Child.status == "ACTIVE",
+    ).all()
+
+    # Child IDs with measurements in the date range
+    end_dt_exclusive = datetime.combine(end_date, datetime.max.time())
+    start_dt_inclusive = datetime.combine(start_date, datetime.min.time())
+    meas_child_ids = {
+        row[0]
+        for row in db.session.query(Measurement.child_id)
+        .filter(
+            Measurement.measurement_date >= start_dt_inclusive,
+            Measurement.measurement_date <= end_dt_exclusive,
+        )
+        .distinct()
+        .all()
+    }
+
+    # Select children that were active in the range: either created or measured in the window
+    selected_children: list[Child] = []
+    for c in children:
+        in_range = False
+        if c.created_at:
+            created_date = c.created_at.date()
+            if start_date <= created_date <= end_date:
+                in_range = True
+        if not in_range and c.id in meas_child_ids:
+            in_range = True
+        if in_range:
+            selected_children.append(c)
+
+    total_children = len(selected_children)
+    normal_count = 0
+    mam_count = 0
+    sam_count = 0
+    # Pre-compute latest measurement date per child inside the window
+    latest_meas_map: dict[int, datetime] = {}
+    if selected_children:
+        child_ids = [c.id for c in selected_children]
+        for m in (
+            db.session.query(Measurement)
+            .filter(
+                Measurement.child_id.in_(child_ids),
+                Measurement.measurement_date >= start_dt_inclusive,
+                Measurement.measurement_date <= end_dt_exclusive,
+            )
+            .order_by(Measurement.child_id, Measurement.measurement_date.desc())
+            .all()
+        ):
+            if m.child_id not in latest_meas_map:
+                latest_meas_map[m.child_id] = m.measurement_date
+
+    children_output: list[dict] = []
+    for c in selected_children:
+        r = _display_risk_level(c)
+        if r == RiskLevel.NORMAL.value:
+            normal_count += 1
+        elif r == RiskLevel.MAM.value:
+            mam_count += 1
+        elif r == RiskLevel.SAM.value:
+            sam_count += 1
+        lm = latest_meas_map.get(c.id)
+        children_output.append(
+            {
+                "id": c.id,
+                "child_unique_id": c.child_unique_id or c.child_id,
+                "name": c.name,
+                "dob": c.dob.isoformat() if c.dob else None,
+                "gender": c.gender,
+                "display_risk_level": r,
+                "last_measurement_date": lm.isoformat() if lm else None,
+            }
+        )
+
+    escalations = db.session.query(ChildEscalation).filter(
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.moh_id.in_(moh_area_ids),
+        ChildEscalation.created_at >= start_dt_inclusive,
+        ChildEscalation.created_at <= end_dt_exclusive,
+    ).count()
+
+    referrals_to_nutritionist = db.session.query(ChildReferral).join(
+        Child, Child.id == ChildReferral.child_id
+    ).filter(
+        ChildReferral.referred_to_role == "nutritionist",
+        ChildReferral.created_at >= start_dt_inclusive,
+        ChildReferral.created_at <= end_dt_exclusive,
+        Child.moh_area_id.in_(moh_area_ids),
+    ).count()
+
+    return jsonify(
+        {
+            "status": "success",
+            "summary": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "total_children": total_children,
+                "normal_count": normal_count,
+                "mam_count": mam_count,
+                "sam_count": sam_count,
+                "escalations": escalations,
+                "referrals_to_nutritionist": referrals_to_nutritionist,
+                "children": children_output,
+            },
+        }
+    ), 200
+
+
 def _generate_moh_report(moh_user: User, moh_area_id: int, month: int, year: int) -> MohReport | None:
     """Create a MohReport for the given month/year."""
     children = db.session.query(Child).filter(
@@ -838,14 +993,29 @@ def moh_dashboard():
     if err:
         return err
 
+    now = datetime.utcnow()
+    cur_year = now.year
+    cur_month = now.month
+
     children = db.session.query(Child).filter(
         Child.moh_area_id.in_(moh_area_ids),
         Child.status == "ACTIVE",
     ).all()
     total_children = len(children)
-    normal_count = sum(1 for c in children if c.current_risk_level == RiskLevel.NORMAL.value)
-    mam_count = sum(1 for c in children if c.current_risk_level == RiskLevel.MAM.value)
-    sam_count = sum(1 for c in children if c.current_risk_level == RiskLevel.SAM.value)
+    normal_count = 0
+    mam_count = 0
+    sam_count = 0
+    high_risk_children: list[dict] = []
+    for c in children:
+        r = _display_risk_level(c)
+        if r == RiskLevel.NORMAL.value:
+            normal_count += 1
+        elif r == RiskLevel.MAM.value:
+            mam_count += 1
+        elif r == RiskLevel.SAM.value:
+            sam_count += 1
+        if r in (RiskLevel.MAM.value, RiskLevel.SAM.value):
+            high_risk_children.append({"child": c})
     pending_escalations = db.session.query(ChildEscalation).filter(
         ChildEscalation.to_role == "moh",
         ChildEscalation.moh_id.in_(moh_area_ids),
@@ -854,6 +1024,34 @@ def moh_dashboard():
     referrals_to_nutritionist = db.session.query(Child).filter(
         Child.moh_area_id.in_(moh_area_ids),
         Child.escalation_status == EscalationStatus.ESCALATED_TO_NUTRITIONIST.value,
+    ).count()
+
+    # New children registered in this month for this MOH area
+    new_children_month = db.session.query(Child).filter(
+        Child.moh_area_id.in_(moh_area_ids),
+        Child.status == "ACTIVE",
+        Child.created_at.isnot(None),
+        db.extract("year", Child.created_at) == cur_year,
+        db.extract("month", Child.created_at) == cur_month,
+    ).count()
+
+    # New escalations to MOH created in this month
+    new_escalations_month = db.session.query(ChildEscalation).filter(
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.moh_id.in_(moh_area_ids),
+        ChildEscalation.created_at.isnot(None),
+        db.extract("year", ChildEscalation.created_at) == cur_year,
+        db.extract("month", ChildEscalation.created_at) == cur_month,
+    ).count()
+
+    # Escalations reviewed/resolved this month
+    resolved_escalations_month = db.session.query(ChildEscalation).filter(
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.moh_id.in_(moh_area_ids),
+        ChildEscalation.status == EscalationRecordStatus.REVIEWED.value,
+        ChildEscalation.reviewed_at.isnot(None),
+        db.extract("year", ChildEscalation.reviewed_at) == cur_year,
+        db.extract("month", ChildEscalation.reviewed_at) == cur_month,
     ).count()
 
     phm_ids = [r[0] for r in db.session.query(Area.id).filter(
@@ -873,15 +1071,97 @@ def moh_dashboard():
         User.is_active == True,
     ).count()
 
-    return jsonify({
-        "status": "success",
-        "dashboard": {
-            "total_children": total_children,
-            "normal_count": normal_count,
-            "mam_count": mam_count,
-            "sam_count": sam_count,
-            "pending_escalations": pending_escalations,
-            "referrals_to_nutritionist": referrals_to_nutritionist,
-            "midwife_count": midwife_count,
-        },
-    }), 200
+    # Build a simple monthly trend of escalations/referrals for charts
+    from collections import defaultdict
+
+    monthly = defaultdict(lambda: {"year": None, "month": None, "escalations": 0, "to_nutritionist": 0})
+    for esc in db.session.query(ChildEscalation).filter(
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.moh_id.in_(moh_area_ids),
+    ).all():
+        if not esc.created_at:
+            continue
+        y, m = esc.created_at.year, esc.created_at.month
+        key = (y, m)
+        monthly[key]["year"] = y
+        monthly[key]["month"] = m
+        monthly[key]["escalations"] += 1
+    for ref in db.session.query(ChildReferral).filter(
+        ChildReferral.referred_to_role == "nutritionist",
+    ).all():
+        if not ref.created_at:
+            continue
+        # Only count referrals for children in this MOH area
+        child = db.session.get(Child, ref.child_id)
+        if not child or child.moh_area_id not in moh_area_ids:
+            continue
+        y, m = ref.created_at.year, ref.created_at.month
+        key = (y, m)
+        monthly[key]["year"] = y
+        monthly[key]["month"] = m
+        monthly[key]["to_nutritionist"] += 1
+
+    monthly_trend = []
+    for (y, m), row in sorted(monthly.items(), key=lambda x: (x[0][0], x[0][1])):
+        monthly_trend.append(
+            {
+                "year": y,
+                "month": m,
+                "label": f"{y}-{m:02d}",
+                "escalations": row["escalations"],
+                "to_nutritionist": row["to_nutritionist"],
+            }
+        )
+
+    # Prepare compact high-risk children (top 5)
+    high_risk_output: list[dict] = []
+    for entry in high_risk_children:
+        c: Child = entry["child"]
+        # Latest measurement date (if any)
+        last_m = (
+            db.session.query(Measurement)
+            .filter(Measurement.child_id == c.id)
+            .order_by(Measurement.measurement_date.desc())
+            .first()
+        )
+        high_risk_output.append(
+            {
+                "id": c.id,
+                "child_unique_id": c.child_unique_id or c.child_id,
+                "name": c.name,
+                "display_risk_level": _display_risk_level(c),
+                "last_measurement_date": last_m.measurement_date.isoformat()
+                if last_m and last_m.measurement_date
+                else None,
+            }
+        )
+    # Sort by last_measurement_date (most recent first), then created_at
+    def _sort_key(row: dict):
+        lm = row.get("last_measurement_date")
+        try:
+            lm_val = datetime.fromisoformat(lm) if lm else datetime.min
+        except Exception:
+            lm_val = datetime.min
+        return (lm_val, row.get("id") or 0)
+
+    high_risk_output = sorted(high_risk_output, key=_sort_key, reverse=True)[:5]
+
+    return jsonify(
+        {
+            "status": "success",
+            "dashboard": {
+                "total_children": total_children,
+                "normal_count": normal_count,
+                "mam_count": mam_count,
+                "sam_count": sam_count,
+                "pending_escalations": pending_escalations,
+                "referrals_to_nutritionist": referrals_to_nutritionist,
+                "midwife_count": midwife_count,
+                "monthly_trend": monthly_trend[-12:],
+                "new_children_month": new_children_month,
+                "new_escalations_month": new_escalations_month,
+                "resolved_escalations_month": resolved_escalations_month,
+                "high_risk_children": high_risk_output,
+            },
+        }
+    ), 200

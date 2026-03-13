@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Users, Activity, AlertTriangle, TrendingUp, UserCheck, Send } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Users, Activity, AlertTriangle, TrendingUp, UserCheck, Send, RefreshCw } from 'lucide-react';
 import { mohAPI } from '../../services/api';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -7,27 +7,40 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Ba
 const COLORS = { normal: '#2ECC71', mam: '#F1C40F', sam: '#E74C3C' };
 
 export function MohDashboardView() {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  const load = async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
     setError('');
     try {
       const res = await mohAPI.dashboard();
-      if (res.data?.status === 'success') setData(res.data.dashboard);
-      else setError(res.data?.message || 'Failed to load dashboard');
-    } catch (err) {
+      if (res.data?.status === 'success') {
+        setData(res.data.dashboard);
+        setLastUpdated(new Date());
+      } else {
+        setError(res.data?.message || 'Failed to load dashboard');
+      }
+    } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load dashboard');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    load(false);
+    timerRef.current = setInterval(() => load(true), 30000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [load]);
 
   if (loading) return <div className="text-gray-600">Loading dashboard...</div>;
   if (error) {
@@ -52,11 +65,49 @@ export function MohDashboardView() {
     { name: 'Pending escalations', value: data.pending_escalations, fill: '#d97706' },
   ];
 
+  const monthlyTrend = (data.monthly_trend || []).map((row: any) => ({
+    name: row.label || `${row.month}/${row.year}`,
+    escalations: row.escalations,
+    toNutritionist: row.to_nutritionist,
+  }));
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-        <p className="text-gray-600 mt-1">Overview of child nutrition status in your area</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
+          <p className="text-gray-600 mt-1">Overview of child nutrition status in your area</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastUpdated && (
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              Live · updated {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            onClick={() => load(true)}
+            disabled={refreshing}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 14px',
+              borderRadius: '999px',
+              border: 'none',
+              background: '#0f766e',
+              color: '#fff',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: refreshing ? 'not-allowed' : 'pointer',
+              opacity: refreshing ? 0.6 : 1,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+            }}
+          >
+            <RefreshCw size={14} style={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }} />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -68,6 +119,30 @@ export function MohDashboardView() {
             </div>
             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
               <Users className="w-6 h-6 text-blue-600" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">New children (this month)</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{data.new_children_month ?? 0}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">New escalations (this month)</p>
+              <p className="text-3xl font-bold mt-2" style={{ color: '#d97706' }}>{data.new_escalations_month ?? 0}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Escalations resolved (this month)</p>
+              <p className="text-3xl font-bold mt-2" style={{ color: '#16a34a' }}>{data.resolved_escalations_month ?? 0}</p>
             </div>
           </div>
         </div>
@@ -106,7 +181,7 @@ export function MohDashboardView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="font-semibold text-gray-900 mb-4">Risk distribution</h3>
           <ResponsiveContainer width="100%" height={220}>
@@ -151,7 +226,58 @@ export function MohDashboardView() {
             </div>
           </div>
         </div>
+
+        {/* High-risk children list */}
+        <div className="bg-white rounded-lg shadow p-6 space-y-3">
+          <h3 className="font-semibold text-gray-900">High-risk children in area</h3>
+          {Array.isArray(data.high_risk_children) && data.high_risk_children.length > 0 ? (
+            <ul className="space-y-2 text-sm text-gray-700">
+              {data.high_risk_children.map((c: any) => (
+                <li key={c.id} className="flex items-center justify-between border-b border-gray-100 pb-1 last:border-0">
+                  <div>
+                    <div className="font-medium">{c.name || c.child_unique_id || c.id}</div>
+                    <div className="text-xs text-gray-500">
+                      ID: {c.child_unique_id || c.id}
+                      {c.last_measurement_date && ` · Last measurement: ${new Date(c.last_measurement_date).toLocaleDateString()}`}
+                    </div>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-xs font-semibold text-white ${
+                      (c.display_risk_level || '').toUpperCase() === 'SAM'
+                        ? 'bg-red-600'
+                        : (c.display_risk_level || '').toUpperCase() === 'MAM'
+                        ? 'bg-yellow-500'
+                        : 'bg-green-600'
+                    }`}
+                  >
+                    {(c.display_risk_level || 'NORMAL').toUpperCase()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-500">No MAM/SAM children currently in your area.</p>
+          )}
+        </div>
+
+        {monthlyTrend.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-6 space-y-4 col-span-1 lg:col-span-2">
+            <h3 className="font-semibold text-gray-900">Monthly escalations & referrals</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={monthlyTrend} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="escalations" fill="#0d9488" radius={[4, 4, 0, 0]} name="Escalations to MOH" />
+                <Bar dataKey="toNutritionist" fill="#2563eb" radius={[4, 4, 0, 0]} name="Referred to nutritionist" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

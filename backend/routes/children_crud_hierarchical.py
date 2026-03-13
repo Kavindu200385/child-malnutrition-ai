@@ -27,7 +27,14 @@ from backend.auth_utils_hierarchical import (
     ROLE_RDHS,
 )
 from backend.extensions import db
-from backend.models_hierarchical import Child, Visit, Area, RiskLevel
+from backend.models_hierarchical import (
+    Child,
+    Visit,
+    Area,
+    RiskLevel,
+    ChildReferral,
+    ReferralStatus,
+)
 from backend.utils.audit import log_audit
 from backend.utils.midwife_helpers import get_area_hierarchy
 from backend.utils.hospital_helpers import calculate_birth_risk_level
@@ -211,18 +218,20 @@ def list_children():
         # Hospital sees children they registered
         query = query.filter(Child.registered_by_user_id == user.id)
     elif user.role == ROLE_NUTRITIONIST:
-        # Nutritionist: only children referred to their hospital (strict specialist isolation)
-        from backend.models_hierarchical import ChildReferral
+        # Nutritionist: only children whose transfer has been ACCEPTED (REVIEWED)
+        # by this hospital nutritionist. This keeps lists and dashboards consistent:
+        # - pending / rejected referrals are excluded
+        # - only children "under your care" are returned here.
         if not user.hospital_id:
             return jsonify({"status": "success", "children": [], "count": 0}), 200
-        ref_child_ids = db.session.query(ChildReferral.child_id).filter(
-            ChildReferral.hospital_id == user.hospital_id,
-            ChildReferral.referred_to_role == "nutritionist",
-        ).distinct().all()
-        ref_child_ids = [r[0] for r in ref_child_ids]
-        if not ref_child_ids:
-            return jsonify({"status": "success", "children": [], "count": 0}), 200
-        query = query.filter(Child.id.in_(ref_child_ids))
+        query = (
+            query.join(ChildReferral, ChildReferral.child_id == Child.id)
+            .filter(
+                ChildReferral.hospital_id == user.hospital_id,
+                ChildReferral.referred_to_role == "nutritionist",
+                ChildReferral.status == ReferralStatus.REVIEWED.value,
+            )
+        )
     elif user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH]:
         # Field workers see ONLY children assigned to their areas.
         # The assign page may pass include_unassigned=true to see
@@ -546,7 +555,7 @@ def assign_child_to_area(child_id: str):
     child.current_assigned_area_id = area_id
     child.current_assigned_user_id = user.id
     
-    # Update area-specific fields and full hierarchy so child appears in MOH, RDHS, PDHS
+    # Update area-specific fields and full hierarchy so child appears correctly in MOH, RDHS, PDHS
     if user.role == ROLE_MIDWIFE:
         child.phm_area_id = area_id
         try:
@@ -557,15 +566,16 @@ def assign_child_to_area(child_id: str):
         except ValueError:
             pass  # area may not be PHM or hierarchy incomplete
         child.assigned_date = datetime.utcnow()
-    elif user.role in [ROLE_MOH, ROLE_AMOH]:
+    elif user.role in [ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST]:
+        # MOH / AMOH / Nutritionist all work at MOH level, so ensure MOH + district + province are set
         child.moh_area_id = area_id
-        # Set district/province from MOH area's parents so RDHS/PDHS see the child
+        # Set district/province from MOH area's parents so RDHS/PDHS can see the child
         moh_area = db.session.get(Area, area_id)
         if moh_area and moh_area.parent_id:
-            child.district_id = moh_area.parent_id  # RDHS
+            child.district_id = moh_area.parent_id  # RDHS level
             rdhs_area = db.session.get(Area, moh_area.parent_id)
             if rdhs_area and rdhs_area.parent_id:
-                child.province_id = rdhs_area.parent_id  # PDHS
+                child.province_id = rdhs_area.parent_id  # PDHS level
         child.assigned_date = datetime.utcnow()
     
     child.status = "ACTIVE"

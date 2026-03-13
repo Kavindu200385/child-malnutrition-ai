@@ -80,7 +80,20 @@ interface HealthWorkerDashboardProps {
   onLogout: () => void;
 }
 
-type View = 'dashboard' | 'search' | 'profile' | 'add-child' | 'add-measurement' | 'reports' | 'assign-child' | 'transfers' | 'moh-escalated' | 'moh-workers' | 'moh-reports' | 'nut-referred' | 'nut-transfer-requests';
+type View =
+  | 'dashboard'
+  | 'search'
+  | 'profile'
+  | 'add-child'
+  | 'add-measurement'
+  | 'reports'
+  | 'assign-child'
+  | 'transfers'
+  | 'moh-escalated'
+  | 'moh-workers'
+  | 'moh-reports'
+  | 'nut-referred'
+  | 'nut-transfer-requests';
 
 export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardProps) {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -93,6 +106,15 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
   const isNutritionist = user.role === 'nutritionist';
   const isMoh = user.role === 'moh' || user.role === 'amoh';
   const canReviewTransfers = ['moh', 'amoh', 'nutritionist'].includes(user.role);
+
+  // Restore last selected view for this role so refresh stays on same page
+  useEffect(() => {
+    const key = `hw_current_view_${user.role}`;
+    const stored = localStorage.getItem(key) as View | null;
+    if (stored) {
+      setCurrentView(stored);
+    }
+  }, [user.role]);
 
   // Poll pending transfer badge count for nutritionist
   useEffect(() => {
@@ -236,7 +258,14 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
                 return (
                   <div key={item.id} className="relative inline-flex">
                     <button
-                      onClick={() => setCurrentView(item.id)}
+                      onClick={() => {
+                        setCurrentView(item.id);
+                        try {
+                          localStorage.setItem(`hw_current_view_${user.role}`, item.id);
+                        } catch {
+                          // ignore storage issues
+                        }
+                      }}
                       className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${isActive ? navActiveClass : 'text-gray-600 hover:bg-gray-100'}`}
                     >
                       <Icon className="w-4 h-4" />
