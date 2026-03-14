@@ -17,6 +17,8 @@ from backend.models_hierarchical import (
     SystemMessage,
     SystemSetting,
     ReferralStatus,
+    EscalationRecordStatus,
+    PdhsReport,
 )
 from backend.utils.audit import log_audit
 
@@ -375,4 +377,78 @@ def repair_child_district(child_id: int):
         "rdhs_name": district_area.name or district_area.district if district_area else rdhs_name,
         "moh_area_id": child.moh_area_id,
         "province_id": child.province_id,
+    }), 200
+
+
+@bp.route("/pdhs-reports-sent-to-ministry", methods=["GET"])
+@health_ministry_required
+def list_pdhs_reports_sent_to_ministry():
+    """
+    List PDHS reports sent to Health Ministry (island-wide). Optional ?year= & ?month=.
+    """
+    user = get_current_user()
+    if not user or user.role != ROLE_HEALTH_MINISTRY:
+        return jsonify({"status": "error", "message": "Health Ministry access required"}), 403
+
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+    query = db.session.query(PdhsReport).filter(PdhsReport.sent_to_ministry == True)
+    if year is not None:
+        query = query.filter(PdhsReport.report_year == year)
+    if month is not None:
+        query = query.filter(PdhsReport.month == month)
+    reports = query.order_by(PdhsReport.report_year.desc(), PdhsReport.month.desc(), PdhsReport.province_id).limit(500).all()
+
+    return jsonify({
+        "status": "success",
+        "reports": [r.to_dict() for r in reports],
+        "count": len(reports),
+    }), 200
+
+
+@bp.route("/escalations", methods=["GET"])
+@health_ministry_required
+def list_escalations():
+    """
+    List all escalations (Health Ministry only). Optional ?status=PENDING|REVIEWED.
+    """
+    user = get_current_user()
+    if not user or user.role != ROLE_HEALTH_MINISTRY:
+        return jsonify({"status": "error", "message": "Health Ministry access required"}), 403
+
+    status_filter = request.args.get("status", "").strip().upper()
+    query = db.session.query(ChildEscalation).order_by(ChildEscalation.created_at.desc())
+    if status_filter in (EscalationRecordStatus.PENDING.value, EscalationRecordStatus.REVIEWED.value):
+        query = query.filter(ChildEscalation.status == status_filter)
+    limit = min(int(request.args.get("limit", 200)), 500)
+    escalations = query.limit(limit).all()
+
+    return jsonify({
+        "status": "success",
+        "escalations": [e.to_dict() for e in escalations],
+        "count": len(escalations),
+    }), 200
+
+
+@bp.route("/referrals", methods=["GET"])
+@health_ministry_required
+def list_referrals():
+    """
+    List all referrals (Health Ministry only). Optional ?status=PENDING|REVIEWED|REJECTED.
+    """
+    user = get_current_user()
+    if not user or user.role != ROLE_HEALTH_MINISTRY:
+        return jsonify({"status": "error", "message": "Health Ministry access required"}), 403
+
+    status_filter = request.args.get("status", "").strip().upper()
+    query = db.session.query(ChildReferral).order_by(ChildReferral.created_at.desc())
+    if status_filter and status_filter in (ReferralStatus.PENDING.value, ReferralStatus.REVIEWED.value, ReferralStatus.REJECTED.value):
+        query = query.filter(ChildReferral.status == status_filter)
+    limit = min(int(request.args.get("limit", 200)), 500)
+    referrals = query.limit(limit).all()
+
+    return jsonify({
+        "status": "success",
+        "referrals": [r.to_dict() for r in referrals],
+        "count": len(referrals),
     }), 200

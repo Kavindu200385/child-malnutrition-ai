@@ -21,8 +21,11 @@ export function RdhsReportsView() {
   const [sentPeriodReports, setSentPeriodReports] = useState<any[]>([]);
   const [periodDate, setPeriodDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [sendingPeriod, setSendingPeriod] = useState(false);
+  const [sendingPeriodDate, setSendingPeriodDate] = useState<string | null>(null);
   const [downloadingReportId, setDownloadingReportId] = useState<number | null>(null);
   const [printingReportId, setPrintingReportId] = useState<number | null>(null);
+  const [downloadingPeriodKey, setDownloadingPeriodKey] = useState<string | null>(null);
+  const [printingPeriodKey, setPrintingPeriodKey] = useState<string | null>(null);
 
   const load = () => {
     setError('');
@@ -103,6 +106,57 @@ export function RdhsReportsView() {
       })
       .catch((err) => setError(err.response?.data?.message || 'Failed to send period report'))
       .finally(() => setSendingPeriod(false));
+  };
+
+  /** Send a specific period row to PDHS (manual send from Actions like monthly). */
+  const handleSendPeriodRowToPdhs = (period: 'weekly' | 'daily', date: string) => {
+    setSendingPeriodDate(date);
+    setError('');
+    rdhsAPI
+      .sendPeriodReportToPdhs({ period, date })
+      .then(() => {
+        loadSentPeriodReports(period);
+        load();
+      })
+      .catch((err) => setError(err.response?.data?.message || 'Failed to send report'))
+      .finally(() => setSendingPeriodDate(null));
+  };
+
+  const handleDownloadPeriodPdf = async (period: 'weekly' | 'daily', date: string) => {
+    const key = `${period}-${date}`;
+    setError('');
+    setDownloadingPeriodKey(key);
+    try {
+      const res = await rdhsAPI.getFullReport({ period, date });
+      if (res.data?.status !== 'success' || !res.data?.report) throw new Error(res.data?.message || 'No report data');
+      const pdf = await buildReportPdf(res.data.report);
+      const label = period === 'weekly' ? `Week_${date}` : date;
+      pdf.save(`RDHS_Report_${label}.pdf`);
+    } catch (err: any) {
+      setError(err.response?.data?.message || err.message || 'Failed to download report');
+    } finally {
+      setDownloadingPeriodKey(null);
+    }
+  };
+
+  const handlePrintPeriodReport = async (period: 'weekly' | 'daily', date: string) => {
+    const key = `${period}-${date}`;
+    setError('');
+    setPrintingPeriodKey(key);
+    try {
+      const res = await rdhsAPI.getFullReport({ period, date });
+      if (res.data?.status !== 'success' || !res.data?.report) throw new Error(res.data?.message || 'No report data');
+      const pdf = await buildReportPdf(res.data.report);
+      const blob = pdf.output('blob');
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank');
+      if (w) w.onload = () => { w.print(); URL.revokeObjectURL(url); };
+      else URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.response?.data?.message || err.message || 'Failed to print report');
+    } finally {
+      setPrintingPeriodKey(null);
+    }
   };
 
   /** Build PDF for a full report payload (from getFullReport). Returns jsPDF instance. */
@@ -259,6 +313,46 @@ export function RdhsReportsView() {
   };
 
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  /** Build list of weekly period rows (last 12 weeks, Monday as start). */
+  const getWeeklyPeriodRows = (): { date: string; periodLabel: string; sent: boolean }[] => {
+    const rows: { date: string; periodLabel: string; sent: boolean }[] = [];
+    const sentDates = new Set((sentPeriodReports || []).map((r: any) => r.payload?.start_date).filter(Boolean));
+    for (let i = 0; i < 12; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - 7 * i);
+      const day = d.getDay();
+      const toMonday = day === 0 ? 6 : day - 1;
+      d.setDate(d.getDate() - toMonday);
+      const start = d.toISOString().slice(0, 10);
+      const end = new Date(d);
+      end.setDate(end.getDate() + 6);
+      const fmt = (x: Date) => x.getDate() + ' ' + monthNames[x.getMonth()] + ' ' + x.getFullYear();
+      rows.push({
+        date: start,
+        periodLabel: `${fmt(d)} – ${fmt(end)}`,
+        sent: sentDates.has(start),
+      });
+    }
+    return rows;
+  };
+
+  /** Build list of daily period rows (last 14 days). */
+  const getDailyPeriodRows = (): { date: string; periodLabel: string; sent: boolean }[] => {
+    const sentDates = new Set((sentPeriodReports || []).map((r: any) => r.payload?.start_date).filter(Boolean));
+    const rows: { date: string; periodLabel: string; sent: boolean }[] = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const date = d.toISOString().slice(0, 10);
+      rows.push({
+        date,
+        periodLabel: d.getDate() + ' ' + monthNames[d.getMonth()] + ' ' + d.getFullYear(),
+        sent: sentDates.has(date),
+      });
+    }
+    return rows;
+  };
 
   const handleDownloadReportPdf = async (reportRow: { id: number; month: number; report_year: number }) => {
     setError('');
@@ -495,64 +589,95 @@ export function RdhsReportsView() {
             </>
           )}
 
-          {(reportPeriodFilter === 'weekly' || reportPeriodFilter === 'daily') && (
-            <>
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Send {reportPeriodFilter} report to PDHS</h3>
-                <div className="flex flex-wrap items-center gap-4">
-                  <label className="text-sm font-medium text-gray-700">
-                    Date{reportPeriodFilter === 'weekly' ? ' (start of week)' : ''}:
-                  </label>
-                  <input
-                    type="date"
-                    value={periodDate}
-                    onChange={(e) => setPeriodDate(e.target.value)}
-                    className="border rounded-lg px-3 py-2"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSendPeriodToPdhs}
-                    disabled={sendingPeriod}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    <Send className="w-4 h-4" />
-                    {sendingPeriod ? 'Sending…' : `Send ${reportPeriodFilter} report to PDHS`}
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500 mt-3">
-                  Sends a {reportPeriodFilter} consolidated report for the selected date to PDHS. PDHS will see it under RDHS reports → {reportPeriodFilter} tab.
-                </p>
-              </div>
+          {(reportPeriodFilter === 'weekly' || reportPeriodFilter === 'daily') && (() => {
+            const periodRows = reportPeriodFilter === 'weekly' ? getWeeklyPeriodRows() : getDailyPeriodRows();
+            return (
               <div className="bg-white rounded-lg shadow overflow-hidden">
-                <h3 className="text-lg font-bold text-gray-900 px-6 py-3 border-b bg-gray-50">{reportPeriodFilter.charAt(0).toUpperCase() + reportPeriodFilter.slice(1)} reports sent to PDHS</h3>
-                {sentPeriodReports.length === 0 ? (
-                  <div className="py-8 text-center text-gray-500 text-sm">No {reportPeriodFilter} reports sent yet.</div>
-                ) : (
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Period</th>
-                        <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Date range</th>
-                        <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Sent at</th>
+                <h3 className="text-lg font-bold text-gray-900 px-6 py-3 border-b bg-gray-50">
+                  {reportPeriodFilter === 'weekly' ? 'Weekly' : 'Daily'} reports – Download, Print, or Send to PDHS
+                </h3>
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b bg-gray-50">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Period</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Children</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Normal / MAM / SAM</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Escalations</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Sent to PDHS</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {periodRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-gray-500">No periods to show.</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {sentPeriodReports.map((r) => {
-                        const p = r.payload || {};
+                    ) : (
+                      periodRows.map((row) => {
+                        const key = `${reportPeriodFilter}-${row.date}`;
+                        const isDownloading = downloadingPeriodKey === key;
+                        const isPrinting = printingPeriodKey === key;
+                        const isSending = sendingPeriodDate === row.date;
                         return (
-                          <tr key={r.id} className="border-b hover:bg-gray-50">
-                            <td className="py-3 px-4 text-sm font-medium text-gray-900">{p.period_label || r.period_type}</td>
-                            <td className="py-3 px-4 text-sm text-gray-600">{p.start_date} – {p.end_date}</td>
-                            <td className="py-3 px-4 text-sm text-gray-600">{r.sent_at ? new Date(r.sent_at).toLocaleString() : '—'}</td>
+                          <tr key={key} className="border-b hover:bg-gray-50">
+                            <td className="py-3 px-4 text-sm font-medium text-gray-900">{row.periodLabel}</td>
+                            <td className="py-3 px-4 text-sm text-gray-600">—</td>
+                            <td className="py-3 px-4 text-sm text-gray-600">—</td>
+                            <td className="py-3 px-4 text-sm text-gray-600">—</td>
+                            <td className="py-3 px-4">
+                              {row.sent ? (
+                                <span className="text-green-600 text-sm">Yes</span>
+                              ) : (
+                                <span className="text-gray-500 text-sm">No</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadPeriodPdf(reportPeriodFilter, row.date)}
+                                  disabled={isDownloading}
+                                  className="flex items-center gap-1 text-sm text-teal-600 hover:underline disabled:opacity-50"
+                                  title="Download PDF"
+                                >
+                                  <Download className="w-4 h-4" />
+                                  {isDownloading ? '…' : 'Download'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintPeriodReport(reportPeriodFilter, row.date)}
+                                  disabled={isPrinting}
+                                  className="flex items-center gap-1 text-sm text-gray-700 hover:underline disabled:opacity-50"
+                                  title="Print"
+                                >
+                                  <Printer className="w-4 h-4" />
+                                  {isPrinting ? '…' : 'Print'}
+                                </button>
+                                {!row.sent && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSendPeriodRowToPdhs(reportPeriodFilter, row.date)}
+                                    disabled={isSending}
+                                    className="flex items-center gap-1 text-sm text-blue-600 hover:underline disabled:opacity-50"
+                                  >
+                                    <Send className="w-4 h-4" />
+                                    {isSending ? 'Sending…' : 'Send to PDHS'}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         );
-                      })}
-                    </tbody>
-                  </table>
-                )}
+                      })
+                    )}
+                  </tbody>
+                </table>
+                <p className="text-xs text-gray-500 px-6 py-3 border-t bg-gray-50">
+                  {reportPeriodFilter === 'weekly' ? 'Last 12 weeks (Monday–Sunday).' : 'Last 14 days.'} Use Download or Print to preview, then Send to PDHS when ready.
+                </p>
               </div>
-            </>
-          )}
+            );
+          })()}
         </>
       )}
 
@@ -586,17 +711,17 @@ export function RdhsReportsView() {
           </div>
         </div>
 
-        {/* Period tabs: Daily | Weekly | Monthly */}
-        <div className="flex gap-2 border-b border-gray-200 px-6 pt-2 pb-0">
+        {/* Period tabs: Daily | Weekly | Monthly – frame design like reference (rounded, bordered; active = purple) */}
+        <div className="flex gap-2 border-b border-gray-200 px-6 pt-4 pb-3">
           {(['daily', 'weekly', 'monthly'] as const).map((period) => (
             <button
               key={period}
               type="button"
               onClick={() => setMohPeriodTab(period)}
-              className={`px-4 py-2 rounded-t-lg text-sm font-medium capitalize transition-colors ${
+              className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors border ${
                 mohPeriodTab === period
-                  ? 'text-purple-700 bg-white border border-b-0 border-gray-200 -mb-px'
-                  : 'text-gray-600 hover:bg-gray-50 border border-transparent'
+                  ? 'bg-purple-50 text-purple-700 border-purple-200'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
               }`}
             >
               {period}

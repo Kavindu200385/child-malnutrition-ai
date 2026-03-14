@@ -33,12 +33,13 @@ bp = Blueprint("pdhs", __name__, url_prefix="/api/pdhs")
 
 
 def _district_ids_under_province(province_ids):
-    """Helper: district (RDHS) IDs under given province IDs."""
+    """Helper: district (RDHS) IDs under given province IDs. Uses case-insensitive level check."""
     if not province_ids:
         return []
+    from sqlalchemy import func
     rows = db.session.query(Area.id).filter(
         Area.parent_id.in_(province_ids),
-        Area.level == "rdhs",
+        func.lower(Area.level) == "rdhs",
         Area.is_active == True,
     ).all()
     return [r[0] for r in rows]
@@ -77,6 +78,52 @@ def _display_risk_level(child):
     if not child.last_risk_update and birth:
         return birth
     return current or birth or "NORMAL"
+
+
+def _province_children(province_ids, child_area_ids):
+    """
+    Return list of all children in the province (same logic as dashboard).
+    Includes: area-assigned, province_id/district_id assigned, and children referred to nutritionist
+    (reviewed by a nutritionist assigned to any area in the province), including those with no area assigned.
+    """
+    from sqlalchemy import or_
+    if not province_ids:
+        return []
+    district_ids = _district_ids_under_province(province_ids)
+    worker_area_ids = list(set(child_area_ids) | set(province_ids) | set(district_ids))
+    province_nutritionist_ids = [
+        u[0] for u in db.session.query(WorkerAreaMapping.user_id).filter(
+            WorkerAreaMapping.area_id.in_(worker_area_ids),
+            WorkerAreaMapping.is_active == True,
+        ).distinct().all()
+    ]
+    child_ids_with_province_nutritionist = []
+    if province_nutritionist_ids:
+        nutritionist_user_ids = [u.id for u in db.session.query(User).filter(
+            User.id.in_(province_nutritionist_ids),
+            User.role == "nutritionist",
+            User.is_active == True,
+        ).all()]
+        if nutritionist_user_ids:
+            child_ids_with_province_nutritionist = [
+                r[0] for r in db.session.query(ChildReferral.child_id).filter(
+                    ChildReferral.referred_to_role == "nutritionist",
+                    ChildReferral.status == ReferralStatus.REVIEWED.value,
+                    ChildReferral.reviewed_by_user_id.in_(nutritionist_user_ids),
+                ).distinct().all()
+            ]
+    conditions = [
+        Child.current_assigned_area_id.in_(child_area_ids),
+        Child.province_id.in_(province_ids),
+        Child.district_id.in_(district_ids),
+    ]
+    if child_ids_with_province_nutritionist:
+        conditions.append(Child.id.in_(child_ids_with_province_nutritionist))
+    return db.session.query(Child).filter(
+        Child.is_draft == False,
+        Child.status == "ACTIVE",
+        or_(*conditions),
+    ).all()
 
 
 def _district_children_and_moh_single(district_id):
@@ -471,7 +518,7 @@ def user_performance(user_id: int):
 @bp.route("/areas", methods=["GET"])
 @pdhs_required
 def list_areas():
-    """List areas in province (districts and MOH). Province-filtered."""
+    """List all areas in province: PDHS, RDHS (districts), MOH, and PHM (midwife). Province-filtered."""
     user, ctx, err = _pdhs_context()
     if err:
         return err
@@ -480,6 +527,9 @@ def list_areas():
     level = request.args.get("level")
     parent_id = request.args.get("parent_id", type=int)
 
+    # All area IDs in this province (province + all descendants: districts, MOH, PHM)
+    all_area_ids = list(set(province_ids) | set(child_area_ids))
+
     query = db.session.query(Area).filter(Area.is_active == True)
 
     if parent_id is not None:
@@ -487,15 +537,13 @@ def list_areas():
             return jsonify({"status": "error", "message": "No access to this parent area"}), 403
         query = query.filter(Area.parent_id == parent_id)
     else:
-        query = query.filter(
-            (Area.id.in_(province_ids)) |
-            (Area.parent_id.in_(province_ids))
-        )
+        # Return all areas in province hierarchy so PDHS can see Midwife, MOH, and RDHS sections
+        query = query.filter(Area.id.in_(all_area_ids))
 
-    if level and level in ("rdhs", "moh", "phm"):
+    if level and level in ("rdhs", "moh", "phm", "pdhs", "ministry"):
         query = query.filter(Area.level == level)
 
-    areas = query.order_by(Area.name).all()
+    areas = query.order_by(Area.level, Area.name).all()
     return jsonify({
         "status": "success",
         "areas": [a.to_dict(include_children=False) for a in areas],
@@ -618,7 +666,17 @@ def rdhs_period_reports():
     if err:
         return err
     province_ids, _ = ctx
-    district_ids = _district_ids_under_province(province_ids)
+    district_ids = list(_district_ids_under_province(province_ids))
+    # Also include districts that have sent reports and belong to this province (in case hierarchy was updated)
+    sent_district_ids = db.session.query(RdhsPeriodReport.district_id).filter(
+        RdhsPeriodReport.sent_to_pdhs == True,
+    ).distinct().all()
+    for (did,) in sent_district_ids:
+        if did in district_ids:
+            continue
+        area = db.session.get(Area, did)
+        if area and area.parent_id in province_ids and (area.level or "").lower() == "rdhs" and area.is_active:
+            district_ids.append(did)
     if not district_ids:
         return jsonify({"status": "success", "reports": [], "count": 0}), 200
     query = db.session.query(RdhsPeriodReport).filter(
@@ -686,13 +744,18 @@ def reports_full():
             "visit_date": v.visit_date.strftime("%Y-%m-%d") if v.visit_date else None,
         }
 
+    # All province children (same as dashboard – includes nutritionist-referred with no area)
+    province_children_all = _province_children(province_ids, child_area_ids)
+
     districts_payload = []
     all_children_count = 0
     all_normal = all_mam = all_sam = 0
     all_escalations = 0
+    district_child_ids_seen = set()
 
     for district_id in district_ids:
         district_children, moh_areas, district_area = _district_children_and_moh_single(district_id)
+        district_child_ids_seen.update(c.id for c in district_children)
         moh_area_ids = [a.id for a in moh_areas]
         summary_escalations = db.session.query(ChildEscalation).filter(
             ChildEscalation.moh_id.in_(moh_area_ids)
@@ -747,6 +810,51 @@ def reports_full():
             "district_name": district_name,
             "summary": summary,
             "moh_areas": moh_breakdown,
+        })
+
+    # Children in province but not in any district (e.g. referred to nutritionist, no area assigned)
+    province_only_children = [c for c in province_children_all if c.id not in district_child_ids_seen]
+    if province_only_children:
+        all_children_count += len(province_only_children)
+        all_normal += sum(1 for c in province_only_children if _risk_normal(_dr(c)))
+        all_mam += sum(1 for c in province_only_children if _risk_mam(_dr(c)))
+        all_sam += sum(1 for c in province_only_children if _risk_sam(_dr(c)))
+        children_detail = []
+        for c in province_only_children:
+            risk = _dr(c)
+            lv = _last_visit_data(c)
+            children_detail.append({
+                "id": c.id,
+                "child_id": c.child_unique_id or c.child_id or str(c.id),
+                "name": c.name or "—",
+                "gender": c.gender or "—",
+                "age_months": _age_months(c.dob),
+                "risk_level": risk,
+                "weight_kg": lv.get("weight_kg"),
+                "height_cm": lv.get("height_cm"),
+                "muac_cm": lv.get("muac_cm"),
+                "last_visit_date": lv.get("visit_date"),
+            })
+        districts_payload.append({
+            "district_id": None,
+            "district_name": "Referred to nutritionist (no area assigned)",
+            "summary": {
+                "total_children": len(province_only_children),
+                "normal": sum(1 for c in province_only_children if _risk_normal(_dr(c))),
+                "mam": sum(1 for c in province_only_children if _risk_mam(_dr(c))),
+                "sam": sum(1 for c in province_only_children if _risk_sam(_dr(c))),
+                "total_escalations": 0,
+            },
+            "moh_areas": [{
+                "moh_id": None,
+                "moh_name": "Referred to nutritionist",
+                "total_children": len(province_only_children),
+                "normal": sum(1 for c in province_only_children if _risk_normal(_dr(c))),
+                "mam": sum(1 for c in province_only_children if _risk_mam(_dr(c))),
+                "sam": sum(1 for c in province_only_children if _risk_sam(_dr(c))),
+                "escalations": 0,
+                "children": children_detail,
+            }],
         })
 
     report_payload = {
@@ -810,17 +918,14 @@ def reports_monthly():
     if existing:
         return jsonify({"status": "success", "report": existing.to_dict(), "message": "Report already exists"}), 200
 
-    province_children = db.session.query(Child).filter(
-        Child.is_draft == False,
-        Child.status == "ACTIVE",
-        (Child.current_assigned_area_id.in_(child_area_ids)) |
-        (Child.province_id == province_id) |
-        (Child.district_id.in_(child_area_ids)),
-    ).all()
+    # Use same province children as dashboard (includes nutritionist-referred with no area assigned)
+    province_children = _province_children(province_ids, child_area_ids)
     total_children = len(province_children)
-    normal_count = sum(1 for c in province_children if _risk_normal(c.current_risk_level))
-    mam_count = sum(1 for c in province_children if _risk_mam(c.current_risk_level))
-    sam_count = sum(1 for c in province_children if _risk_sam(c.current_risk_level))
+    def _dr(c):
+        return _display_risk_level(c)
+    normal_count = sum(1 for c in province_children if _risk_normal(_dr(c)))
+    mam_count = sum(1 for c in province_children if _risk_mam(_dr(c)))
+    sam_count = sum(1 for c in province_children if _risk_sam(_dr(c)))
     moh_area_ids = [a.id for a in db.session.query(Area).filter(
         Area.parent_id.in_(district_ids),
         Area.level == "moh",

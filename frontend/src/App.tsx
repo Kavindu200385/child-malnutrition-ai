@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Toaster } from 'sonner';
 import { Login } from './components/Login';
 import { HealthWorkerDashboard } from './components/HealthWorkerDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -100,6 +101,7 @@ export default function App() {
       ) : (
         <HealthWorkerDashboard user={user} onLogout={handleLogout} />
       )}
+      <Toaster position="top-center" richColors closeButton />
     </div>
   );
 }

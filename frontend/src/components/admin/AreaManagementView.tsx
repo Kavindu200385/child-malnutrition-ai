@@ -155,7 +155,7 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Area Hierarchy Management</h2>
-          <p className="text-gray-600">Area hierarchy: Ministry → PDHS → RDHS → MOH → PHM. Nutritionists are assigned to hospitals. Add hospitals below (separate from area levels).</p>
+          <p className="text-gray-600">Structure: Midwife areas (PHM) → MOH areas → Hospitals → RDHS. Ministry and PDHS sit above districts. Nutritionists are assigned to hospitals.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -223,9 +223,9 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
         />
       )}
 
-      {/* Level Filter + Refresh */}
+      {/* Level Filter + Refresh – order: Midwife, MOH, Hospitals, RDHS (+ Ministry, PDHS) */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-medium text-gray-700">Filter by Level:</span>
+        <span className="text-sm font-medium text-gray-700">Filter:</span>
         <button
           type="button"
           onClick={handleRefresh}
@@ -242,18 +242,25 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
               : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
         >
-          All Levels
+          All
         </button>
-        {['ministry', 'pdhs', 'rdhs', 'moh', 'phm'].map((level) => (
+        {[
+          { value: 'ministry', label: 'Ministry' },
+          { value: 'pdhs', label: 'PDHS' },
+          { value: 'phm', label: 'Midwife areas' },
+          { value: 'moh', label: 'MOH areas' },
+          { value: 'hospital', label: 'Hospitals' },
+          { value: 'rdhs', label: 'RDHS' },
+        ].map(({ value, label }) => (
           <button
-            key={level}
-            onClick={() => setSelectedLevel(level)}
-            className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${selectedLevel === level
+            key={value}
+            onClick={() => setSelectedLevel(value)}
+            className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${selectedLevel === value
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
           >
-            {level.toUpperCase()}
+            {label}
           </button>
         ))}
       </div>
@@ -269,7 +276,8 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
         </div>
       ) : (
         <div className="space-y-8">
-          {['ministry', 'pdhs', 'rdhs', 'moh', 'phm'].map((level) => {
+          {/* Order: 1. Ministry, 2. PDHS, 3. Midwife areas (PHM), 4. MOH areas, 5. Hospitals, 6. RDHS */}
+          {['ministry', 'pdhs', 'phm', 'moh'].map((level) => {
             const areasAtLevel = getAllAreasAtLevel(hierarchy, level, flatAreas);
             if (selectedLevel !== 'all' && selectedLevel !== level) return null;
 
@@ -302,36 +310,71 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
               </div>
             );
           })}
-        </div>
-      )}
 
-      {/* Hospitals – entered separately (not part of area hierarchy); nutritionists assigned here */}
-      {(selectedLevel === 'all' || selectedLevel === 'hospital') && (
-        <div className="bg-white rounded-lg shadow-lg border-2 border-gray-200">
-          <div className="px-6 py-4 border-b-2 bg-indigo-100 border-indigo-300">
-            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <Building2 className="w-5 h-5" />
-              Hospitals ({hospitals.length} {hospitals.length === 1 ? 'hospital' : 'hospitals'})
-            </h3>
-            <p className="text-sm text-gray-600 mt-1">Add hospitals to the system. Assign nutritionists and Pediatric Unit staff to hospitals in User Management.</p>
-          </div>
-          <div className="p-6">
-            {hospitalsLoading ? (
-              <p className="text-gray-500">Loading hospitals...</p>
-            ) : hospitals.length === 0 ? (
-              <p className="text-gray-500">No hospitals yet.</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {hospitals.map((h) => (
-                  <HospitalCard
-                    key={h.id}
-                    hospital={h}
-                    onEdit={(hospital) => setEditingHospital(hospital)}
-                  />
-                ))}
+          {/* Hospitals – structurally between MOH areas and RDHS */}
+          {(selectedLevel === 'all' || selectedLevel === 'hospital') && (
+            <div className="bg-white rounded-lg shadow-lg border-2 border-gray-200">
+              <div className="px-6 py-4 border-b-2 bg-indigo-100 border-indigo-300">
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <Building2 className="w-5 h-5" />
+                  Hospitals ({hospitals.length} {hospitals.length === 1 ? 'hospital' : 'hospitals'})
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">Add hospitals to the system. Assign nutritionists and Pediatric Unit staff to hospitals in User Management.</p>
               </div>
-            )}
-          </div>
+              <div className="p-6">
+                {hospitalsLoading ? (
+                  <p className="text-gray-500">Loading hospitals...</p>
+                ) : hospitals.length === 0 ? (
+                  <p className="text-gray-500">No hospitals yet.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {hospitals.map((h) => (
+                      <HospitalCard
+                        key={h.id}
+                        hospital={h}
+                        onEdit={(hospital) => setEditingHospital(hospital)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* RDHS (District) – after Midwife, MOH, Hospitals */}
+          {(() => {
+            const level = 'rdhs';
+            const areasAtLevel = getAllAreasAtLevel(hierarchy, level, flatAreas);
+            if (selectedLevel !== 'all' && selectedLevel !== level) return null;
+            return (
+              <div key={level} className="bg-white rounded-lg shadow-lg border-2 border-gray-200">
+                <div className={`px-6 py-4 border-b-2 ${getLevelHeaderColor(level)}`}>
+                  <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <MapPin className="w-5 h-5" />
+                    {getLevelLabel(level)} ({areasAtLevel.length} {areasAtLevel.length === 1 ? 'area' : 'areas'})
+                  </h3>
+                </div>
+                <div className="p-6">
+                  {areasAtLevel.length === 0 ? (
+                    <p className="text-gray-500">No areas at this level yet. Use &quot;Create Area&quot; and select RDHS as the level.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {areasAtLevel.map((area) => (
+                        <AreaCard
+                          key={area.id}
+                          area={area}
+                          level={level}
+                          onEdit={setEditingArea}
+                          onDelete={handleDelete}
+                          getParentName={(id) => getAreaNameById(hierarchy, id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
@@ -444,14 +487,14 @@ function getAreaNameById(hierarchy: any[], id: number | null): string {
   return area ? area.name : `ID: ${id}`;
 }
 
-// Helper function to get level label
+// Helper function to get level label (matches structural order: Midwife areas, MOH areas, Hospitals, RDHS)
 function getLevelLabel(level: string): string {
   const labels: Record<string, string> = {
-    ministry: 'Ministry Level',
-    pdhs: 'PDHS (Provincial) Level',
-    rdhs: 'RDHS (District) Level',
-    moh: 'MOH (Medical Officer) Level',
-    phm: 'PHM (Public Health Midwife) Level',
+    ministry: 'Ministry',
+    pdhs: 'PDHS (Provincial)',
+    rdhs: 'RDHS (District)',
+    moh: 'MOH Areas',
+    phm: 'Midwife Areas (PHM)',
   };
   return labels[level] || level.toUpperCase();
 }

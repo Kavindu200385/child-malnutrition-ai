@@ -200,6 +200,12 @@ export const adminAPI = {
   childrenMissingDistrict: (params) => api.get('/api/admin/children-missing-district', { params }),
   /** Repair district from nutritionist who reviewed the referral */
   repairChildDistrict: (childId) => api.post(`/api/admin/children/${childId}/repair-district`),
+  /** List all escalations (Health Ministry). Optional params: status, limit */
+  listEscalations: (params) => api.get('/api/admin/escalations', { params }),
+  /** List all referrals (Health Ministry). Optional params: status, limit */
+  listReferrals: (params) => api.get('/api/admin/referrals', { params }),
+  /** PDHS reports sent to ministry (island-wide). Optional params: year, month */
+  pdhsReportsSentToMinistry: (params) => api.get('/api/admin/pdhs-reports-sent-to-ministry', { params }),
 };
 
 // Health check

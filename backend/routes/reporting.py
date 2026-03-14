@@ -4,6 +4,7 @@ RDHS, PDHS, and Ministry level reports with analytics
 """
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
+from sqlalchemy import or_
 
 from backend.auth_utils_hierarchical import (
     admin_required,
@@ -84,9 +85,13 @@ def district_report():
         if start or end:
             date_filter = (start, end)
     
-    # Get children in district
+    # Get children in district: by assigned area OR by district_id (e.g. nutritionist-referred, repair)
+    if child_area_ids:
+        district_cond = or_(Child.district_id == target_area.id, Child.current_assigned_area_id.in_(child_area_ids))
+    else:
+        district_cond = Child.district_id == target_area.id
     children_query = db.session.query(Child).filter(
-        Child.current_assigned_area_id.in_(child_area_ids),
+        district_cond,
         Child.is_draft == False,
         Child.status == "ACTIVE"
     )
@@ -123,11 +128,14 @@ def district_report():
     total_visits = visits_query.count()
     
     # Worker performance (simplified - count children per worker)
-    from backend.models_hierarchical import User, WorkerAreaMapping
-    workers = db.session.query(User).join(WorkerAreaMapping).filter(
+    from backend.models_hierarchical import WorkerAreaMapping
+    workers = db.session.query(User).join(
+        WorkerAreaMapping,
+        User.id == WorkerAreaMapping.user_id,
+    ).filter(
         WorkerAreaMapping.area_id.in_(child_area_ids),
         WorkerAreaMapping.is_active == True,
-        User.is_active == True
+        User.is_active == True,
     ).all()
     
     worker_stats = []
@@ -234,13 +242,16 @@ def provincial_report():
         if start or end:
             date_filter = (start, end)
     
-    # District comparison
+    # District comparison: include children by district_id or by assigned area under district
     district_comparison = []
     for district in all_districts:
         child_area_ids = _get_child_area_ids(district.id)
-        
+        if child_area_ids:
+            district_cond = or_(Child.district_id == district.id, Child.current_assigned_area_id.in_(child_area_ids))
+        else:
+            district_cond = Child.district_id == district.id
         children_query = db.session.query(Child).filter(
-            Child.current_assigned_area_id.in_(child_area_ids),
+            district_cond,
             Child.is_draft == False,
             Child.status == "ACTIVE"
         )
@@ -268,13 +279,22 @@ def provincial_report():
             "risk_distribution": risk_dist,
         })
     
-    # Provincial totals
+    # Provincial totals: include children by province_id, district_id, or assigned area under province
     all_child_area_ids = []
     for district in all_districts:
         all_child_area_ids.extend(_get_child_area_ids(district.id))
-    
+    province_ids = [p.id for p in pdhs_areas]
+    district_ids = [d.id for d in all_districts]
+    if all_child_area_ids:
+        provincial_cond = or_(
+            Child.province_id.in_(province_ids),
+            Child.district_id.in_(district_ids),
+            Child.current_assigned_area_id.in_(all_child_area_ids),
+        )
+    else:
+        provincial_cond = or_(Child.province_id.in_(province_ids), Child.district_id.in_(district_ids))
     children_query = db.session.query(Child).filter(
-        Child.current_assigned_area_id.in_(all_child_area_ids),
+        provincial_cond,
         Child.is_draft == False,
         Child.status == "ACTIVE"
     )
@@ -380,8 +400,14 @@ def national_report():
         all_child_area_ids = []
         for district in districts:
             all_child_area_ids.extend(_get_child_area_ids(district.id))
-        
-        province_children = [c for c in all_children if c.current_assigned_area_id in all_child_area_ids]
+        district_ids = [d.id for d in districts]
+        # Include children by province_id, district_id, or assigned area under province
+        province_children = [
+            c for c in all_children
+            if c.province_id == province.id
+            or (c.district_id and c.district_id in district_ids)
+            or (c.current_assigned_area_id and c.current_assigned_area_id in all_child_area_ids)
+        ]
         
         province_comparison.append({
             "province_id": province.id,
@@ -589,7 +615,10 @@ def overview_stats():
     district_breakdown = []
     for rdhs in rdhs_areas:
         child_area_ids = _get_child_area_ids(rdhs.id)
-        district_children = [c for c in all_children if c.current_assigned_area_id and c.current_assigned_area_id in child_area_ids]
+        district_children = [
+            c for c in all_children
+            if (c.district_id == rdhs.id) or (c.current_assigned_area_id and c.current_assigned_area_id in child_area_ids)
+        ]
         total = len(district_children)
         if total == 0 and len([c for c in all_children if c.district_id == rdhs.id]) == 0:
             # Optionally include districts with no children for full map

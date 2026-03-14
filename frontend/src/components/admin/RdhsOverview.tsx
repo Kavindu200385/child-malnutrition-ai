@@ -239,12 +239,20 @@ export function RdhsOverview() {
         )}
       </div>
 
-      {(data?.referral_stats?.total_referrals ?? 0) > 0 && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-2">Referral Statistics</h3>
-          <p className="text-gray-600">Total referrals to nutritionist: {data.referral_stats.total_referrals}</p>
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Referral Statistics</h3>
+        <div className="flex flex-wrap items-center gap-6">
+          <div className="flex items-center gap-4 min-w-[200px]">
+            <div className="w-14 h-14 bg-amber-100 rounded-xl flex items-center justify-center shrink-0">
+              <UserCheck className="w-7 h-7 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">To nutritionist</p>
+              <p className="text-3xl font-bold text-gray-900 mt-0.5">{data?.referral_stats?.total_referrals ?? 0}</p>
+            </div>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
