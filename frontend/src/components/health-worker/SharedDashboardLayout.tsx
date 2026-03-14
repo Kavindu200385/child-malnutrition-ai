@@ -5,15 +5,8 @@
 import type { ReactNode } from 'react';
 import { AlertTriangle, Users, TrendingUp, Activity } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { getRiskColor, getRiskLabel } from '../../types';
+import { getRiskColor, getRiskLabel, getDisplayRiskLevel, getDisplayRiskLevelTyped } from '../../types';
 import { formatDateTime } from '../../utils/formatDate';
-
-function normalizeRisk(risk: string): 'normal' | 'mam' | 'sam' {
-  const r = (risk || 'NORMAL').toLowerCase();
-  if (r === 'sam' || r === 'critical') return 'sam';
-  if (r === 'mam' || r === 'moderate' || r === 'high') return 'mam';
-  return 'normal';
-}
 
 export interface SharedDashboardStats {
   total_children: number;
@@ -48,9 +41,8 @@ export function SharedDashboardLayout({
   const mamCount = stats.mam_count ?? 0;
   const normalCount = stats.normal_count ?? 0;
 
-  const criticalCases = children.filter(
-    (c) => (c.current_risk_level || c.birth_risk_level || '').toUpperCase() === 'SAM' || (c.current_risk_level || c.birth_risk_level || '').toUpperCase() === 'CRITICAL'
-  );
+  const getRisk = (c: any) => getDisplayRiskLevel(c);
+  const criticalCases = children.filter((c) => getRisk(c) === 'SAM');
 
   const riskDistribution = [
     { name: 'Normal', value: normalCount, color: '#2ECC71' },
@@ -58,8 +50,6 @@ export function SharedDashboardLayout({
     { name: 'SAM', value: samCount, color: '#E74C3C' },
   ].filter((d) => d.value > 0);
   if (riskDistribution.length === 0) riskDistribution.push({ name: 'No data', value: 1, color: '#95A5A6' });
-
-  const getRisk = (c: any) => (c.current_risk_level || c.birth_risk_level || 'NORMAL').toUpperCase();
 
   const ageBuckets = [
     { age: '0-6 months', normal: 0, mam: 0, sam: 0 },
@@ -290,9 +280,9 @@ export function SharedDashboardLayout({
                     <td className="py-3 px-4">
                       <span
                         className="inline-block px-3 py-1 rounded-full text-xs font-medium text-white"
-                        style={{ backgroundColor: getRiskColor(normalizeRisk(child.current_risk_level || child.birth_risk_level)) }}
+                        style={{ backgroundColor: getRiskColor(getDisplayRiskLevelTyped(child)) }}
                       >
-                        {getRiskLabel(normalizeRisk(child.current_risk_level || child.birth_risk_level)).split(' ')[0]}
+                        {getRiskLabel(getDisplayRiskLevelTyped(child)).split(' ')[0]}
                       </span>
                     </td>
                     {onViewChild && (

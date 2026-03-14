@@ -163,6 +163,12 @@ export const rdhsAPI = {
   reportsMonthly: (params) => api.get('/api/rdhs/reports/monthly', { params }),
   createMonthlyReport: (data) => api.post('/api/rdhs/reports/monthly', data),
   sendReportToPdhs: (reportId) => api.post(`/api/rdhs/send-report-to-pdhs/${reportId}`),
+  /** Full report for download (daily/weekly/monthly) with all details and MOH breakdown */
+  getFullReport: (params) => api.get('/api/rdhs/reports/full', { params }),
+  /** Send the same period report to PDHS */
+  sendPeriodReportToPdhs: (data) => api.post('/api/rdhs/reports/send-period-to-pdhs', data),
+  /** List period reports (daily/weekly/monthly) sent to PDHS by this district. params.period = daily|weekly|monthly */
+  sentPeriodReports: (params) => api.get('/api/rdhs/sent-period-reports', { params }),
   mohReports: (params) => api.get('/api/rdhs/moh-reports', { params }),
 };
 
@@ -178,6 +184,10 @@ export const pdhsAPI = {
   reportsMonthly: (params) => api.get('/api/pdhs/reports/monthly', { params }),
   createMonthlyReport: (data) => api.post('/api/pdhs/reports/monthly', data),
   sendReportToMinistry: (reportId) => api.post(`/api/pdhs/send-report-to-ministry/${reportId}`),
+  /** RDHS period reports (daily/weekly/monthly) sent to PDHS from districts in this province. params.period_type = daily|weekly|monthly */
+  rdhsPeriodReports: (params) => api.get('/api/pdhs/rdhs-period-reports', { params }),
+  /** Full report for month/year: province + all districts + MOH + children (for PDF download/print) */
+  getFullReport: (params) => api.get('/api/pdhs/reports/full', { params }),
 };
 
 // Admin (Health Ministry) API – national dashboard, messaging, settings
@@ -186,6 +196,10 @@ export const adminAPI = {
   sendMessage: (data) => api.post('/api/admin/send-message', data),
   getSettings: () => api.get('/api/admin/settings'),
   updateSettings: (data) => api.put('/api/admin/settings/update', data),
+  /** Children with nutritionist but null district_id (missing from RDHS list) */
+  childrenMissingDistrict: (params) => api.get('/api/admin/children-missing-district', { params }),
+  /** Repair district from nutritionist who reviewed the referral */
+  repairChildDistrict: (childId) => api.post(`/api/admin/children/${childId}/repair-district`),
 };
 
 // Health check

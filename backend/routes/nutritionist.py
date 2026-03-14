@@ -621,22 +621,27 @@ def accept_transfer_request(referral_id: int):
     referral.reviewed_by_user_id = user.id
     referral.reviewed_at = datetime.utcnow()
 
-    # Update child escalation status and area hierarchy so RDHS/PDHS see the case
+    # Update child escalation status and area hierarchy so RDHS/PDHS see the child
     child = db.session.get(Child, referral.child_id)
     if child:
         child.escalation_status = EscalationStatus.ESCALATED_TO_NUTRITIONIST.value
-        # If the child is not yet linked into the MOH/district/province tree, attach it using this hospital's MOH area
-        if not child.moh_area_id and user.moh_id:
-            from backend.models_hierarchical import Area
-            moh_area = db.session.get(Area, user.moh_id)
-            if moh_area:
-                child.moh_area_id = moh_area.id
-                rdhs_area = moh_area.parent
-                if rdhs_area:
-                    child.district_id = rdhs_area.id
-                    pdhs_area = rdhs_area.parent
-                    if pdhs_area:
-                        child.province_id = pdhs_area.id
+        # Resolve RDHS/MOH by walking UP from nutritionist's assigned areas (PHM -> MOH -> RDHS)
+        # so even if nutritionist is only assigned to a PHM, we still set district_id for RDHS list
+        from backend.auth_utils_hierarchical import get_moh_and_rdhs_for_user
+        from backend.models_hierarchical import Area
+        moh_area, rdhs_area = get_moh_and_rdhs_for_user(user)
+        if moh_area:
+            child.moh_area_id = moh_area.id
+        if rdhs_area:
+            child.district_id = rdhs_area.id
+            pdhs_area = rdhs_area.parent
+            if pdhs_area:
+                child.province_id = pdhs_area.id
+        elif moh_area and moh_area.parent:
+            rdhs_area = moh_area.parent
+            child.district_id = rdhs_area.id
+            if rdhs_area.parent:
+                child.province_id = rdhs_area.parent.id
 
     db.session.commit()
 

@@ -250,8 +250,10 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
         </div>
       ) : (
         <div style={cardsWrapperStyle}>
-          {items.map(({ child, referral, current_risk_level, last_measurement_date, last_measurement_confidence, }: any) => {
-            const displayRisk = (child.display_risk_level ||
+          {items.map(({ child, referral, display_risk_level, current_risk_level, last_measurement_date, last_measurement_confidence, }: any) => {
+            // Use backend display_risk_level so list matches profile (birth risk when no clinic measurements yet).
+            const displayRisk = (display_risk_level ||
+              child.display_risk_level ||
               current_risk_level ||
               child.birth_risk_level ||
               'NORMAL').toUpperCase();

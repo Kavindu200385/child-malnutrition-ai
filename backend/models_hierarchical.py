@@ -815,6 +815,55 @@ class RdhsReport(db.Model):
 
 
 # ============================================================================
+# RDHS PERIOD REPORT (Daily/Weekly/Monthly – full details, can be sent to PDHS)
+# ============================================================================
+
+class RdhsPeriodReport(db.Model):
+    """
+    RDHS report for a period (daily, weekly, monthly). Full snapshot stored as JSON.
+    Can be sent to PDHS so they can view the same report.
+    """
+    __tablename__ = "rdhs_period_reports"
+
+    id = db.Column(db.Integer, primary_key=True)
+    district_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=False, index=True)
+    created_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    period_type = db.Column(db.String(20), nullable=False, index=True)  # daily, weekly, monthly
+    start_date = db.Column(db.Date, nullable=False, index=True)
+    end_date = db.Column(db.Date, nullable=False, index=True)
+    period_label = db.Column(db.String(80), nullable=True)
+    district_name = db.Column(db.String(120), nullable=True)
+
+    payload = db.Column(db.JSON, nullable=True)  # full report: summary, moh_areas, etc.
+
+    sent_to_pdhs = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    sent_at = db.Column(db.DateTime, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    district_area = relationship("Area", foreign_keys=[district_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "district_id": self.district_id,
+            "district": self.district_area.to_dict() if self.district_area else None,
+            "created_by_user_id": self.created_by_user_id,
+            "period_type": self.period_type,
+            "start_date": self.start_date.isoformat() if self.start_date else None,
+            "end_date": self.end_date.isoformat() if self.end_date else None,
+            "period_label": self.period_label,
+            "district_name": self.district_name,
+            "payload": self.payload,
+            "sent_to_pdhs": self.sent_to_pdhs,
+            "sent_at": self.sent_at.isoformat() if self.sent_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ============================================================================
 # PDHS REPORT MODEL (Provincial monthly reports, can be sent to Health Ministry)
 # ============================================================================
 

@@ -6,7 +6,7 @@ User CRUD and Area CRUD remain in worker_management and areas_hierarchical (heal
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
 
-from backend.auth_utils_hierarchical import get_current_user, health_ministry_required, ROLE_HEALTH_MINISTRY
+from backend.auth_utils_hierarchical import get_current_user, get_moh_and_rdhs_for_user, health_ministry_required, ROLE_HEALTH_MINISTRY
 from backend.extensions import db
 from backend.models_hierarchical import (
     Child,
@@ -16,6 +16,7 @@ from backend.models_hierarchical import (
     ChildReferral,
     SystemMessage,
     SystemSetting,
+    ReferralStatus,
 )
 from backend.utils.audit import log_audit
 
@@ -264,3 +265,114 @@ def update_settings():
     )
     db.session.commit()
     return jsonify({"status": "success", "settings": updated}), 200
+
+
+@bp.route("/children-missing-district", methods=["GET"])
+@health_ministry_required
+def list_children_missing_district():
+    """
+    List children who are with the nutritionist (escalation status or reviewed referral)
+    but have null district_id, so they do not appear in any RDHS list. Optional ?q= for name search.
+    """
+    user = get_current_user()
+    if not user or user.role != ROLE_HEALTH_MINISTRY:
+        return jsonify({"status": "error", "message": "Health Ministry access required"}), 403
+
+    q = (request.args.get("q") or "").strip()
+    query = db.session.query(Child).filter(
+        Child.district_id.is_(None),
+        Child.is_draft == False,
+    )
+    # With nutritionist: has at least one reviewed referral to nutritionist
+    subq = (
+        db.session.query(ChildReferral.child_id)
+        .filter(
+            ChildReferral.referred_to_role == "nutritionist",
+            ChildReferral.status == ReferralStatus.REVIEWED.value,
+        )
+        .distinct()
+    )
+    query = query.filter(Child.id.in_(subq))
+    if q:
+        query = query.filter(
+            (Child.name.ilike(f"%{q}%")) | (Child.child_unique_id.ilike(f"%{q}%")) | (Child.guardian_name.ilike(f"%{q}%"))
+        )
+    children = query.order_by(Child.name).limit(100).all()
+    return jsonify({
+        "status": "success",
+        "children": [
+            {"id": c.id, "name": c.name, "child_unique_id": c.child_unique_id, "guardian_name": c.guardian_name}
+            for c in children
+        ],
+        "count": len(children),
+    }), 200
+
+
+@bp.route("/children/<int:child_id>/repair-district", methods=["POST"])
+@health_ministry_required
+def repair_child_district(child_id: int):
+    """
+    Repair district_id (and moh_area_id, province_id) for a child who is with the nutritionist
+    but has null district_id so they do not appear in RDHS list. Uses the nutritionist who
+    reviewed the referral to get their MOH/RDHS area and set the child's hierarchy.
+    """
+    user = get_current_user()
+    if not user or user.role != ROLE_HEALTH_MINISTRY:
+        return jsonify({"status": "error", "message": "Health Ministry access required"}), 403
+
+    child = db.session.get(Child, child_id)
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+
+    ref = (
+        db.session.query(ChildReferral)
+        .filter(
+            ChildReferral.child_id == child_id,
+            ChildReferral.referred_to_role == "nutritionist",
+            ChildReferral.status == ReferralStatus.REVIEWED.value,
+            ChildReferral.reviewed_by_user_id.isnot(None),
+        )
+        .order_by(ChildReferral.reviewed_at.desc())
+        .first()
+    )
+    if not ref:
+        return jsonify({
+            "status": "error",
+            "message": "No reviewed nutritionist referral found for this child. Cannot infer RDHS.",
+            "child_id": child_id,
+            "child_name": child.name,
+        }), 400
+
+    nutritionist_user = db.session.get(User, ref.reviewed_by_user_id)
+    if not nutritionist_user:
+        return jsonify({"status": "error", "message": "Reviewing nutritionist user not found"}), 400
+
+    # Walk up from nutritionist's assigned areas (PHM -> MOH -> RDHS) so we get district even if assigned only to PHM
+    moh_area, rdhs_area = get_moh_and_rdhs_for_user(nutritionist_user)
+    if moh_area:
+        child.moh_area_id = moh_area.id
+    if not rdhs_area and moh_area and moh_area.parent:
+        rdhs_area = moh_area.parent
+    if not rdhs_area:
+        return jsonify({
+            "status": "error",
+            "message": "Nutritionist has no MOH or RDHS area in their assignment hierarchy. Assign the nutritionist to a PHM/MOH/RDHS area first.",
+        }), 400
+    child.district_id = rdhs_area.id
+    if rdhs_area.parent:
+        child.province_id = rdhs_area.parent.id
+    rdhs_name = rdhs_area.name or rdhs_area.district or f"RDHS {rdhs_area.id}"
+
+    db.session.commit()
+    district_area = db.session.get(Area, child.district_id) if child.district_id else None
+    return jsonify({
+        "status": "success",
+        "message": "Child district hierarchy repaired. Child should now appear in RDHS list.",
+        "child_id": child.id,
+        "child_name": child.name,
+        "child_unique_id": child.child_unique_id,
+        "district_id": child.district_id,
+        "rdhs_name": district_area.name or district_area.district if district_area else rdhs_name,
+        "moh_area_id": child.moh_area_id,
+        "province_id": child.province_id,
+    }), 200

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
-import { getRiskColor, getRiskLabel, type RiskLevel } from '../../types';
+import { getRiskColor, getRiskLabel, getDisplayRiskLevel, getDisplayRiskLevelTyped, type RiskLevel } from '../../types';
 import { FileText, Download, Printer, Calendar, Filter, Send, BarChart3, User as UserIcon, FileCheck, TrendingUp, Loader2 } from 'lucide-react';
 import { childrenAPI, midwifeAPI, nutritionistAPI } from '../../services/api';
 import { HiddenPdfCharts, generateProfessionalPdf } from './PdfReportGenerator';
@@ -80,8 +80,7 @@ function mapApiToPdfChild(apiChild: any, measurementsArray?: any[]): { childData
     notes: 'Birth',
   };
   const measurements = hasBirth ? [birthMeas, ...baseList] : baseList;
-  const cur = (apiChild?.current_risk_level || 'NORMAL').toUpperCase();
-  const riskLevel: RiskLevel = cur === 'SAM' ? 'sam' : cur === 'MAM' ? 'mam' : 'normal';
+  const displayRiskLevel = getDisplayRiskLevelTyped(apiChild);
   const childData = {
     id: String(apiChild?.child_unique_id || apiChild?.child_id || apiChild?.id),
     name: apiChild?.name ?? '',
@@ -90,7 +89,7 @@ function mapApiToPdfChild(apiChild: any, measurementsArray?: any[]): { childData
     guardianName: apiChild?.guardian_name ?? '',
     guardianPhone: apiChild?.guardian_phone ?? '',
     address: apiChild?.address ?? '',
-    riskLevel: measurements.length > 1 ? riskLevel : (hasBirth ? birthLevel : riskLevel),
+    riskLevel: displayRiskLevel,
     measurements,
     motherName: apiChild?.mother_name,
     guardianNic: apiChild?.guardian_nic,
@@ -200,15 +199,11 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
   };
 
   const updateStats = (childrenList: Child[]) => {
-    const displayRisk = (c: Child) => {
-      const r = c.last_risk_update ? (c.current_risk_level || 'NORMAL') : (c.birth_risk_level || c.current_risk_level || 'NORMAL');
-      return (r || 'NORMAL').toUpperCase();
-    };
     setStats({
       total: childrenList.length,
-      sam: childrenList.filter(c => displayRisk(c) === 'SAM').length,
-      mam: childrenList.filter(c => displayRisk(c) === 'MAM').length,
-      normal: childrenList.filter(c => displayRisk(c) === 'NORMAL').length,
+      sam: childrenList.filter(c => getDisplayRiskLevel(c) === 'SAM').length,
+      mam: childrenList.filter(c => getDisplayRiskLevel(c) === 'MAM').length,
+      normal: childrenList.filter(c => getDisplayRiskLevel(c) === 'NORMAL').length,
       escalated: 0,
     });
   };
@@ -376,7 +371,7 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
       const lastUp = child.last_risk_update
         ? new Date(child.last_risk_update).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
         : '-';
-      const risk = (child.current_risk_level || 'Normal').toUpperCase();
+      const risk = getDisplayRiskLevel(child);
       const riskCol: [number, number, number] =
         risk === 'SAM' ? [220, 38, 38] : risk === 'MAM' ? [245, 158, 11] : [22, 163, 74];
       pdf.setFontSize(7);
@@ -451,10 +446,7 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
 
   const filteredChildren = children.filter((child) => {
     if (reportType === 'all') return true;
-    const displayRisk = child.last_risk_update
-      ? (child.current_risk_level || 'NORMAL').toUpperCase()
-      : (child.birth_risk_level || child.current_risk_level || 'NORMAL').toUpperCase();
-    return displayRisk === reportType.toUpperCase();
+    return getDisplayRiskLevel(child) === reportType.toUpperCase();
   });
 
   return (
@@ -677,10 +669,7 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
               const age = child.dob 
                 ? Math.floor((new Date().getTime() - new Date(child.dob).getTime()) / (1000 * 60 * 60 * 24 * 30))
                 : 0;
-              const displayRisk = child.last_risk_update
-                ? (child.current_risk_level || 'normal').toLowerCase()
-                : (child.birth_risk_level || child.current_risk_level || 'normal').toLowerCase();
-              const riskLevel = (displayRisk === 'sam' || displayRisk === 'mam' || displayRisk === 'normal') ? displayRisk : 'normal';
+              const riskLevel = getDisplayRiskLevelTyped(child);
               const isGeneratingPdf = pdfGeneratingChildId === child.id;
               return (
                 <div key={child.id} className="p-6 hover:bg-gray-50">

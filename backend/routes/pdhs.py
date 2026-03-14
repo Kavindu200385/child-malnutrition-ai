@@ -23,6 +23,8 @@ from backend.models_hierarchical import (
     ChildReferral,
     Measurement,
     PdhsReport,
+    RdhsPeriodReport,
+    ReferralStatus,
     RiskLevel,
 )
 from backend.utils.audit import log_audit
@@ -68,6 +70,64 @@ def _risk_normal(r):
     return (r or "").upper() == "NORMAL"
 
 
+def _display_risk_level(child):
+    """Use birth risk when no clinic measurement yet, else current risk."""
+    birth = (child.birth_risk_level or "").upper()
+    current = (child.current_risk_level or "").upper()
+    if not child.last_risk_update and birth:
+        return birth
+    return current or birth or "NORMAL"
+
+
+def _district_children_and_moh_single(district_id):
+    """
+    Return (district_children list, moh_areas list, district_area) for one district.
+    Used to build full provincial report with per-district and per-MOH details.
+    """
+    from sqlalchemy import or_
+    moh_areas = db.session.query(Area).filter(
+        Area.parent_id == district_id,
+        Area.level == "moh",
+        Area.is_active == True,
+    ).all()
+    child_area_ids = [district_id] + [a.id for a in moh_areas]
+    worker_area_ids = list(set(child_area_ids) | {district_id})
+    district_nutritionist_ids = [
+        u[0] for u in db.session.query(WorkerAreaMapping.user_id).filter(
+            WorkerAreaMapping.area_id.in_(worker_area_ids),
+            WorkerAreaMapping.is_active == True,
+        ).distinct().all()
+    ]
+    child_ids_with_district_nutritionist = []
+    if district_nutritionist_ids:
+        nutritionist_user_ids = [u.id for u in db.session.query(User).filter(
+            User.id.in_(district_nutritionist_ids),
+            User.role == "nutritionist",
+            User.is_active == True,
+        ).all()]
+        if nutritionist_user_ids:
+            child_ids_with_district_nutritionist = [
+                r[0] for r in db.session.query(ChildReferral.child_id).filter(
+                    ChildReferral.referred_to_role == "nutritionist",
+                    ChildReferral.status == ReferralStatus.REVIEWED.value,
+                    ChildReferral.reviewed_by_user_id.in_(nutritionist_user_ids),
+                ).distinct().all()
+            ]
+    conditions = [
+        Child.current_assigned_area_id.in_(child_area_ids),
+        Child.district_id == district_id,
+    ]
+    if child_ids_with_district_nutritionist:
+        conditions.append(Child.id.in_(child_ids_with_district_nutritionist))
+    district_children = db.session.query(Child).filter(
+        Child.is_draft == False,
+        Child.status == "ACTIVE",
+        or_(*conditions),
+    ).all()
+    district_area = db.session.get(Area, district_id)
+    return district_children, moh_areas, district_area
+
+
 # =============================================================================
 # DASHBOARD
 # =============================================================================
@@ -78,27 +138,13 @@ def dashboard_summary():
     """
     Province-only dashboard: children, risk distribution, district comparison,
     MOH comparison, escalations, monthly trend, referral stats, district performance.
+    Includes children referred to nutritionist (reviewed by province nutritionists), same as RDHS fix.
     """
+    from sqlalchemy import or_
     user, ctx, err = _pdhs_context()
     if err:
         return err
     province_ids, child_area_ids = ctx
-
-    children_query = db.session.query(Child).filter(
-        Child.is_draft == False,
-        Child.status == "ACTIVE"
-    )
-    children_query = children_query.filter(
-        (Child.current_assigned_area_id.in_(child_area_ids)) |
-        (Child.province_id.in_(province_ids)) |
-        (Child.district_id.in_(child_area_ids))
-    )
-    province_children = children_query.all()
-
-    total_children = len(province_children)
-    sam_count = sum(1 for c in province_children if _risk_sam(c.current_risk_level))
-    mam_count = sum(1 for c in province_children if _risk_mam(c.current_risk_level))
-    normal_count = sum(1 for c in province_children if _risk_normal(c.current_risk_level))
 
     district_areas = db.session.query(Area).filter(
         Area.parent_id.in_(province_ids),
@@ -106,6 +152,49 @@ def dashboard_summary():
         Area.is_active == True,
     ).all()
     district_ids = [a.id for a in district_areas]
+
+    # Include: area-assigned children, province/district assigned, and children with province nutritionist
+    worker_area_ids = list(set(child_area_ids) | set(province_ids) | set(district_ids))
+    province_nutritionist_ids = [
+        u[0] for u in db.session.query(WorkerAreaMapping.user_id).filter(
+            WorkerAreaMapping.area_id.in_(worker_area_ids),
+            WorkerAreaMapping.is_active == True,
+        ).distinct().all()
+    ]
+    child_ids_with_province_nutritionist = []
+    if province_nutritionist_ids:
+        nutritionist_user_ids = [u.id for u in db.session.query(User).filter(
+            User.id.in_(province_nutritionist_ids),
+            User.role == "nutritionist",
+            User.is_active == True,
+        ).all()]
+        if nutritionist_user_ids:
+            child_ids_with_province_nutritionist = [
+                r[0] for r in db.session.query(ChildReferral.child_id).filter(
+                    ChildReferral.referred_to_role == "nutritionist",
+                    ChildReferral.status == ReferralStatus.REVIEWED.value,
+                    ChildReferral.reviewed_by_user_id.in_(nutritionist_user_ids),
+                ).distinct().all()
+            ]
+    conditions = [
+        Child.current_assigned_area_id.in_(child_area_ids),
+        Child.province_id.in_(province_ids),
+        Child.district_id.in_(district_ids),
+    ]
+    if child_ids_with_province_nutritionist:
+        conditions.append(Child.id.in_(child_ids_with_province_nutritionist))
+    province_children = db.session.query(Child).filter(
+        Child.is_draft == False,
+        Child.status == "ACTIVE",
+        or_(*conditions),
+    ).all()
+
+    def _dr(c):
+        return _display_risk_level(c)
+    total_children = len(province_children)
+    sam_count = sum(1 for c in province_children if _risk_sam(_dr(c)))
+    mam_count = sum(1 for c in province_children if _risk_mam(_dr(c)))
+    normal_count = sum(1 for c in province_children if _risk_normal(_dr(c)))
     total_districts = len(district_areas)
 
     moh_areas = db.session.query(Area).filter(
@@ -153,6 +242,7 @@ def dashboard_summary():
         "reviewed": escalation_query.filter(ChildEscalation.status == "REVIEWED").count(),
     }
 
+    import calendar
     monthly_trend = []
     today = datetime.utcnow().date()
     for i in range(5, -1, -1):
@@ -161,7 +251,8 @@ def dashboard_summary():
             month += 12
             year -= 1
         month_start = today.replace(year=year, month=month, day=1)
-        month_end = (month_start.replace(month=month % 12 + 1, day=1) - timedelta(days=1)) if month < 12 else month_start.replace(day=31)
+        _, last_day = calendar.monthrange(year, month)
+        month_end = month_start.replace(day=last_day)
         if month_end > today:
             month_end = today
         period_children = [
@@ -169,10 +260,11 @@ def dashboard_summary():
             if c.created_at and (month_start <= c.created_at.date() <= month_end)
         ]
         monthly_trend.append({
-            "month": month_start.strftime("%b"),
+            "month": month_start.strftime("%b %y"),
             "children": len(period_children),
-            "sam": sum(1 for c in period_children if _risk_sam(c.current_risk_level)),
-            "mam": sum(1 for c in period_children if _risk_mam(c.current_risk_level)),
+            "normal": sum(1 for c in period_children if _risk_normal(_dr(c))),
+            "mam": sum(1 for c in period_children if _risk_mam(_dr(c))),
+            "sam": sum(1 for c in period_children if _risk_sam(_dr(c))),
         })
 
     district_performance = []
@@ -182,9 +274,9 @@ def dashboard_summary():
             "district_id": dist.id,
             "district_name": dist.name or dist.district or f"District {dist.id}",
             "total": len(dist_children),
-            "sam": sum(1 for c in dist_children if _risk_sam(c.current_risk_level)),
-            "mam": sum(1 for c in dist_children if _risk_mam(c.current_risk_level)),
-            "normal": sum(1 for c in dist_children if _risk_normal(c.current_risk_level)),
+            "sam": sum(1 for c in dist_children if _risk_sam(_dr(c))),
+            "mam": sum(1 for c in dist_children if _risk_mam(_dr(c))),
+            "normal": sum(1 for c in dist_children if _risk_normal(_dr(c))),
         })
     district_performance.sort(key=lambda x: -x["total"])
 
@@ -195,15 +287,16 @@ def dashboard_summary():
             "moh_id": moh.id,
             "moh_name": moh.name or f"MOH {moh.id}",
             "total": len(moh_children),
-            "sam": sum(1 for c in moh_children if _risk_sam(c.current_risk_level)),
-            "mam": sum(1 for c in moh_children if _risk_mam(c.current_risk_level)),
-            "normal": sum(1 for c in moh_children if _risk_normal(c.current_risk_level)),
+            "sam": sum(1 for c in moh_children if _risk_sam(_dr(c))),
+            "mam": sum(1 for c in moh_children if _risk_mam(_dr(c))),
+            "normal": sum(1 for c in moh_children if _risk_normal(_dr(c))),
         })
     moh_performance.sort(key=lambda x: -x["total"])
 
     province_child_ids = [c.id for c in province_children]
     referrals = db.session.query(ChildReferral).filter(
-        ChildReferral.child_id.in_(province_child_ids)
+        ChildReferral.child_id.in_(province_child_ids),
+        ChildReferral.referred_to_role == "nutritionist",
     ).all() if province_child_ids else []
     referral_stats = {"total_referrals": len(referrals)}
 
@@ -515,6 +608,165 @@ def update_moh(area_id: int):
 # =============================================================================
 # REPORTS
 # =============================================================================
+
+@bp.route("/rdhs-period-reports", methods=["GET"])
+@pdhs_required
+def rdhs_period_reports():
+    """List RDHS period reports (daily/weekly/monthly) sent to PDHS from districts in this province.
+    Query: period_type=daily|weekly|monthly (optional) to filter by period."""
+    user, ctx, err = _pdhs_context()
+    if err:
+        return err
+    province_ids, _ = ctx
+    district_ids = _district_ids_under_province(province_ids)
+    if not district_ids:
+        return jsonify({"status": "success", "reports": [], "count": 0}), 200
+    query = db.session.query(RdhsPeriodReport).filter(
+        RdhsPeriodReport.district_id.in_(district_ids),
+        RdhsPeriodReport.sent_to_pdhs == True,
+    )
+    period_type = (request.args.get("period_type") or "").strip().lower()
+    if period_type in ("daily", "weekly", "monthly"):
+        query = query.filter(RdhsPeriodReport.period_type == period_type)
+    reports = query.order_by(RdhsPeriodReport.created_at.desc()).limit(100).all()
+    return jsonify({
+        "status": "success",
+        "reports": [r.to_dict() for r in reports],
+        "count": len(reports),
+    }), 200
+
+
+@bp.route("/reports/full", methods=["GET"])
+@pdhs_required
+def reports_full():
+    """
+    Get full provincial report for a month/year: all districts, each with MOH areas and child-level details.
+    Query: month=1-12, year=YYYY. Used for Download/Print PDF.
+    """
+    import calendar
+    from datetime import date as _date
+
+    user, ctx, err = _pdhs_context()
+    if err:
+        return err
+    province_ids, child_area_ids = ctx
+    district_ids = _district_ids_under_province(province_ids)
+    month = request.args.get("month", type=int)
+    year = request.args.get("year", type=int)
+    if month is None or year is None:
+        return jsonify({"status": "error", "message": "month and year required"}), 400
+    if not (1 <= month <= 12):
+        return jsonify({"status": "error", "message": "month must be 1-12"}), 400
+
+    start_date = _date(year, month, 1)
+    last_day = calendar.monthrange(year, month)[1]
+    end_date = _date(year, month, last_day)
+    period_label = start_date.strftime("%B %Y")
+
+    province_area = db.session.get(Area, province_ids[0]) if province_ids else None
+    province_name = (province_area.name or province_area.district or f"Province {province_ids[0]}") if province_area else "Province"
+
+    def _dr(c):
+        return _display_risk_level(c)
+
+    def _age_months(dob):
+        if not dob:
+            return None
+        today = _date.today()
+        return (today.year - dob.year) * 12 + (today.month - dob.month)
+
+    def _last_visit_data(child):
+        if not child.visits:
+            return {}
+        v = child.visits[0]
+        return {
+            "weight_kg": float(v.weight_kg) if v.weight_kg else None,
+            "height_cm": float(v.height_cm) if v.height_cm else None,
+            "muac_cm": float(v.muac_cm) if v.muac_cm else None,
+            "visit_date": v.visit_date.strftime("%Y-%m-%d") if v.visit_date else None,
+        }
+
+    districts_payload = []
+    all_children_count = 0
+    all_normal = all_mam = all_sam = 0
+    all_escalations = 0
+
+    for district_id in district_ids:
+        district_children, moh_areas, district_area = _district_children_and_moh_single(district_id)
+        moh_area_ids = [a.id for a in moh_areas]
+        summary_escalations = db.session.query(ChildEscalation).filter(
+            ChildEscalation.moh_id.in_(moh_area_ids)
+        ).count() if moh_area_ids else 0
+        summary = {
+            "total_children": len(district_children),
+            "normal": sum(1 for c in district_children if _risk_normal(_dr(c))),
+            "mam": sum(1 for c in district_children if _risk_mam(_dr(c))),
+            "sam": sum(1 for c in district_children if _risk_sam(_dr(c))),
+            "total_escalations": summary_escalations,
+        }
+        all_children_count += summary["total_children"]
+        all_normal += summary["normal"]
+        all_mam += summary["mam"]
+        all_sam += summary["sam"]
+        all_escalations += summary["total_escalations"]
+
+        moh_breakdown = []
+        for moh in moh_areas:
+            moh_children = [c for c in district_children if c.moh_area_id == moh.id]
+            escalation_count = db.session.query(ChildEscalation).filter(ChildEscalation.moh_id == moh.id).count()
+            children_detail = []
+            for c in moh_children:
+                risk = _dr(c)
+                lv = _last_visit_data(c)
+                children_detail.append({
+                    "id": c.id,
+                    "child_id": c.child_unique_id or c.child_id or str(c.id),
+                    "name": c.name or "—",
+                    "gender": c.gender or "—",
+                    "age_months": _age_months(c.dob),
+                    "risk_level": risk,
+                    "weight_kg": lv.get("weight_kg"),
+                    "height_cm": lv.get("height_cm"),
+                    "muac_cm": lv.get("muac_cm"),
+                    "last_visit_date": lv.get("visit_date"),
+                })
+            moh_breakdown.append({
+                "moh_id": moh.id,
+                "moh_name": moh.name or moh.district or f"MOH {moh.id}",
+                "total_children": len(moh_children),
+                "normal": sum(1 for c in moh_children if _risk_normal(_dr(c))),
+                "mam": sum(1 for c in moh_children if _risk_mam(_dr(c))),
+                "sam": sum(1 for c in moh_children if _risk_sam(_dr(c))),
+                "escalations": escalation_count,
+                "children": children_detail,
+            })
+
+        district_name = (district_area.name or district_area.district or f"District {district_id}") if district_area else f"District {district_id}"
+        districts_payload.append({
+            "district_id": district_id,
+            "district_name": district_name,
+            "summary": summary,
+            "moh_areas": moh_breakdown,
+        })
+
+    report_payload = {
+        "period": "monthly",
+        "period_label": period_label,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "province_name": province_name,
+        "province_id": province_ids[0] if province_ids else None,
+        "summary": {
+            "total_children": all_children_count,
+            "normal": all_normal,
+            "mam": all_mam,
+            "sam": all_sam,
+            "total_escalations": all_escalations,
+        },
+        "districts": districts_payload,
+    }
+    return jsonify({"status": "success", "report": report_payload}), 200
+
 
 @bp.route("/reports/monthly", methods=["GET", "POST"])
 @pdhs_required

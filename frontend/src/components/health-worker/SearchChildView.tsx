@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, UserPlus, Eye } from 'lucide-react';
 import { childrenAPI } from '../../services/api';
+import { getRiskColor, getRiskLabel, getDisplayRiskLevelTyped } from '../../types';
 
 interface SearchChildViewProps {
   onViewChild: (childId: string) => void;
@@ -53,33 +54,10 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
     loadChildren();
   };
 
-  const getRiskColor = (risk: string) => {
-    switch (risk?.toUpperCase()) {
-      case 'CRITICAL':
-      case 'HIGH':
-        return 'bg-red-500';
-      case 'MODERATE':
-        return 'bg-yellow-500';
-      case 'NORMAL':
-        return 'bg-green-500';
-      default:
-        return 'bg-gray-500';
-    }
-  };
-
-  const getRiskLabel = (risk: string) => {
-    switch (risk?.toUpperCase()) {
-      case 'CRITICAL':
-        return 'Critical';
-      case 'HIGH':
-        return 'High';
-      case 'MODERATE':
-        return 'Moderate';
-      case 'NORMAL':
-        return 'Normal';
-      default:
-        return 'Unknown';
-    }
+  // Risk pill uses display risk (birth when no clinic measurement) so list matches profile
+  const getRiskStyle = (child: any) => {
+    const level = getDisplayRiskLevelTyped(child);
+    return { backgroundColor: getRiskColor(level) };
   };
 
   return (
@@ -239,9 +217,9 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
                         <div>
                           <span
                             className="inline-block px-3 py-1 rounded-full text-xs font-medium text-white"
-                            style={{ backgroundColor: getRiskColor(child.current_risk_level || 'NORMAL') }}
+                            style={getRiskStyle(child)}
                           >
-                            {getRiskLabel(child.current_risk_level || 'NORMAL')}
+                            {getRiskLabel(getDisplayRiskLevelTyped(child))}
                           </span>
                         </div>
                       </div>

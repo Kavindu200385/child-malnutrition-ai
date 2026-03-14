@@ -32,6 +32,42 @@ export interface Child {
 }
 
 /**
+ * Display risk rule (matches backend _display_risk_level):
+ * - If no clinic measurement yet (last_risk_update empty) and birth_risk_level exists → use birth.
+ * - Otherwise use current_risk_level.
+ * Use this everywhere we show child risk so list and profile show the same value.
+ */
+export function getDisplayRiskLevel(child: {
+  last_risk_update?: string | null;
+  current_risk_level?: string | null;
+  birth_risk_level?: string | null;
+  display_risk_level?: string | null;
+}): string {
+  if (child.display_risk_level) return (child.display_risk_level || 'NORMAL').toUpperCase();
+  const birth = (child.birth_risk_level || '').toUpperCase();
+  const current = (child.current_risk_level || '').toUpperCase();
+  if (!child.last_risk_update && birth) return birth;
+  if (current) return current;
+  if (birth) return birth;
+  return 'NORMAL';
+}
+
+/**
+ * Same as getDisplayRiskLevel but returns RiskLevel for getRiskColor/getRiskLabel.
+ */
+export function getDisplayRiskLevelTyped(child: {
+  last_risk_update?: string | null;
+  current_risk_level?: string | null;
+  birth_risk_level?: string | null;
+  display_risk_level?: string | null;
+}): RiskLevel {
+  const r = getDisplayRiskLevel(child);
+  if (r === 'SAM') return 'sam';
+  if (r === 'MAM') return 'mam';
+  return 'normal';
+}
+
+/**
  * Get color for risk level
  */
 export function getRiskColor(riskLevel: RiskLevel): string {

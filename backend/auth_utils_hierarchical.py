@@ -135,6 +135,31 @@ def user_can_access_child(user: User, child: Child) -> bool:
             return True
         if child.current_assigned_area_id:
             return user_can_access_area(user, child.current_assigned_area_id)
+        # Child with nutritionist in this district (district_id may not be set yet)
+        from backend.models_hierarchical import ChildReferral, ReferralStatus
+        child_area_ids = get_rdhs_child_area_ids(rdhs_ids) if rdhs_ids else []
+        worker_area_ids = list(set(child_area_ids) | set(rdhs_ids))
+        district_nutritionist_ids = [
+            wa.user_id for wa in db.session.query(WorkerAreaMapping).filter(
+                WorkerAreaMapping.area_id.in_(worker_area_ids),
+                WorkerAreaMapping.is_active == True,
+            ).all()
+        ]
+        if district_nutritionist_ids:
+            nutritionist_ids = [u.id for u in db.session.query(User).filter(
+                User.id.in_(district_nutritionist_ids),
+                User.role == ROLE_NUTRITIONIST,
+                User.is_active == True,
+            ).all()]
+            if nutritionist_ids:
+                ref = db.session.query(ChildReferral).filter(
+                    ChildReferral.child_id == child.id,
+                    ChildReferral.referred_to_role == "nutritionist",
+                    ChildReferral.status == ReferralStatus.REVIEWED.value,
+                    ChildReferral.reviewed_by_user_id.in_(nutritionist_ids),
+                ).first()
+                if ref:
+                    return True
         return False
     if user.role == ROLE_PDHS:
         if child.current_assigned_area_id:
@@ -369,6 +394,38 @@ def get_rdhs_child_area_ids(rdhs_area_ids: List[int]) -> List[int]:
     for aid in rdhs_area_ids:
         _collect_child_area_ids(aid, out)
     return out
+
+
+def get_moh_and_rdhs_for_user(user: User):
+    """
+    Get (moh_area, rdhs_area) for a user by walking UP from their assigned areas.
+    get_user_accessible_areas only returns assigned areas + descendants, so if the user
+    is assigned to a PHM we never see MOH/RDHS. This walks parents so RDHS can see
+    children under that user (e.g. nutritionist with only PHM assignment).
+    Returns (moh_area, rdhs_area) – either can be None.
+    """
+    assigned = db.session.query(WorkerAreaMapping).filter(
+        WorkerAreaMapping.user_id == user.id,
+        WorkerAreaMapping.is_active == True,
+    ).all()
+    if not assigned:
+        return None, None
+    moh_area = None
+    rdhs_area = None
+    for wa in assigned:
+        area = db.session.get(Area, wa.area_id)
+        if not area:
+            continue
+        current = area
+        while current:
+            if current.level == "moh" and moh_area is None:
+                moh_area = current
+            if current.level == "rdhs" and rdhs_area is None:
+                rdhs_area = current
+            if moh_area and rdhs_area:
+                return moh_area, rdhs_area
+            current = db.session.get(Area, current.parent_id) if current.parent_id else None
+    return moh_area, rdhs_area
 
 
 def _collect_child_area_ids(area_id: int, out: List[int]) -> None:

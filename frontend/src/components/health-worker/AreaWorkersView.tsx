@@ -139,18 +139,42 @@ export function AreaWorkersView() {
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Nutritionists (hospital in district)</h3>
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Nutritionists in your area</h3>
         {nutritionists.length === 0 ? (
-          <p className="text-gray-500">No nutritionists linked to hospitals in your district.</p>
+          <p className="text-gray-500">No nutritionists assigned to your MOH area or linked to hospitals in your district.</p>
         ) : (
-          <ul className="divide-y divide-gray-200">
-            {nutritionists.map((n) => (
-              <li key={n.id} className="py-3 flex items-center justify-between">
-                <span className="font-medium text-gray-900">{n.name}</span>
-                <span className="text-sm text-gray-600">{n.username}</span>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead>
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Name</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Username / Staff ID</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Hospital</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Children under care</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {nutritionists.map((n) => (
+                  <tr key={n.id}>
+                    <td className="px-4 py-3 text-gray-900">{n.name ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{n.username ?? '—'} {n.staff_id ? ` • ${n.staff_id}` : ''}</td>
+                    <td className="px-4 py-3 text-gray-600">{n.hospital_name ?? n.hospital?.hospital_name ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-900">{n.stats?.children_under_care ?? 0}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleToggleActive(n.id, n.is_active)}
+                        disabled={actionLoading || n.is_protected}
+                        className="px-4 py-2 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                      >
+                        {n.is_active ? 'Active' : 'Inactive'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
         </>

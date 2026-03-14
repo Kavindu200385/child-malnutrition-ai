@@ -25,6 +25,7 @@ from backend.models_hierarchical import (
     WorkerAreaMapping,
     ChildEscalation,
     ChildReferral,
+    ReferralStatus,
     Measurement,
     Visit,
     MohReport,
@@ -650,10 +651,18 @@ def list_area_workers():
         d["stats"] = midwife_stats(mw)
         midwife_list.append(d)
 
-    # Nutritionists: same district as MOH area (users with hospital_id set to hospital in district)
+    # Nutritionists: (1) assigned to this MOH area or its PHM areas via WorkerAreaMapping, or
+    # (2) linked to a hospital in the same district as the MOH area (Area.district / Hospital.district match)
+    nutritionist_ids = set()
+    worker_area_ids = list(moh_area_ids) + list(phm_ids)
+    if worker_area_ids:
+        for row in db.session.query(WorkerAreaMapping.user_id).filter(
+            WorkerAreaMapping.area_id.in_(worker_area_ids),
+            WorkerAreaMapping.is_active == True,
+        ).distinct().all():
+            nutritionist_ids.add(row[0])
     moh_area = db.session.get(Area, moh_area_ids[0]) if moh_area_ids else None
     district_name = moh_area.district if moh_area and moh_area.district else None
-    nutritionists = []
     if district_name:
         hosp_ids = [r[0] for r in db.session.query(Hospital.id).filter(
             Hospital.district == district_name,
@@ -665,7 +674,23 @@ def list_area_workers():
                 User.hospital_id.in_(hosp_ids),
                 User.is_active == True,
             ).all():
-                nutritionists.append(u.to_dict(include_areas=True))
+                nutritionist_ids.add(u.id)
+    nutritionists = []
+    if nutritionist_ids:
+        for u in db.session.query(User).filter(
+            User.id.in_(list(nutritionist_ids)),
+            User.role == UserRole.NUTRITIONIST.value,
+            User.is_active == True,
+        ).all():
+            d = u.to_dict(include_areas=True)
+            d["hospital_name"] = u.assigned_hospital.hospital_name if u.assigned_hospital else None
+            children_under_care = db.session.query(ChildReferral).filter(
+                ChildReferral.reviewed_by_user_id == u.id,
+                ChildReferral.referred_to_role == "nutritionist",
+                ChildReferral.status == ReferralStatus.REVIEWED.value,
+            ).count()
+            d["stats"] = {"children_under_care": children_under_care}
+            nutritionists.append(d)
 
     return jsonify({
         "status": "success",
@@ -691,13 +716,34 @@ def set_worker_active(worker_id: int):
         return jsonify({"status": "error", "message": "Worker not found"}), 404
     if worker.role not in (UserRole.MIDWIFE.value, UserRole.NUTRITIONIST.value):
         return jsonify({"status": "error", "message": "Not a midwife or nutritionist"}), 400
-    if worker.moh_id != user.id and worker.role == UserRole.MIDWIFE.value:
-        # Check if midwife is in our PHM areas
-        if not worker.phm_area_id:
-            return jsonify({"status": "error", "message": "Worker not in your area"}), 403
-        phm = db.session.get(Area, worker.phm_area_id)
-        if not phm or phm.parent_id not in moh_area_ids:
-            return jsonify({"status": "error", "message": "Worker not in your area"}), 403
+    if worker.role == UserRole.MIDWIFE.value:
+        if worker.moh_id != user.id:
+            if not worker.phm_area_id:
+                return jsonify({"status": "error", "message": "Worker not in your area"}), 403
+            phm = db.session.get(Area, worker.phm_area_id)
+            if not phm or phm.parent_id not in moh_area_ids:
+                return jsonify({"status": "error", "message": "Worker not in your area"}), 403
+    else:
+        # Nutritionist: allow only if in this MOH area (WorkerAreaMapping or hospital in district)
+        phm_ids = [r[0] for r in db.session.query(Area.id).filter(
+            Area.parent_id.in_(moh_area_ids),
+            Area.level == AreaLevel.PHM.value,
+            Area.is_active == True,
+        ).all()]
+        worker_area_ids = list(moh_area_ids) + list(phm_ids)
+        in_area = db.session.query(WorkerAreaMapping).filter(
+            WorkerAreaMapping.user_id == worker_id,
+            WorkerAreaMapping.area_id.in_(worker_area_ids),
+            WorkerAreaMapping.is_active == True,
+        ).first() is not None
+        if not in_area and worker.hospital_id:
+            moh_area = db.session.get(Area, moh_area_ids[0]) if moh_area_ids else None
+            district_name = moh_area.district if moh_area and moh_area.district else None
+            if district_name:
+                hosp = db.session.get(Hospital, worker.hospital_id)
+                in_area = hosp and hosp.district == district_name
+        if not in_area:
+            return jsonify({"status": "error", "message": "Nutritionist not in your area"}), 403
     if worker.is_protected:
         return jsonify({"status": "error", "message": "Cannot change protected user"}), 403
     worker.is_active = bool(active)

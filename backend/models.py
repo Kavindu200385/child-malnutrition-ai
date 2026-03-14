@@ -15,6 +15,7 @@ from backend.models_hierarchical import (  # noqa: F401
     Child,
     ChildTransfer,
     PdhsReport,
+    RdhsPeriodReport,
     RdhsReport,
     Report,
     RiskLevel,

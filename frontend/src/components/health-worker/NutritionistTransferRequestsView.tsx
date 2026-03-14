@@ -13,6 +13,7 @@ import {
 import { nutritionistAPI } from '../../services/api';
 import { childrenAPI } from '../../services/api';
 import { formatDate } from '../../utils/formatDate';
+import { getDisplayRiskLevel } from '../../types';
 
 interface TransferRequestItem {
   referral_id: number;
@@ -138,6 +139,9 @@ function ChildSummaryPanel({ childId, onClose }: { childId: string; onClose: () 
             </span>
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ padding: '4px 14px', borderRadius: '9999px', fontSize: '12px', fontWeight: '700', background: riskColor(getDisplayRiskLevel(data)).bg, color: riskColor(getDisplayRiskLevel(data)).text }}>
+              Risk: {getDisplayRiskLevel(data)}
+            </span>
             <span style={{ padding: '4px 14px', borderRadius: '9999px', fontSize: '12px', fontWeight: '700', background: birthRisk.bg, color: birthRisk.text }}>
               Birth: {(data.birth_risk_level || 'N/A').toUpperCase()}
             </span>
@@ -387,6 +391,8 @@ export function NutritionistTransferRequestsView({ onViewChild }: Props) {
         const isPending = item.referral?.status === 'PENDING';
         const isActing = actionLoadingId === item.referral_id;
         const isRejectingThis = rejectingId === item.referral_id;
+        const displayRiskObj = { ...child, current_risk_level: item.current_risk_level, birth_risk_level: item.birth_risk_level };
+        const displayRiskStyle = riskColor(getDisplayRiskLevel(displayRiskObj));
         const birthRisk = riskColor(item.birth_risk_level);
         const curRisk = riskColor(item.current_risk_level);
         const childIdStr = String(child?.child_id || child?.child_unique_id || child?.id || '');
@@ -433,8 +439,11 @@ export function NutritionistTransferRequestsView({ onViewChild }: Props) {
                       </span>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: '9999px', fontSize: '11px', fontWeight: '600', background: displayRiskStyle.bg, color: displayRiskStyle.text }}>
+                        Risk: {getDisplayRiskLevel(displayRiskObj)}
+                      </span>
                       <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: '9999px', fontSize: '11px', fontWeight: '600', background: birthRisk.bg, color: birthRisk.text }}>
-                        Birth Risk: {(item.birth_risk_level || 'N/A').toUpperCase()}
+                        Birth: {(item.birth_risk_level || 'N/A').toUpperCase()}
                       </span>
                       <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: '9999px', fontSize: '11px', fontWeight: '600', background: curRisk.bg, color: curRisk.text }}>
                         Current: {(item.current_risk_level || 'N/A').toUpperCase()}

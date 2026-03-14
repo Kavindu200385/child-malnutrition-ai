@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { mohAPI } from '../../services/api';
-import { getRiskLabel } from '../../types';
+import { getRiskLabel, getDisplayRiskLevel, getDisplayRiskLevelTyped } from '../../types';
 import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
 
 interface EscalatedChildrenViewProps {
@@ -123,7 +123,7 @@ export function EscalatedChildrenView({ onViewChild }: EscalatedChildrenViewProp
                       {child?.name || '—'} {child?.child_unique_id && `(${child.child_unique_id})`}
                     </p>
                     <p className="text-sm text-gray-600">
-                      Risk: {(child?.current_risk_level && getRiskLabel((child.current_risk_level.toLowerCase()) as import('../../types').RiskLevel)) || child?.current_risk_level || '—'} • Previous: {esc.previous_risk_level} → New: {esc.new_risk_level}
+                      Risk: {child ? getRiskLabel(getDisplayRiskLevelTyped(child)) : '—'} • Previous: {esc.previous_risk_level} → New: {esc.new_risk_level}
                     </p>
                     {esc.reason && <p className="text-sm text-gray-600 mt-1">{esc.reason}</p>}
                   </div>

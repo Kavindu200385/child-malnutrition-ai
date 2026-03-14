@@ -12,6 +12,7 @@ from backend.auth_utils_hierarchical import (
     get_user_accessible_areas,
     get_moh_area_ids,
     get_rdhs_district_area_ids,
+    get_rdhs_child_area_ids,
     child_was_escalated_to_moh,
     hospital_required,
     measurement_required,
@@ -34,6 +35,8 @@ from backend.models_hierarchical import (
     RiskLevel,
     ChildReferral,
     ReferralStatus,
+    User,
+    WorkerAreaMapping,
 )
 from backend.utils.audit import log_audit
 from backend.utils.midwife_helpers import get_area_hierarchy
@@ -207,6 +210,36 @@ def list_children():
                 conditions.append(Child.current_assigned_area_id.in_(accessible_area_ids))
             if rdhs_ids:
                 conditions.append(Child.district_id.in_(rdhs_ids))
+            # Include children with district nutritionist even if district_id not set (e.g. before repair)
+            child_area_ids = get_rdhs_child_area_ids(rdhs_ids) if rdhs_ids else []
+            worker_area_ids = list(set(child_area_ids) | set(rdhs_ids))
+            district_nutritionist_ids = [
+                u[0] for u in db.session.query(WorkerAreaMapping.user_id)
+                .filter(
+                    WorkerAreaMapping.area_id.in_(worker_area_ids),
+                    WorkerAreaMapping.is_active == True,
+                )
+                .distinct()
+                .all()
+            ]
+            if district_nutritionist_ids:
+                nutritionist_user_ids = [
+                    u.id for u in db.session.query(User).filter(
+                        User.id.in_(district_nutritionist_ids),
+                        User.role == ROLE_NUTRITIONIST,
+                        User.is_active == True,
+                    ).all()
+                ]
+                if nutritionist_user_ids:
+                    child_ids_with_district_nutritionist = [
+                        r[0] for r in db.session.query(ChildReferral.child_id).filter(
+                            ChildReferral.referred_to_role == "nutritionist",
+                            ChildReferral.status == ReferralStatus.REVIEWED.value,
+                            ChildReferral.reviewed_by_user_id.in_(nutritionist_user_ids),
+                        ).distinct().all()
+                    ]
+                    if child_ids_with_district_nutritionist:
+                        conditions.append(Child.id.in_(child_ids_with_district_nutritionist))
             if not conditions:
                 return jsonify({"status": "success", "children": [], "count": 0}), 200
             query = query.filter(or_(*conditions))

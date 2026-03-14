@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react';
 import { Activity, RefreshCw } from 'lucide-react';
 import { childrenAPI } from '../../services/api';
+import { getDisplayRiskLevel } from '../../types';
 
 export function RdhsChildrenView() {
   const [children, setChildren] = useState<any[]>([]);
@@ -88,8 +89,8 @@ export function RdhsChildrenView() {
                   <td className="py-3 px-4 text-sm font-mono text-gray-700">{c.child_id || c.child_unique_id || c.id}</td>
                   <td className="py-3 px-4 text-sm font-medium text-gray-900">{c.name || '—'}</td>
                   <td className="py-3 px-4">
-                    <span className={`inline-block px-2 py-1 text-xs rounded-full ${riskColor[(c.current_risk_level || '').toUpperCase()] || 'bg-gray-100 text-gray-700'}`}>
-                      {c.current_risk_level || 'N/A'}
+                    <span className={`inline-block px-2 py-1 text-xs rounded-full ${riskColor[getDisplayRiskLevel(c)] || 'bg-gray-100 text-gray-700'}`}>
+                      {getDisplayRiskLevel(c)}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-sm text-gray-600">{c.guardian_name || '—'}</td>

@@ -1,39 +1,55 @@
 /**
  * RDHS District Dashboard Overview
  * Same UI layout as Admin Overview but district-filtered data only.
+ * Auto-refreshes so details stay live.
  */
-import { useState, useEffect } from 'react';
-import { Users, Building2, AlertTriangle, Activity, Stethoscope, UserCheck } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Users, Building2, AlertTriangle, Activity, Stethoscope, UserCheck, RefreshCw } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { rdhsAPI } from '../../services/api';
+
+const REFRESH_INTERVAL_MS = 45 * 1000; // 45 seconds
+
+function formatLastUpdated(d: Date) {
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
 
 export function RdhsOverview() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const loadDashboard = useCallback(async (isBackgroundRefresh = false) => {
+    if (isBackgroundRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError('');
+    try {
+      const res = await rdhsAPI.dashboardSummary();
+      if (res.data?.status === 'success' && res.data?.data) {
+        setData(res.data.data);
+        setLastUpdated(new Date());
+      } else {
+        if (!isBackgroundRefresh) setError(res.data?.message || 'Failed to load district dashboard');
+      }
+    } catch (err: any) {
+      if (!isBackgroundRefresh) setError(err.response?.data?.message || 'Failed to load district dashboard');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    setError('');
-    setLoading(true);
-    rdhsAPI
-      .dashboardSummary()
-      .then((res) => {
-        if (cancelled) return;
-        if (res.data?.status === 'success' && res.data?.data) {
-          setData(res.data.data);
-        } else {
-          setError(res.data?.message || 'Failed to load district dashboard');
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.response?.data?.message || 'Failed to load district dashboard');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
+    loadDashboard(false);
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    if (!data) return;
+    const interval = setInterval(() => loadDashboard(true), REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [data, loadDashboard]);
 
   if (loading) {
     return (
@@ -70,9 +86,27 @@ export function RdhsOverview() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">District Overview</h2>
-        <p className="text-gray-600 mt-1">{districtNames} – district-level dashboard (read-only)</p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">District Overview</h2>
+          <p className="text-gray-600 mt-1">{districtNames} – district-level dashboard (read-only)</p>
+          {lastUpdated && (
+            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1.5">
+              {refreshing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+              Last updated {formatLastUpdated(lastUpdated)}
+              {refreshing && ' · Updating…'}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => loadDashboard(true)}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 disabled:opacity-70 rounded-lg text-sm font-medium text-gray-700 transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

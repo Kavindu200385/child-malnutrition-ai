@@ -3,6 +3,7 @@ import { Search, Clock, AlertCircle } from 'lucide-react';
 import { childrenAPI } from '../services/api';
 import { ChildData } from '../App';
 import { RiskBadge } from './RiskBadge';
+import { getDisplayRiskLevel } from '../types';
 
 interface SearchChildProps {
   onSelectChild: (child: ChildData) => void;
@@ -11,8 +12,8 @@ interface SearchChildProps {
 function mapChildToChildData(c: any): ChildData {
   const dob = c.dob ? new Date(c.dob) : null;
   const ageMonths = dob ? Math.floor((Date.now() - dob.getTime()) / (1000 * 60 * 60 * 24 * 30.44)) : 0;
-  const risk = (c.current_risk_level || 'NORMAL').toUpperCase();
-  const classification = risk === 'SAM' || risk === 'CRITICAL' ? 'critical' : risk === 'MAM' || risk === 'MODERATE' || risk === 'HIGH' ? 'moderate' : 'normal';
+  const risk = getDisplayRiskLevel(c);
+  const classification = risk === 'SAM' ? 'critical' : risk === 'MAM' ? 'moderate' : 'normal';
   return {
     id: c.child_id || String(c.id),
     name: c.name || 'Unnamed',
