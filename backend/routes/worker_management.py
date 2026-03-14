@@ -3,6 +3,7 @@ Worker Management Routes
 Health Ministry can create/update/delete workers and assign them to areas
 """
 from flask import Blueprint, jsonify, request
+from sqlalchemy import or_
 
 from backend.auth_utils_hierarchical import (
     health_ministry_required,
@@ -14,10 +15,49 @@ from backend.auth_utils_hierarchical import (
     ROLE_RDHS,
 )
 from backend.extensions import db
-from backend.models_hierarchical import User, WorkerAreaMapping, Area, UserRole
+from backend.models_hierarchical import User, WorkerAreaMapping, Area, UserRole, Hospital
 from backend.utils.audit import log_audit
 
 bp = Blueprint("worker_management", __name__, url_prefix="/api/workers")
+
+
+def _relevant_area_ids_for_hospital(hospital_id: int) -> list:
+    """
+    Return area IDs that a nutritionist at this hospital should be linked to,
+    so they appear in district/provincial reports and worker lists.
+    Uses hospital's district and province (strings) to find matching RDHS and PDHS areas.
+    """
+    hospital = db.session.get(Hospital, hospital_id)
+    if not hospital or not hospital.is_active:
+        return []
+    area_ids = []
+    # Match by province: PDHS (province-level) areas
+    if hospital.province:
+        prov = (hospital.province or "").strip()
+        if prov:
+            pdhs_areas = db.session.query(Area).filter(
+                Area.level == "pdhs",
+                Area.is_active == True,
+                or_(
+                    Area.province.ilike(f"%{prov}%"),
+                    Area.name.ilike(f"%{prov}%"),
+                ),
+            ).all()
+            area_ids.extend([a.id for a in pdhs_areas])
+    # Match by district: RDHS (district-level) areas
+    if hospital.district:
+        dist = (hospital.district or "").strip()
+        if dist:
+            rdhs_areas = db.session.query(Area).filter(
+                Area.level == "rdhs",
+                Area.is_active == True,
+                or_(
+                    Area.district.ilike(f"%{dist}%"),
+                    Area.name.ilike(f"%{dist}%"),
+                ),
+            ).all()
+            area_ids.extend([a.id for a in rdhs_areas])
+    return list(dict.fromkeys(area_ids))  # unique, preserve order
 
 
 @bp.route("", methods=["GET"])
@@ -197,6 +237,30 @@ def create_worker():
             )
             db.session.add(mapping)
     
+    # Nutritionist at hospital: also add to relevant areas (RDHS/PDHS by hospital district/province)
+    # so they appear in district/provincial reports and worker lists
+    if role == "nutritionist" and hospital_id:
+        existing_area_ids = set(area_ids or [])
+        for m in db.session.query(WorkerAreaMapping).filter(
+            WorkerAreaMapping.user_id == worker.id,
+            WorkerAreaMapping.is_active == True,
+        ).all():
+            existing_area_ids.add(m.area_id)
+        for area_id in _relevant_area_ids_for_hospital(int(hospital_id)):
+            if area_id in existing_area_ids:
+                continue
+            area = db.session.get(Area, area_id)
+            if not area or not area.is_active:
+                continue
+            mapping = WorkerAreaMapping(
+                user_id=worker.id,
+                area_id=area_id,
+                is_active=True,
+                created_by_id=user.id,
+            )
+            db.session.add(mapping)
+            existing_area_ids.add(area_id)
+    
     db.session.flush()
     
     log_audit(
@@ -326,6 +390,36 @@ def update_worker(worker_id: int):
             worker.hospital_id = int(data["hospital_id"]) if data["hospital_id"] else None
         else:
             worker.hospital_id = None
+    
+    # Nutritionist at hospital: ensure they are also linked to relevant areas (RDHS/PDHS)
+    if worker.role == "nutritionist" and worker.hospital_id:
+        existing_area_ids = {
+            m.area_id for m in db.session.query(WorkerAreaMapping).filter(
+                WorkerAreaMapping.user_id == worker_id,
+                WorkerAreaMapping.is_active == True,
+            ).all()
+        }
+        for area_id in _relevant_area_ids_for_hospital(worker.hospital_id):
+            if area_id in existing_area_ids:
+                continue
+            area = db.session.get(Area, area_id)
+            if not area or not area.is_active:
+                continue
+            existing = db.session.query(WorkerAreaMapping).filter(
+                WorkerAreaMapping.user_id == worker_id,
+                WorkerAreaMapping.area_id == area_id,
+            ).first()
+            if existing:
+                existing.is_active = True
+                existing_area_ids.add(area_id)
+            else:
+                db.session.add(WorkerAreaMapping(
+                    user_id=worker_id,
+                    area_id=area_id,
+                    is_active=True,
+                    created_by_id=user.id,
+                ))
+                existing_area_ids.add(area_id)
     
     db.session.flush()
     

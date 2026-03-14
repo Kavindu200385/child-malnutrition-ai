@@ -1305,5 +1305,6 @@ class Report(db.Model):
             "file_path": self.file_path,
             "file_format": self.file_format,
             "created_by_user_id": self.created_by_user_id,
+            "created_by_name": self.created_by_user.name if self.created_by_user else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

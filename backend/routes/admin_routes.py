@@ -76,7 +76,11 @@ def dashboard_summary():
     normal_count = sum(1 for c in all_children if _risk_normal(c.current_risk_level))
 
     worker_roles = ("pdhs", "rdhs", "moh", "amoh", "midwife", "nutritionist", "hospital")
+    admin_roles = ("pdhs", "rdhs")  # RDHS/PDHS do admin/supervisory roles
+    field_roles = ("moh", "amoh", "midwife", "nutritionist", "hospital")  # Field workers
     total_workers = db.session.query(User).filter(User.role.in_(worker_roles), User.is_active == True).count()
+    admin_workers_count = db.session.query(User).filter(User.role.in_(admin_roles), User.is_active == True).count()
+    field_workers_count = db.session.query(User).filter(User.role.in_(field_roles), User.is_active == True).count()
     total_clinics = db.session.query(Area).filter(Area.level == "phm", Area.is_active == True).count()
 
     pdhs_areas = db.session.query(Area).filter(
@@ -168,6 +172,8 @@ def dashboard_summary():
                 {"name": "SAM", "value": sam_count, "color": "#E74C3C"},
             ],
             "total_workers": total_workers,
+            "admin_workers_count": admin_workers_count,
+            "field_workers_count": field_workers_count,
             "total_clinics": total_clinics,
             "province_breakdown": province_breakdown,
             "district_breakdown": district_breakdown,

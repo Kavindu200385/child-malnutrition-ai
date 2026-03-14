@@ -14,6 +14,32 @@ from backend.auth_utils_hierarchical import (
     ROLE_PDHS,
     ROLE_RDHS,
 )
+# Worker performance categories: admin = RDHS/PDHS (supervisory), field = MOH/Midwife/Nutritionist etc.
+ADMIN_ROLES = (ROLE_RDHS, ROLE_PDHS)
+FIELD_ROLES = ("moh", "amoh", "midwife", "nutritionist", "hospital")
+
+
+def _risk_key(r):
+    """Map risk level to NORMAL/MODERATE/HIGH/CRITICAL (MAM->MODERATE, SAM->CRITICAL)."""
+    if r is None:
+        return "NORMAL"
+    v = (r.value if hasattr(r, "value") else r).upper()
+    if v in ("SAM", "CRITICAL"):
+        return "CRITICAL"
+    if v in ("MAM", "MODERATE"):
+        return "MODERATE"
+    if v == "HIGH":
+        return "HIGH"
+    return "NORMAL"
+
+
+def _risk_distribution_buckets(children):
+    """Return {NORMAL, MODERATE, HIGH, CRITICAL} counts for a list of children."""
+    buckets = {"NORMAL": 0, "MODERATE": 0, "HIGH": 0, "CRITICAL": 0}
+    for c in children:
+        k = _risk_key(c.current_risk_level)
+        buckets[k] = buckets[k] + 1
+    return buckets
 from backend.extensions import db
 from backend.models_hierarchical import (
     Child,
@@ -85,34 +111,22 @@ def district_report():
         if start or end:
             date_filter = (start, end)
     
-    # Get children in district: by assigned area OR by district_id (e.g. nutritionist-referred, repair)
+    # Get children in district: by assigned area OR by district_id (e.g. nutritionist-referred, repair).
+    # Do NOT filter by registration_date: date range applies only to visits so the report shows
+    # all children in the district with visit stats for the selected period.
     if child_area_ids:
         district_cond = or_(Child.district_id == target_area.id, Child.current_assigned_area_id.in_(child_area_ids))
     else:
         district_cond = Child.district_id == target_area.id
-    children_query = db.session.query(Child).filter(
+    children = db.session.query(Child).filter(
         district_cond,
         Child.is_draft == False,
         Child.status == "ACTIVE"
-    )
+    ).all()
     
-    if date_filter:
-        start, end = date_filter
-        if start:
-            children_query = children_query.filter(Child.registration_date >= datetime.combine(start, datetime.min.time()))
-        if end:
-            children_query = children_query.filter(Child.registration_date <= datetime.combine(end, datetime.max.time()))
-    
-    children = children_query.all()
-    
-    # Calculate statistics
+    # Calculate statistics (map MAM->MODERATE, SAM->CRITICAL for display)
     total_children = len(children)
-    risk_distribution = {
-        "NORMAL": len([c for c in children if c.current_risk_level == RiskLevel.NORMAL]),
-        "MODERATE": len([c for c in children if c.current_risk_level == RiskLevel.MODERATE]),
-        "HIGH": len([c for c in children if c.current_risk_level == RiskLevel.HIGH]),
-        "CRITICAL": len([c for c in children if c.current_risk_level == RiskLevel.CRITICAL]),
-    }
+    risk_distribution = _risk_distribution_buckets(children)
     
     # Get visits in date range
     visits_query = db.session.query(Visit).filter(
@@ -127,34 +141,55 @@ def district_report():
     
     total_visits = visits_query.count()
     
-    # Worker performance (simplified - count children per worker)
+    # Worker performance: workers assigned to this district (RDHS) or any MOH/PHM under it
     from backend.models_hierarchical import WorkerAreaMapping
+    worker_area_ids = list(child_area_ids) if child_area_ids else []
+    if target_area.id not in worker_area_ids:
+        worker_area_ids.append(target_area.id)
     workers = db.session.query(User).join(
         WorkerAreaMapping,
         User.id == WorkerAreaMapping.user_id,
     ).filter(
-        WorkerAreaMapping.area_id.in_(child_area_ids),
+        WorkerAreaMapping.area_id.in_(worker_area_ids),
         WorkerAreaMapping.is_active == True,
         User.is_active == True,
-    ).all()
+    ).distinct().all()
     
     worker_stats = []
     for worker in workers:
         worker_children = [c for c in children if c.current_assigned_user_id == worker.id]
+        if not worker_children:
+            visits_count = 0
+        else:
+            visits_q = db.session.query(Visit).filter(
+                Visit.child_id_fk.in_([c.id for c in worker_children]),
+                Visit.created_by_user_id == worker.id
+            )
+            if date_filter:
+                start, end = date_filter
+                if start:
+                    visits_q = visits_q.filter(Visit.visit_date >= datetime.combine(start, datetime.min.time()))
+                if end:
+                    visits_q = visits_q.filter(Visit.visit_date <= datetime.combine(end, datetime.max.time()))
+            visits_count = visits_q.count()
+        role_cat = "admin" if (worker.role or "").lower() in ADMIN_ROLES else "field"
         worker_stats.append({
             "worker_id": worker.id,
             "worker_name": worker.name,
             "role": worker.role,
+            "role_category": role_cat,
             "children_count": len(worker_children),
-            "visits_count": db.session.query(Visit).filter(
-                Visit.child_id_fk.in_([c.id for c in worker_children]),
-                Visit.created_by_user_id == worker.id
-            ).count() if worker_children else 0,
+            "visits_count": visits_count,
         })
+    worker_performance_admin = [w for w in worker_stats if w.get("role_category") == "admin"]
+    worker_performance_field = [w for w in worker_stats if w.get("role_category") == "field"]
     
-    # Transfer statistics
+    # Transfer statistics (transfers to district or to MOH/PHM areas in this district)
+    transfer_to_area_ids = list(child_area_ids) if child_area_ids else []
+    if target_area.id not in transfer_to_area_ids:
+        transfer_to_area_ids.append(target_area.id)
     transfers = db.session.query(ChildTransfer).filter(
-        ChildTransfer.to_area_id.in_(child_area_ids),
+        ChildTransfer.to_area_id.in_(transfer_to_area_ids),
         ChildTransfer.status == "COMPLETED"
     ).all()
     
@@ -180,6 +215,8 @@ def district_report():
         },
         "risk_distribution": risk_distribution,
         "worker_performance": worker_stats,
+        "worker_performance_admin": worker_performance_admin,
+        "worker_performance_field": worker_performance_field,
         "transfer_statistics": transfer_stats,
     }
     
@@ -242,7 +279,7 @@ def provincial_report():
         if start or end:
             date_filter = (start, end)
     
-    # District comparison: include children by district_id or by assigned area under district
+    # District comparison: include all children in district (date filter applies to visits only if needed later)
     district_comparison = []
     for district in all_districts:
         child_area_ids = _get_child_area_ids(district.id)
@@ -250,28 +287,12 @@ def provincial_report():
             district_cond = or_(Child.district_id == district.id, Child.current_assigned_area_id.in_(child_area_ids))
         else:
             district_cond = Child.district_id == district.id
-        children_query = db.session.query(Child).filter(
+        children = db.session.query(Child).filter(
             district_cond,
             Child.is_draft == False,
             Child.status == "ACTIVE"
-        )
-        
-        if date_filter:
-            start, end = date_filter
-            if start:
-                children_query = children_query.filter(Child.registration_date >= datetime.combine(start, datetime.min.time()))
-            if end:
-                children_query = children_query.filter(Child.registration_date <= datetime.combine(end, datetime.max.time()))
-        
-        children = children_query.all()
-        
-        risk_dist = {
-            "NORMAL": len([c for c in children if c.current_risk_level == RiskLevel.NORMAL]),
-            "MODERATE": len([c for c in children if c.current_risk_level == RiskLevel.MODERATE]),
-            "HIGH": len([c for c in children if c.current_risk_level == RiskLevel.HIGH]),
-            "CRITICAL": len([c for c in children if c.current_risk_level == RiskLevel.CRITICAL]),
-        }
-        
+        ).all()
+        risk_dist = _risk_distribution_buckets(children)
         district_comparison.append({
             "district_id": district.id,
             "district_name": district.name,
@@ -293,30 +314,15 @@ def provincial_report():
         )
     else:
         provincial_cond = or_(Child.province_id.in_(province_ids), Child.district_id.in_(district_ids))
-    children_query = db.session.query(Child).filter(
+    all_children = db.session.query(Child).filter(
         provincial_cond,
         Child.is_draft == False,
         Child.status == "ACTIVE"
-    )
-    
-    if date_filter:
-        start, end = date_filter
-        if start:
-            children_query = children_query.filter(Child.registration_date >= datetime.combine(start, datetime.min.time()))
-        if end:
-            children_query = children_query.filter(Child.registration_date <= datetime.combine(end, datetime.max.time()))
-    
-    all_children = children_query.all()
-    
+    ).all()
     provincial_summary = {
         "total_children": len(all_children),
         "total_districts": len(all_districts),
-        "risk_distribution": {
-            "NORMAL": len([c for c in all_children if c.current_risk_level == RiskLevel.NORMAL]),
-            "MODERATE": len([c for c in all_children if c.current_risk_level == RiskLevel.MODERATE]),
-            "HIGH": len([c for c in all_children if c.current_risk_level == RiskLevel.HIGH]),
-            "CRITICAL": len([c for c in all_children if c.current_risk_level == RiskLevel.CRITICAL]),
-        },
+        "risk_distribution": _risk_distribution_buckets(all_children),
     }
     
     report_data = {
@@ -521,6 +527,46 @@ def save_report():
         "status": "success",
         "report": report.to_dict(),
     }), 201
+
+
+@bp.route("/<int:report_id>", methods=["GET"])
+@admin_required
+def get_report(report_id: int):
+    """Get a single saved report by ID"""
+    user = get_current_user()
+    report = db.session.get(Report, report_id)
+    if not report:
+        return jsonify({"status": "error", "message": "Report not found"}), 404
+    # Access check
+    if user.role != ROLE_HEALTH_MINISTRY:
+        accessible_areas = get_user_accessible_areas(user)
+        accessible_area_ids = {a.id for a in accessible_areas}
+        if report.area_id and report.area_id not in accessible_area_ids:
+            return jsonify({"status": "error", "message": "No access to this report"}), 403
+    return jsonify({"status": "success", "report": report.to_dict()}), 200
+
+
+@bp.route("/<int:report_id>", methods=["DELETE"])
+@admin_required
+def delete_report(report_id: int):
+    """Delete a saved report"""
+    user = get_current_user()
+    report = db.session.get(Report, report_id)
+    if not report:
+        return jsonify({"status": "error", "message": "Report not found"}), 404
+    if user.role != ROLE_HEALTH_MINISTRY and report.created_by_user_id != user.id:
+        return jsonify({"status": "error", "message": "Not allowed to delete this report"}), 403
+    log_audit(
+        action="DELETE",
+        entity_type="report",
+        entity_id=report.id,
+        old_values={"title": report.title, "report_type": report.report_type},
+        user_id=user.id,
+        description=f"Deleted report: {report.title}",
+    )
+    db.session.delete(report)
+    db.session.commit()
+    return jsonify({"status": "success", "message": "Report deleted"}), 200
 
 
 @bp.route("", methods=["GET"])

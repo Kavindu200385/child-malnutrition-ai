@@ -89,6 +89,8 @@ export const reportsAPI = {
   overviewStats: () => api.get('/api/reports/overview-stats'),
   save: (data) => api.post('/api/reports/save', data),
   list: (params) => api.get('/api/reports', { params }),
+  getById: (id) => api.get(`/api/reports/${id}`),
+  deleteById: (id) => api.delete(`/api/reports/${id}`),
 };
 
 // Admin: Area master data (Legacy - for backward compatibility)
