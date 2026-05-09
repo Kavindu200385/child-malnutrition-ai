@@ -371,6 +371,7 @@ def create_app() -> Flask:
     from backend.routes.child_transfers import bp as child_transfers_bp
     from backend.routes.worker_management import bp as worker_management_bp
     from backend.routes.reporting import bp as reporting_bp
+    from backend.routes.sign_pages import bp as sign_pages_bp
     from backend.routes.hospital import bp as hospital_bp  # Hospital role routes
     from backend.routes.moh import bp as moh_bp  # MOH role routes (area supervisor)
     from backend.routes.midwife import bp as midwife_bp  # Midwife role routes (reports, children, dashboard)
@@ -389,6 +390,7 @@ def create_app() -> Flask:
     app.register_blueprint(child_transfers_bp)
     app.register_blueprint(worker_management_bp)
     app.register_blueprint(reporting_bp)
+    app.register_blueprint(sign_pages_bp)
     app.register_blueprint(hospital_bp)  # Hospital role routes
     app.register_blueprint(moh_bp)  # MOH role routes
     app.register_blueprint(midwife_bp)  # Midwife role routes

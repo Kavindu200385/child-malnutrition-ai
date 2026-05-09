@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Toaster } from 'sonner';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Login } from './components/Login';
 import { HealthWorkerDashboard } from './components/HealthWorkerDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -39,6 +40,8 @@ export interface ChildData {
 export default function App() {
   const [user, setUser] = useState(null as User | null);
   const [bootstrapped, setBootstrapped] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // Restore user from localStorage on first load so refresh keeps you logged in
   useEffect(() => {
@@ -76,31 +79,71 @@ export default function App() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    navigate('/sign-in', { replace: true });
   };
+
+  const getHomePath = (role: UserRole) => {
+    if (['health_ministry', 'pdhs', 'rdhs'].includes(role)) return '/admin';
+    if (role === 'hospital') return '/hospital';
+    return '/health-worker';
+  };
+
+  const isAdminRole = !!user && ['health_ministry', 'pdhs', 'rdhs'].includes(user.role);
+  const isHospitalRole = !!user && user.role === 'hospital';
+  const homePath = user ? getHomePath(user.role) : '/sign-in';
+
+  useEffect(() => {
+    if (!bootstrapped || !user) return;
+    if (location.pathname === '/' || location.pathname === '/sign-in') {
+      navigate(homePath, { replace: true });
+    }
+  }, [bootstrapped, user, location.pathname, navigate, homePath]);
 
   // Avoid flicker on first load while we restore user
   if (!bootstrapped) {
     return null;
   }
 
-  if (!user) {
-    return <Login onLogin={handleLogin} />;
-  }
-
-  // Route based on role
-  const isAdminRole = ['health_ministry', 'pdhs', 'rdhs'].includes(user.role);
-  const isHospitalRole = user.role === 'hospital';
-  const isHealthWorkerRole = !isAdminRole && !isHospitalRole;
-
   return (
     <div className="min-h-screen bg-gray-50">
-      {isAdminRole ? (
-        <AdminDashboard user={user} onLogout={handleLogout} />
-      ) : isHospitalRole ? (
-        <HospitalDashboard user={user} onLogout={handleLogout} />
-      ) : (
-        <HealthWorkerDashboard user={user} onLogout={handleLogout} />
-      )}
+      <Routes>
+        <Route
+          path="/sign-in"
+          element={user ? <Navigate to={homePath} replace /> : <Login onLogin={handleLogin} />}
+        />
+        <Route
+          path="/admin"
+          element={
+            user && isAdminRole ? (
+              <AdminDashboard user={user} onLogout={handleLogout} />
+            ) : (
+              <Navigate to={user ? homePath : '/sign-in'} replace />
+            )
+          }
+        />
+        <Route
+          path="/hospital"
+          element={
+            user && isHospitalRole ? (
+              <HospitalDashboard user={user} onLogout={handleLogout} />
+            ) : (
+              <Navigate to={user ? homePath : '/sign-in'} replace />
+            )
+          }
+        />
+        <Route
+          path="/health-worker"
+          element={
+            user && !isAdminRole && !isHospitalRole ? (
+              <HealthWorkerDashboard user={user} onLogout={handleLogout} />
+            ) : (
+              <Navigate to={user ? homePath : '/sign-in'} replace />
+            )
+          }
+        />
+        <Route path="/" element={<Navigate to={user ? homePath : '/sign-in'} replace />} />
+        <Route path="*" element={<Navigate to={user ? homePath : '/sign-in'} replace />} />
+      </Routes>
       <Toaster position="top-center" richColors closeButton />
     </div>
   );

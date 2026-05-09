@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, Heart, Users, Activity } from 'lucide-react';
+import { Heart, Users, Activity } from 'lucide-react';
 import api from '../services/api';
 import { User, UserRole } from '../App';
 
@@ -58,8 +58,12 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         <div className="relative z-10 flex flex-col justify-center px-12 text-white">
           <div className="max-w-lg">
             <div className="flex items-center gap-3 mb-6">
-              <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center border-2 border-white/40">
-                <Shield className="w-8 h-8 text-white" />
+              <div className="w-20 h-20 flex items-center justify-center">
+                <img
+                  src="/logo-white.png"
+                  alt="CMRAS Logo"
+                  className="w-20 h-20 object-contain"
+                />
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-white">CMRAS</h1>
@@ -127,8 +131,12 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-8 lg:p-10">
             {/* Header */}
             <div className="mb-8">
-              <div className="lg:hidden inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-full mb-4">
-                <Shield className="w-8 h-8 text-white" />
+              <div className="lg:hidden inline-flex items-center justify-center w-16 h-16 mb-4">
+                <img
+                  src="/Logo.png"
+                  alt="CMRAS Logo"
+                  className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 object-contain"
+                />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome Back</h2>
               <p className="text-gray-600">Sign in to access the CMRAS portal</p>

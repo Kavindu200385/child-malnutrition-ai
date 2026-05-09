@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, UserRole } from '../App';
-import { Lock, User as UserIcon, Shield, Heart, Users, Activity } from 'lucide-react';
+import { Lock, User as UserIcon, Heart, Users, Activity } from 'lucide-react';
 import api from '../services/api';
 
 interface LoginProps {
@@ -131,11 +131,11 @@ export function Login({ onLogin }: LoginProps) {
   const [error, setError] = useState('');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
-  // Shuffle background images every 5 seconds
+  // Shuffle background images every 8 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentImageIndex((prevIndex) => (prevIndex + 1) % BACKGROUND_IMAGES.length);
-    }, 5000); // Change image every 5 seconds
+    }, 8000); // Change image every 8 seconds
 
     return () => clearInterval(interval);
   }, []);
@@ -180,14 +180,19 @@ export function Login({ onLogin }: LoginProps) {
     }
   };
 
-  const fillCredentials = (userKey: string, pass: string) => {
-    setUsername(userKey);
-    setPassword(pass);
-    setError('');
-  };
-
   return (
     <div className="min-h-screen flex relative overflow-hidden">
+      {/* Tablet/Mobile Background Image */}
+      <div className="absolute inset-0 lg:hidden">
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{
+            backgroundImage: `url('${BACKGROUND_IMAGES[currentImageIndex]}')`
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-600/35 via-blue-500/30 to-green-500/25" />
+      </div>
+
       {/* Left Side - Background Image with Overlay */}
       <div className="hidden lg:flex lg:w-3/5 relative">
         {/* Background Image */}
@@ -204,8 +209,12 @@ export function Login({ onLogin }: LoginProps) {
         <div className="relative z-10 flex flex-col justify-center px-12 text-white">
           <div className="max-w-lg">
             <div className="flex items-center gap-3 mb-6">
-              <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center border-2 border-white/40">
-                <Shield className="w-8 h-8 text-white" />
+              <div className="w-20 h-20 flex items-center justify-center">
+                <img
+                  src="/logo-white.png"
+                  alt="CMRAS Logo"
+                  className="w-20 h-20 object-contain"
+                />
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-white">CMRAS</h1>
@@ -240,13 +249,17 @@ export function Login({ onLogin }: LoginProps) {
       </div>
 
       {/* Right Side - Login Form */}
-      <div className="w-full lg:w-2/5 flex items-center justify-center bg-gray-50 p-6 lg:p-12">
+      <div className="relative z-10 w-full lg:w-2/5 flex items-center justify-center bg-transparent p-6 lg:p-12">
         <div className="w-full max-w-md">
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-8 lg:p-10">
             {/* Header */}
-            <div className="mb-8">
-              <div className="lg:hidden inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-full mb-4">
-                <Shield className="w-8 h-8 text-white" />
+            <div className="mb-8 text-center">
+              <div className="inline-flex lg:hidden items-center justify-center w-16 h-16 mb-4">
+                <img
+                  src="/Logo.png"
+                  alt="CMRAS Logo"
+                  className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 object-contain"
+                />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome Back</h2>
               <p className="text-gray-600">Sign in to access the CMRAS portal</p>
@@ -304,40 +317,12 @@ export function Login({ onLogin }: LoginProps) {
               </button>
             </form>
 
-            {/* System Credentials */}
-            <div className="mt-6 pt-6 border-t-2 border-gray-200">
-              <p className="text-sm font-semibold text-gray-900 mb-3">System Credentials:</p>
-              <div className="text-xs text-gray-700 space-y-3 bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg p-4 border-2 border-purple-300">
-                <div>
-                  <strong className="text-gray-900 block mb-1">🔐 System Developer (superadmin):</strong>
-                  <div className="ml-2 space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => fillCredentials('superadmin', '200385')}
-                      className="block w-full text-left hover:bg-purple-100 rounded px-2 py-1 transition-colors font-mono bg-white border border-purple-200"
-                    >
-                      <span className="font-bold text-purple-700">superadmin</span> / <span className="font-bold text-purple-700">200385</span>
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-600 mt-2 italic">
-                    ⚠️ This account is protected and cannot be deleted. For system developers only.
-                  </p>
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 mt-2 italic">💡 Click on the credential above to auto-fill the form</p>
-            </div>
-
             <div className="mt-6 text-center text-xs text-gray-500">
               <p>For authorized health workers only</p>
               <p className="mt-1">Contact system administrator for access</p>
             </div>
           </div>
 
-          {/* Mobile Ministry Info */}
-          <div className="lg:hidden mt-6 text-center">
-            <p className="text-sm text-gray-600">Ministry of Health - Sri Lanka</p>
-            <p className="text-xs text-gray-500 mt-1">PHM / MOH Clinic Portal</p>
-          </div>
         </div>
       </div>
     </div>

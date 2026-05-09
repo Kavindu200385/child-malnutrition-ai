@@ -20,6 +20,7 @@ from backend.models_hierarchical import (  # noqa: F401
     Report,
     RiskLevel,
     SystemMessage,
+    SignPageRecord,
     SystemSetting,
     TransferStatus,
     User,

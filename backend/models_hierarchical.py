@@ -973,6 +973,37 @@ class SystemSetting(db.Model):
 
 
 # ============================================================================
+# SIGN PAGE UPLOAD MODEL
+# ============================================================================
+
+class SignPageRecord(db.Model):
+    """
+    Stores uploaded sign page images (front/back) by Health Ministry users.
+    """
+    __tablename__ = "sign_page_records"
+
+    id = db.Column(db.Integer, primary_key=True)
+    front_image_path = db.Column(db.String(500), nullable=False)
+    back_image_path = db.Column(db.String(500), nullable=False)
+    role = db.Column(db.String(32), nullable=False, index=True)
+    uploaded_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "front_image_path": self.front_image_path,
+            "back_image_path": self.back_image_path,
+            "role": self.role,
+            "uploaded_by_user_id": self.uploaded_by_user_id,
+            "uploaded_by_name": self.uploaded_by.name if self.uploaded_by else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ============================================================================
 # VISIT MODEL (Legacy - for backward compatibility)
 # ============================================================================
 

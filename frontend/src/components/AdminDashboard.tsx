@@ -16,6 +16,7 @@ import { PdhsReportsView } from './admin/PdhsReportsView';
 import { PdhsChildrenView } from './admin/PdhsChildrenView';
 import { PdhsAreaView } from './admin/PdhsAreaView';
 import { MinistryChildrenView } from './admin/MinistryChildrenView';
+import { SignPageUploadView } from './admin/SignPageUploadView';
 import {
   LayoutDashboard,
   Users,
@@ -27,6 +28,7 @@ import {
   FileText,
   UserCheck,
   Activity,
+  ImagePlus,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -34,7 +36,7 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type AdminView = 'overview' | 'users' | 'areas' | 'children' | 'reports' | 'analytics' | 'settings';
+type AdminView = 'overview' | 'users' | 'areas' | 'children' | 'reports' | 'analytics' | 'settings' | 'signpages';
 type RdhsView = 'overview' | 'healthworkers' | 'reports' | 'children';
 type PdhsView = 'overview' | 'healthworkers' | 'reports' | 'children' | 'areas';
 
@@ -85,6 +87,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
         { id: 'areas' as AdminView, label: 'Area Management', icon: MapPin },
         { id: 'users' as AdminView, label: 'User Management', icon: Users },
         { id: 'children' as AdminView, label: 'All Children', icon: Activity },
+        { id: 'signpages' as AdminView, label: 'Sign Page Photos', icon: ImagePlus },
         { id: 'reports' as AdminView, label: 'Reports', icon: FileText },
         { id: 'analytics' as AdminView, label: 'System Analytics', icon: BarChart3 },
         { id: 'settings' as AdminView, label: 'Settings', icon: Settings },
@@ -208,6 +211,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
             {currentView === 'areas' && <AreaManagementView />}
             {currentView === 'users' && <WorkerManagementView />}
             {currentView === 'children' && <MinistryChildrenView />}
+            {currentView === 'signpages' && <SignPageUploadView user={user} />}
             {currentView === 'reports' && <ReportsDashboard user={user} />}
             {currentView === 'analytics' && <SystemAnalytics />}
             {currentView === 'settings' && <SystemSettings />}

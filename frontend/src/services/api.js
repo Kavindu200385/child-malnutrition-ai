@@ -210,6 +210,17 @@ export const adminAPI = {
   pdhsReportsSentToMinistry: (params) => api.get('/api/admin/pdhs-reports-sent-to-ministry', { params }),
 };
 
+// Sign Page Upload API (Health Ministry / Superadmin dashboard)
+export const signPagesAPI = {
+  upload: (formData) =>
+    api.post('/api/sign-pages/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  list: () => api.get('/api/sign-pages'),
+  importSignInPhotos: () => api.post('/api/sign-pages/import-signin-photos'),
+  remove: (id) => api.delete(`/api/sign-pages/${id}`),
+};
+
 // Health check
 export const healthCheck = () => api.get('/health');
 
