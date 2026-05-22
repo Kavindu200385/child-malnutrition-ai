@@ -225,10 +225,15 @@ function NationalReportView({ data }: { data: any }) {
   const transfers = data.transfer_analytics || {};
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-blue-50 rounded-lg p-4">
           <p className="text-sm text-blue-600 font-medium">Total Children (National)</p>
           <p className="text-2xl font-bold text-blue-900">{nat.total_children ?? 0}</p>
+        </div>
+        <div className="bg-green-50 rounded-lg p-4">
+          <p className="text-sm text-green-600 font-medium">Clinic Visits</p>
+          <p className="text-2xl font-bold text-green-900">{nat.total_clinic_visits ?? 0}</p>
+          <p className="text-xs text-green-700 mt-1">Visits + midwife measurements</p>
         </div>
         <div className="bg-purple-50 rounded-lg p-4">
           <p className="text-sm text-purple-600 font-medium">AI Predictions</p>

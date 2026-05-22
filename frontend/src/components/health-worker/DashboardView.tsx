@@ -7,7 +7,7 @@ interface DashboardViewProps {
 }
 
 export function DashboardView({ onViewChild }: DashboardViewProps) {
-  const [stats, setStats] = useState<{ total_children: number; normal_count: number; mam_count: number; sam_count: number } | null>(null);
+  const [stats, setStats] = useState<{ total_children: number; normal_count: number; mam_count: number; sam_count: number; predicted_sam_count?: number; predicted_mam_count?: number } | null>(null);
   const [children, setChildren] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -66,6 +66,8 @@ export function DashboardView({ onViewChild }: DashboardViewProps) {
         normal_count: stats?.normal_count ?? 0,
         mam_count: stats?.mam_count ?? 0,
         sam_count: stats?.sam_count ?? 0,
+        predicted_sam_count: stats?.predicted_sam_count ?? 0,
+        predicted_mam_count: stats?.predicted_mam_count ?? 0,
       }}
       children={children}
       onViewChild={(id) => onViewChild(String(id))}

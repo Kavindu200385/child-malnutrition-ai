@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { mohAPI } from '../../services/api';
 import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
+import { buildSharedReportPdf } from '../../utils/buildSharedReportPdf';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -94,7 +95,6 @@ export function MohReportsView() {
     try {
       setDownloadingPdf(true);
 
-      // Always make sure we have a fresh summary for the currently selected period
       let effectiveSummary: any | null = summary;
       const desiredStart = startDate;
       const desiredEnd = endDate;
@@ -104,172 +104,61 @@ export function MohReportsView() {
           effectiveSummary.start_date !== desiredStart ||
           effectiveSummary.end_date !== desiredEnd
         ) {
-          const res = await mohAPI.getReportSummary({
-            start_date: desiredStart,
-            end_date: desiredEnd,
-          });
+          const res = await mohAPI.getReportSummary({ start_date: desiredStart, end_date: desiredEnd });
           if (res.data?.status === 'success') {
             effectiveSummary = res.data.summary;
             setSummary(res.data.summary);
           }
         }
       } catch {
-        // If this fails we still fall back to minimal PDF using whatever data we have
+        // fall back to whatever data we have
       }
-
-      const { jsPDF } = await import('jspdf');
-      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-      const M = 14;
-      const PW = 210;
-      const CW = PW - M * 2;
-
-      pdf.setFillColor(12, 95, 117);
-      pdf.rect(0, 0, PW, 18, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(14);
-      pdf.text('MOH Summary Report', M, 11);
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(`Generated: ${new Date().toLocaleString('en-GB')}`, PW - M, 11, { align: 'right' });
-
-      let y = 26;
-      pdf.setTextColor(40, 40, 40);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(10);
-      pdf.text('Summary period', M, y);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(9);
-      const start = effectiveSummary?.start_date || startDate;
-      const end = effectiveSummary?.end_date || endDate;
-      pdf.text(`${start} to ${end}`, M, y + 6);
-      y += 14;
 
       const s = effectiveSummary;
-      if (s) {
-        const cardW = CW / 3;
-        const cards = [
-          { label: 'Total children', value: s.total_children, col: [33, 37, 41] as [number, number, number] },
-          { label: 'Normal', value: s.normal_count, col: [46, 204, 113] as [number, number, number] },
-          { label: 'MAM', value: s.mam_count, col: [241, 196, 15] as [number, number, number] },
-          { label: 'SAM', value: s.sam_count, col: [231, 76, 60] as [number, number, number] },
-          { label: 'Escalations to MOH', value: s.escalations, col: [217, 119, 6] as [number, number, number] },
-          { label: 'Referred to nutritionist', value: s.referrals_to_nutritionist, col: [37, 99, 235] as [number, number, number] },
-        ];
-        cards.forEach((c, i) => {
-          const row = Math.floor(i / 3);
-          const col = i % 3;
-          const x = M + col * cardW;
-          const h = 16;
-          pdf.setDrawColor(229, 231, 235);
-          pdf.setFillColor(248, 250, 252);
-          pdf.roundedRect(x, y + row * (h + 4), cardW - 2, h, 1.5, 1.5, 'FD');
-          pdf.setFontSize(7);
-          pdf.setTextColor(107, 114, 128);
-          pdf.text(c.label, x + 3, y + row * (h + 4) + 5);
-          pdf.setFontSize(11);
-          pdf.setTextColor(...c.col);
-          pdf.setFont('helvetica', 'bold');
-          pdf.text(String(c.value), x + 3, y + row * (h + 4) + 12);
-          pdf.setFont('helvetica', 'normal');
-        });
-        y += 2 * (16 + 4) + 4;
-      }
+      const start = s?.start_date || desiredStart;
+      const end = s?.end_date || desiredEnd;
 
-      y += 4;
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(40, 40, 40);
-      pdf.text('Monthly reports overview (current year)', M, y);
-      y += 6;
+      const children: any[] = (s?.children || []).map((c: any) => ({
+        child_id: c.child_unique_id || c.id,
+        name: c.name,
+        gender: c.gender,
+        risk_level: (c.display_risk_level || 'NORMAL').toUpperCase(),
+        last_visit_date: c.last_measurement_date ? String(c.last_measurement_date).slice(0, 10) : null,
+      }));
 
-      const rows = reports || [];
-      const colW = [28, 18, 18, 18, 18, 22, 26];
-      const headers = ['Month', 'Total', 'Normal', 'MAM', 'SAM', 'Escalations', 'Sent to RDHS'];
-      pdf.setFontSize(7);
-      pdf.setTextColor(75, 85, 99);
-      let x = M;
-      headers.forEach((h, i) => {
-        pdf.text(h, x + 1.5, y + 3);
-        x += colW[i];
+      const pdf = await buildSharedReportPdf({
+        roleTitle: 'MOH Area Health Report',
+        areaName: s?.moh_area_name || 'MOH Area',
+        periodLabel: `${start} to ${end}`,
+        startDate: start,
+        endDate: end,
+        summary: {
+          total_children: s?.total_children ?? 0,
+          normal: s?.normal_count ?? 0,
+          mam: s?.mam_count ?? 0,
+          sam: s?.sam_count ?? 0,
+          escalations: s?.escalations ?? 0,
+        },
+        sections: children.length > 0
+          ? [{
+              title: 'Children in period',
+              headerLevel: 'secondary' as const,
+              summary: {
+                total: s?.total_children ?? 0,
+                normal: s?.normal_count ?? 0,
+                mam: s?.mam_count ?? 0,
+                sam: s?.sam_count ?? 0,
+                escalations: s?.escalations ?? 0,
+              },
+              children,
+            }]
+          : [],
       });
-      y += 6;
-
-      pdf.setFontSize(7.5);
-      pdf.setTextColor(31, 41, 55);
-      const maxRows = 18;
-      rows.slice(0, maxRows).forEach((r: any, idx: number) => {
-        x = M;
-        const vals = [
-          `${MONTHS[r.month - 1]} ${r.report_year}`,
-          r.total_children,
-          r.normal_count,
-          r.mam_count,
-          r.sam_count,
-          r.total_escalations,
-          r.sent_to_rdhs ? 'Sent' : 'Not sent',
-        ];
-        if (idx % 2 === 0) {
-          pdf.setFillColor(248, 250, 252);
-          pdf.rect(M, y - 3, CW, 6, 'F');
-        }
-        vals.forEach((v, i) => {
-          pdf.text(String(v), x + 1.5, y);
-          x += colW[i];
-        });
-        y += 6;
-      });
-
-      // Child details section for the same period
-      const children = (s?.children || []) as any[];
-      if (children.length > 0) {
-        pdf.addPage();
-        y = 16;
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(11);
-        pdf.setTextColor(40, 40, 40);
-        pdf.text('Child details in period', M, y);
-        y += 6;
-        const cCols = [30, 50, 20, 30, 30];
-        const cHeaders = ['ID', 'Name', 'DOB', 'Risk', 'Last measurement'];
-        pdf.setFontSize(7);
-        pdf.setTextColor(75, 85, 99);
-        x = M;
-        cHeaders.forEach((h, i) => {
-          pdf.text(h, x + 1.5, y + 3);
-          x += cCols[i];
-        });
-        y += 6;
-        pdf.setFontSize(7.5);
-        pdf.setTextColor(31, 41, 55);
-        const maxChildRows = 24;
-        children.slice(0, maxChildRows).forEach((c: any, idx: number) => {
-          x = M;
-          const vals = [
-            c.child_unique_id || c.id,
-            c.name || '',
-            c.dob ? String(c.dob).slice(0, 10) : '',
-            (c.display_risk_level || 'NORMAL').toUpperCase(),
-            c.last_measurement_date ? String(c.last_measurement_date).slice(0, 10) : '',
-          ];
-          if (idx % 2 === 0) {
-            pdf.setFillColor(248, 250, 252);
-            pdf.rect(M, y - 3, CW, 6, 'F');
-          }
-          vals.forEach((v, i) => {
-            const txt = typeof v === 'string' ? v : String(v);
-            const clipped = pdf.splitTextToSize(txt, cCols[i] - 3)[0] || '';
-            pdf.text(clipped, x + 1.5, y);
-            x += cCols[i];
-          });
-          y += 6;
-        });
-      }
 
       const fname = `MOH_Report_${start}_${end}.pdf`.replace(/:/g, '-');
       pdf.save(fname);
     } catch {
-      // swallow; user will just not get a file if something went wrong
+      // swallow
     } finally {
       setDownloadingPdf(false);
     }

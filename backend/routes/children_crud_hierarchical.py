@@ -32,6 +32,7 @@ from backend.models_hierarchical import (
     Child,
     Visit,
     Area,
+    Hospital,
     RiskLevel,
     ChildReferral,
     ReferralStatus,
@@ -40,9 +41,19 @@ from backend.models_hierarchical import (
 )
 from backend.utils.audit import log_audit
 from backend.utils.midwife_helpers import get_area_hierarchy
-from backend.utils.hospital_helpers import calculate_birth_risk_level
+from backend.utils.hospital_helpers import calculate_birth_risk_level, generate_child_unique_id
 
 bp = Blueprint("children_crud_hierarchical", __name__, url_prefix="/api/children")
+
+
+def _find_child_by_ref(child_ref: str) -> Child | None:
+    """Resolve child by child_id, child_unique_id, or numeric primary key."""
+    child = db.session.query(Child).filter(Child.child_id == child_ref).first()
+    if not child:
+        child = db.session.query(Child).filter(Child.child_unique_id == child_ref).first()
+    if not child and child_ref.isdigit():
+        child = db.session.get(Child, int(child_ref))
+    return child
 
 
 @bp.route("", methods=["POST"])
@@ -61,14 +72,23 @@ def create_child():
     if not child_id:
         return jsonify({"status": "error", "message": "child_id (registration number) is required"}), 400
 
-    # Check if child_id already exists
-    existing = db.session.query(Child).filter(Child.child_id == child_id).first()
+    child_unique_id = (data.get("child_unique_id") or child_id or "").strip()
+    if not child_unique_id:
+        return jsonify({"status": "error", "message": "child_id (registration number) is required"}), 400
+
+    # Check if child_id / child_unique_id already exists
+    from sqlalchemy import or_ as sql_or
+    existing = db.session.query(Child).filter(
+        sql_or(Child.child_id == child_id, Child.child_unique_id == child_unique_id)
+    ).first()
     if existing:
         return jsonify({"status": "error", "message": "child_id already exists"}), 409
 
     child = Child(
         child_id=child_id,
+        child_unique_id=child_unique_id,
         name=data.get("name"),
+        registration_date=datetime.utcnow(),
         gender=data.get("gender"),
         mother_name=data.get("mother_name"),
         guardian_name=data.get("guardian_name"),
@@ -136,9 +156,41 @@ def create_child():
     db.session.add(child)
     db.session.flush()
 
-    # When Pediatric Unit (hospital) registers, link child to their hospital
+    # When Pediatric Unit (hospital) registers, link child to their hospital + area hierarchy
     if user.role == ROLE_HOSPITAL and getattr(user, "hospital_id", None):
         child.hospital_id = user.hospital_id
+        hospital = db.session.get(Hospital, user.hospital_id)
+        if hospital:
+            child.registered_by_clinic = hospital.hospital_name
+            if not child.birth_registration:
+                child.birth_registration = {}
+            if isinstance(child.birth_registration, dict) and child_id != child_unique_id:
+                child.birth_registration.setdefault("mchCardNo", child_id)
+            try:
+                hos_id = generate_child_unique_id(user.hospital_id)
+                child.child_unique_id = hos_id
+                if child_id.startswith("MCH-") or child_id.startswith("BR-"):
+                    if isinstance(child.birth_registration, dict):
+                        child.birth_registration["mchCardNo"] = child_id
+                else:
+                    child.child_id = hos_id
+            except Exception:
+                pass
+            if hospital.district:
+                rdhs = db.session.query(Area).filter(
+                    Area.level == "rdhs",
+                    Area.district == hospital.district,
+                    Area.is_active == True,
+                ).first()
+                if rdhs:
+                    child.district_id = rdhs.id
+                    if rdhs.parent_id:
+                        child.province_id = rdhs.parent_id
+        child.current_assigned_role = ROLE_HOSPITAL
+        child.current_assigned_user_id = user.id
+        if not is_draft:
+            child.status = "ACTIVE"
+            child.is_draft = False
 
     # When midwife registers, assign child to their PHM area so it appears in their list
     if user.role == ROLE_MIDWIFE:
@@ -248,8 +300,17 @@ def list_children():
                 return jsonify({"status": "success", "children": [], "count": 0}), 200
             query = query.filter(Child.current_assigned_area_id.in_(accessible_area_ids))
     elif user.role == ROLE_HOSPITAL:
-        # Hospital sees children they registered
-        query = query.filter(Child.registered_by_user_id == user.id)
+        # Hospital: all children at this hospital (not only one registrar's user id)
+        from sqlalchemy import or_ as sql_or
+        if user.hospital_id:
+            query = query.filter(
+                sql_or(
+                    Child.hospital_id == user.hospital_id,
+                    Child.registered_by_user_id == user.id,
+                )
+            )
+        else:
+            query = query.filter(Child.registered_by_user_id == user.id)
     elif user.role == ROLE_NUTRITIONIST:
         # Nutritionist: only children whose transfer has been ACCEPTED (REVIEWED)
         # by this hospital nutritionist. This keeps lists and dashboards consistent:
@@ -367,9 +428,7 @@ def get_child(child_id: str):
     Accepts either child_id (string, e.g. registration number) or numeric primary key id.
     """
     user = get_current_user()
-    child = db.session.query(Child).filter(Child.child_id == child_id).first()
-    if not child and child_id.isdigit():
-        child = db.session.get(Child, int(child_id))
+    child = _find_child_by_ref(child_id)
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
     
@@ -401,9 +460,7 @@ def update_child(child_id: str):
     can edit children they have access to.
     """
     user = get_current_user()
-    child = db.session.query(Child).filter(Child.child_id == child_id).first()
-    if not child and child_id.isdigit():
-        child = db.session.get(Child, int(child_id))
+    child = _find_child_by_ref(child_id)
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
 
@@ -432,7 +489,20 @@ def update_child(child_id: str):
         child.status = "DRAFT" if child.is_draft else "ACTIVE"
 
     if "birth_registration" in data:
-        child.birth_registration = data["birth_registration"]
+        incoming = data["birth_registration"]
+        if isinstance(incoming, dict):
+            existing_reg = child.birth_registration if isinstance(child.birth_registration, dict) else {}
+            merged = {**existing_reg, **incoming}
+            child.birth_registration = merged
+        else:
+            child.birth_registration = incoming
+
+    # Sync top-level birth measurements from payload or nested birth_registration
+    birth_reg = child.birth_registration if isinstance(child.birth_registration, dict) else {}
+    if "birth_weight_kg" not in data and birth_reg.get("birthWeight") is not None:
+        data = {**data, "birth_weight_kg": birth_reg.get("birthWeight")}
+    if "birth_height_cm" not in data and birth_reg.get("birthLength") is not None:
+        data = {**data, "birth_height_cm": birth_reg.get("birthLength")}
 
     if "dob" in data:
         if data["dob"] is None or data["dob"] == "":

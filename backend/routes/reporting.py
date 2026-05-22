@@ -37,18 +37,171 @@ def _risk_distribution_buckets(children):
     """Return {NORMAL, MODERATE, HIGH, CRITICAL} counts for a list of children."""
     buckets = {"NORMAL": 0, "MODERATE": 0, "HIGH": 0, "CRITICAL": 0}
     for c in children:
-        k = _risk_key(c.current_risk_level)
+        k = _risk_key(c.current_risk_level or c.birth_risk_level)
         buckets[k] = buckets[k] + 1
     return buckets
+
+
+def _parse_date_filter(start_date: str | None, end_date: str | None):
+    start, end = None, None
+    if start_date:
+        try:
+            start = datetime.fromisoformat(start_date).date()
+        except Exception:
+            start = None
+    if end_date:
+        try:
+            end = datetime.fromisoformat(end_date).date()
+        except Exception:
+            end = None
+    if start or end:
+        return (start, end)
+    return None
+
+
+def _hospital_ids_for_district(rdhs_area: Area) -> list[int]:
+    if not rdhs_area or not rdhs_area.district:
+        return []
+    rows = db.session.query(Hospital.id).filter(
+        Hospital.is_active == True,
+        Hospital.district == rdhs_area.district,
+    ).all()
+    return [r[0] for r in rows]
+
+
+def _hospital_ids_for_province(pdhs_areas: list, district_areas: list) -> list[int]:
+    districts = {a.district for a in district_areas if a.district}
+    provinces = {a.province for a in pdhs_areas if a.province}
+    if not districts and not provinces:
+        return []
+    conds = []
+    if districts:
+        conds.append(Hospital.district.in_(list(districts)))
+    if provinces:
+        conds.append(Hospital.province.in_(list(provinces)))
+    rows = db.session.query(Hospital.id).filter(Hospital.is_active == True, or_(*conds)).all()
+    return [r[0] for r in rows]
+
+
+def _child_scope_for_district(rdhs_area: Area, child_area_ids: list[int]):
+    """All active children belonging to an RDHS district (PHM/MOH/hospital)."""
+    conditions = [Child.district_id == rdhs_area.id]
+    if child_area_ids:
+        conditions.extend([
+            Child.phm_area_id.in_(child_area_ids),
+            Child.moh_area_id.in_(child_area_ids),
+            Child.current_assigned_area_id.in_(child_area_ids),
+        ])
+    hosp_ids = _hospital_ids_for_district(rdhs_area)
+    if hosp_ids:
+        conditions.append(Child.hospital_id.in_(hosp_ids))
+    return or_(*conditions)
+
+
+def _child_scope_for_province(
+    province_ids: list[int],
+    district_ids: list[int],
+    all_child_area_ids: list[int],
+    pdhs_areas: list,
+    district_areas: list,
+):
+    conditions = []
+    if province_ids:
+        conditions.append(Child.province_id.in_(province_ids))
+    if district_ids:
+        conditions.append(Child.district_id.in_(district_ids))
+    if all_child_area_ids:
+        conditions.extend([
+            Child.phm_area_id.in_(all_child_area_ids),
+            Child.moh_area_id.in_(all_child_area_ids),
+            Child.current_assigned_area_id.in_(all_child_area_ids),
+        ])
+    hosp_ids = _hospital_ids_for_province(pdhs_areas, district_areas)
+    if hosp_ids:
+        conditions.append(Child.hospital_id.in_(hosp_ids))
+    if not conditions:
+        return Child.id == -1  # no match
+    return or_(*conditions)
+
+
+def _query_children_in_scope(scope_filter):
+    return db.session.query(Child).filter(
+        scope_filter,
+        Child.is_draft == False,
+        Child.status == "ACTIVE",
+    ).all()
+
+
+def _count_clinic_activity(child_ids: list[int], date_filter, user_id: int | None = None) -> int:
+    """Visits + measurements (midwife clinic data lives in measurements)."""
+    if not child_ids:
+        return 0
+    visit_q = db.session.query(Visit).filter(Visit.child_id_fk.in_(child_ids))
+    meas_q = db.session.query(Measurement).filter(Measurement.child_id.in_(child_ids))
+    if user_id:
+        visit_q = visit_q.filter(Visit.created_by_user_id == user_id)
+        meas_q = meas_q.filter(Measurement.measured_by_user_id == user_id)
+    if date_filter:
+        start, end = date_filter
+        if start:
+            start_dt = datetime.combine(start, datetime.min.time())
+            visit_q = visit_q.filter(Visit.visit_date >= start_dt)
+            meas_q = meas_q.filter(Measurement.measurement_date >= start_dt)
+        if end:
+            end_dt = datetime.combine(end, datetime.max.time())
+            visit_q = visit_q.filter(Visit.visit_date <= end_dt)
+            meas_q = meas_q.filter(Measurement.measurement_date <= end_dt)
+    return visit_q.count() + meas_q.count()
+
+
+def _worker_assigned_area_ids(worker: User) -> set[int]:
+    return {
+        m.area_id
+        for m in db.session.query(WorkerAreaMapping).filter(
+            WorkerAreaMapping.user_id == worker.id,
+            WorkerAreaMapping.is_active == True,
+        ).all()
+    }
+
+
+def _children_for_worker(worker: User, scope_children: list[Child]) -> list[Child]:
+    if worker.role == "nutritionist" and worker.hospital_id:
+        ref_ids = {
+            r.child_id
+            for r in db.session.query(ChildReferral.child_id).filter(
+                ChildReferral.hospital_id == worker.hospital_id,
+            ).all()
+        }
+        return [c for c in scope_children if c.id in ref_ids]
+
+    assigned_areas = _worker_assigned_area_ids(worker)
+    matched = []
+    for c in scope_children:
+        if c.current_assigned_user_id == worker.id or c.registered_by_user_id == worker.id:
+            matched.append(c)
+            continue
+        if worker.phm_area_id and c.phm_area_id == worker.phm_area_id:
+            matched.append(c)
+            continue
+        if c.moh_area_id and c.moh_area_id in assigned_areas:
+            matched.append(c)
+            continue
+        if c.phm_area_id and c.phm_area_id in assigned_areas:
+            matched.append(c)
+    return matched
+
+
 from backend.extensions import db
 from backend.models_hierarchical import (
     Child,
     Visit,
+    Measurement,
     Area,
+    Hospital,
     Report,
-    RiskLevel,
     ChildTransfer,
     User,
+    WorkerAreaMapping,
 )
 from backend.utils.audit import log_audit
 
@@ -89,60 +242,16 @@ def district_report():
     # Get all child areas under this RDHS
     child_area_ids = _get_child_area_ids(target_area.id)
     
-    # Date filters
-    date_filter = None
-    if start_date or end_date:
-        if start_date:
-            try:
-                start = datetime.fromisoformat(start_date).date()
-            except:
-                start = None
-        else:
-            start = None
-        
-        if end_date:
-            try:
-                end = datetime.fromisoformat(end_date).date()
-            except:
-                end = None
-        else:
-            end = None
-        
-        if start or end:
-            date_filter = (start, end)
-    
-    # Get children in district: by assigned area OR by district_id (e.g. nutritionist-referred, repair).
-    # Do NOT filter by registration_date: date range applies only to visits so the report shows
-    # all children in the district with visit stats for the selected period.
-    if child_area_ids:
-        district_cond = or_(Child.district_id == target_area.id, Child.current_assigned_area_id.in_(child_area_ids))
-    else:
-        district_cond = Child.district_id == target_area.id
-    children = db.session.query(Child).filter(
-        district_cond,
-        Child.is_draft == False,
-        Child.status == "ACTIVE"
-    ).all()
-    
-    # Calculate statistics (map MAM->MODERATE, SAM->CRITICAL for display)
+    date_filter = _parse_date_filter(start_date, end_date)
+
+    # All children in district; date range applies to clinic activity counts only.
+    children = _query_children_in_scope(_child_scope_for_district(target_area, child_area_ids))
+
     total_children = len(children)
     risk_distribution = _risk_distribution_buckets(children)
-    
-    # Get visits in date range
-    visits_query = db.session.query(Visit).filter(
-        Visit.child_id_fk.in_([c.id for c in children])
-    )
-    if date_filter:
-        start, end = date_filter
-        if start:
-            visits_query = visits_query.filter(Visit.visit_date >= datetime.combine(start, datetime.min.time()))
-        if end:
-            visits_query = visits_query.filter(Visit.visit_date <= datetime.combine(end, datetime.max.time()))
-    
-    total_visits = visits_query.count()
-    
-    # Worker performance: workers assigned to this district (RDHS) or any MOH/PHM under it
-    from backend.models_hierarchical import WorkerAreaMapping
+    child_ids = [c.id for c in children]
+    total_visits = _count_clinic_activity(child_ids, date_filter)
+
     worker_area_ids = list(child_area_ids) if child_area_ids else []
     if target_area.id not in worker_area_ids:
         worker_area_ids.append(target_area.id)
@@ -154,24 +263,25 @@ def district_report():
         WorkerAreaMapping.is_active == True,
         User.is_active == True,
     ).distinct().all()
-    
+
+    hosp_ids = _hospital_ids_for_district(target_area)
+    if hosp_ids:
+        hospital_staff = db.session.query(User).filter(
+            User.hospital_id.in_(hosp_ids),
+            User.is_active == True,
+            User.role.in_(("hospital", "nutritionist")),
+        ).all()
+        seen_ids = {w.id for w in workers}
+        for w in hospital_staff:
+            if w.id not in seen_ids:
+                workers.append(w)
+                seen_ids.add(w.id)
+
     worker_stats = []
     for worker in workers:
-        worker_children = [c for c in children if c.current_assigned_user_id == worker.id]
-        if not worker_children:
-            visits_count = 0
-        else:
-            visits_q = db.session.query(Visit).filter(
-                Visit.child_id_fk.in_([c.id for c in worker_children]),
-                Visit.created_by_user_id == worker.id
-            )
-            if date_filter:
-                start, end = date_filter
-                if start:
-                    visits_q = visits_q.filter(Visit.visit_date >= datetime.combine(start, datetime.min.time()))
-                if end:
-                    visits_q = visits_q.filter(Visit.visit_date <= datetime.combine(end, datetime.max.time()))
-            visits_count = visits_q.count()
+        worker_children = _children_for_worker(worker, children)
+        child_ids_w = [c.id for c in worker_children]
+        visits_count = _count_clinic_activity(child_ids_w, date_filter, user_id=worker.id)
         role_cat = "admin" if (worker.role or "").lower() in ADMIN_ROLES else "field"
         worker_stats.append({
             "worker_id": worker.id,
@@ -257,41 +367,12 @@ def provincial_report():
         ).all()
         all_districts.extend(districts)
     
-    # Date filters
-    date_filter = None
-    if start_date or end_date:
-        if start_date:
-            try:
-                start = datetime.fromisoformat(start_date).date()
-            except:
-                start = None
-        else:
-            start = None
-        
-        if end_date:
-            try:
-                end = datetime.fromisoformat(end_date).date()
-            except:
-                end = None
-        else:
-            end = None
-        
-        if start or end:
-            date_filter = (start, end)
-    
-    # District comparison: include all children in district (date filter applies to visits only if needed later)
+    date_filter = _parse_date_filter(start_date, end_date)
+
     district_comparison = []
     for district in all_districts:
         child_area_ids = _get_child_area_ids(district.id)
-        if child_area_ids:
-            district_cond = or_(Child.district_id == district.id, Child.current_assigned_area_id.in_(child_area_ids))
-        else:
-            district_cond = Child.district_id == district.id
-        children = db.session.query(Child).filter(
-            district_cond,
-            Child.is_draft == False,
-            Child.status == "ACTIVE"
-        ).all()
+        children = _query_children_in_scope(_child_scope_for_district(district, child_area_ids))
         risk_dist = _risk_distribution_buckets(children)
         district_comparison.append({
             "district_id": district.id,
@@ -299,26 +380,16 @@ def provincial_report():
             "total_children": len(children),
             "risk_distribution": risk_dist,
         })
-    
-    # Provincial totals: include children by province_id, district_id, or assigned area under province
+
     all_child_area_ids = []
     for district in all_districts:
         all_child_area_ids.extend(_get_child_area_ids(district.id))
     province_ids = [p.id for p in pdhs_areas]
     district_ids = [d.id for d in all_districts]
-    if all_child_area_ids:
-        provincial_cond = or_(
-            Child.province_id.in_(province_ids),
-            Child.district_id.in_(district_ids),
-            Child.current_assigned_area_id.in_(all_child_area_ids),
-        )
-    else:
-        provincial_cond = or_(Child.province_id.in_(province_ids), Child.district_id.in_(district_ids))
-    all_children = db.session.query(Child).filter(
-        provincial_cond,
-        Child.is_draft == False,
-        Child.status == "ACTIVE"
-    ).all()
+    provincial_cond = _child_scope_for_province(
+        province_ids, district_ids, all_child_area_ids, pdhs_areas, all_districts
+    )
+    all_children = _query_children_in_scope(provincial_cond)
     provincial_summary = {
         "total_children": len(all_children),
         "total_districts": len(all_districts),
@@ -354,39 +425,17 @@ def national_report():
     
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
-    
-    # Get all active children
-    children_query = db.session.query(Child).filter(
+    date_filter = _parse_date_filter(start_date, end_date)
+
+    all_children = db.session.query(Child).filter(
         Child.is_draft == False,
-        Child.status == "ACTIVE"
-    )
-    
-    # Date filters
-    if start_date:
-        try:
-            start = datetime.fromisoformat(start_date).date()
-            children_query = children_query.filter(Child.registration_date >= datetime.combine(start, datetime.min.time()))
-        except:
-            pass
-    
-    if end_date:
-        try:
-            end = datetime.fromisoformat(end_date).date()
-            children_query = children_query.filter(Child.registration_date <= datetime.combine(end, datetime.max.time()))
-        except:
-            pass
-    
-    all_children = children_query.all()
-    
-    # National summary
+        Child.status == "ACTIVE",
+    ).all()
+
     national_summary = {
         "total_children": len(all_children),
-        "risk_distribution": {
-            "NORMAL": len([c for c in all_children if c.current_risk_level == RiskLevel.NORMAL]),
-            "MODERATE": len([c for c in all_children if c.current_risk_level == RiskLevel.MODERATE]),
-            "HIGH": len([c for c in all_children if c.current_risk_level == RiskLevel.HIGH]),
-            "CRITICAL": len([c for c in all_children if c.current_risk_level == RiskLevel.CRITICAL]),
-        },
+        "risk_distribution": _risk_distribution_buckets(all_children),
+        "total_clinic_visits": _count_clinic_activity([c.id for c in all_children], date_filter),
     }
     
     # Province comparison
@@ -407,44 +456,47 @@ def national_report():
         for district in districts:
             all_child_area_ids.extend(_get_child_area_ids(district.id))
         district_ids = [d.id for d in districts]
-        # Include children by province_id, district_id, or assigned area under province
-        province_children = [
-            c for c in all_children
-            if c.province_id == province.id
-            or (c.district_id and c.district_id in district_ids)
-            or (c.current_assigned_area_id and c.current_assigned_area_id in all_child_area_ids)
-        ]
-        
+        scope = _child_scope_for_province([province.id], district_ids, all_child_area_ids, [province], districts)
+        province_children = _query_children_in_scope(scope)
+
         province_comparison.append({
             "province_id": province.id,
             "province_name": province.name,
             "total_children": len(province_children),
-            "risk_distribution": {
-                "NORMAL": len([c for c in province_children if c.current_risk_level == RiskLevel.NORMAL]),
-                "MODERATE": len([c for c in province_children if c.current_risk_level == RiskLevel.MODERATE]),
-                "HIGH": len([c for c in province_children if c.current_risk_level == RiskLevel.HIGH]),
-                "CRITICAL": len([c for c in province_children if c.current_risk_level == RiskLevel.CRITICAL]),
-            },
+            "risk_distribution": _risk_distribution_buckets(province_children),
         })
-    
-    # AI Prediction Analytics
-    # Get recent visits with predictions
+
     recent_visits = db.session.query(Visit).filter(
         Visit.predicted_risk_next_2_months.isnot(None)
     ).order_by(Visit.visit_date.desc()).limit(1000).all()
-    
+    recent_meas = db.session.query(Measurement).filter(
+        Measurement.predicted_risk_next_2_months.isnot(None)
+    ).order_by(Measurement.measurement_date.desc()).limit(1000).all()
+
+    pred_items = list(recent_visits) + list(recent_meas)
+    conf_values = []
+    for item in pred_items:
+        conf = getattr(item, "model_confidence", None)
+        if conf is not None:
+            conf_values.append(float(conf))
+
+    def _pred_bucket(val):
+        if not val:
+            return None
+        v = str(val).strip().capitalize()
+        if v in ("Low", "Moderate", "High", "Severe"):
+            return v
+        return None
+
     prediction_analytics = {
-        "total_predictions": len(recent_visits),
+        "total_predictions": len(pred_items),
         "prediction_distribution": {
-            "Low": len([v for v in recent_visits if v.predicted_risk_next_2_months == "Low"]),
-            "Moderate": len([v for v in recent_visits if v.predicted_risk_next_2_months == "Moderate"]),
-            "High": len([v for v in recent_visits if v.predicted_risk_next_2_months == "High"]),
-            "Severe": len([v for v in recent_visits if v.predicted_risk_next_2_months == "Severe"]),
+            "Low": sum(1 for x in pred_items if _pred_bucket(getattr(x, "predicted_risk_next_2_months", None)) == "Low"),
+            "Moderate": sum(1 for x in pred_items if _pred_bucket(getattr(x, "predicted_risk_next_2_months", None)) == "Moderate"),
+            "High": sum(1 for x in pred_items if _pred_bucket(getattr(x, "predicted_risk_next_2_months", None)) == "High"),
+            "Severe": sum(1 for x in pred_items if _pred_bucket(getattr(x, "predicted_risk_next_2_months", None)) == "Severe"),
         },
-        "average_confidence": round(
-            sum([v.model_confidence for v in recent_visits if v.model_confidence]) / len([v for v in recent_visits if v.model_confidence]),
-            3
-        ) if recent_visits else 0,
+        "average_confidence": round(sum(conf_values) / len(conf_values), 3) if conf_values else 0,
     }
     
     # Transfer statistics
@@ -645,7 +697,10 @@ def overview_stats():
 
     # Health workers: PDHS, RDHS, MOH, AMOH, MIDWIFE, NUTRITIONIST, HOSPITAL (exclude health_ministry)
     worker_roles = ("pdhs", "rdhs", "moh", "amoh", "midwife", "nutritionist", "hospital")
-    total_workers = db.session.query(User).filter(User.role.in_(worker_roles)).count()
+    total_workers = db.session.query(User).filter(
+        User.role.in_(worker_roles),
+        User.is_active == True,
+    ).count()
 
     # Clinics = active PHM areas
     total_clinics = db.session.query(Area).filter(
@@ -661,13 +716,9 @@ def overview_stats():
     district_breakdown = []
     for rdhs in rdhs_areas:
         child_area_ids = _get_child_area_ids(rdhs.id)
-        district_children = [
-            c for c in all_children
-            if (c.district_id == rdhs.id) or (c.current_assigned_area_id and c.current_assigned_area_id in child_area_ids)
-        ]
+        district_children = _query_children_in_scope(_child_scope_for_district(rdhs, child_area_ids))
         total = len(district_children)
-        if total == 0 and len([c for c in all_children if c.district_id == rdhs.id]) == 0:
-            # Optionally include districts with no children for full map
+        if total == 0:
             continue
         sam = sum(1 for c in district_children if _risk_sam(c.current_risk_level))
         mam = sum(1 for c in district_children if _risk_mam(c.current_risk_level))
@@ -716,7 +767,9 @@ def overview_stats():
     ).all()
     clinic_performance = []
     for moh in moh_areas:
-        moh_children = [c for c in all_children if c.moh_area_id == moh.id]
+        moh_child_area_ids = _get_child_area_ids(moh.id)
+        moh_scope = or_(Child.moh_area_id == moh.id, Child.phm_area_id.in_(moh_child_area_ids)) if moh_child_area_ids else (Child.moh_area_id == moh.id)
+        moh_children = _query_children_in_scope(moh_scope)
         total = len(moh_children)
         sam = sum(1 for c in moh_children if _risk_sam(c.current_risk_level))
         mam = sum(1 for c in moh_children if _risk_mam(c.current_risk_level))

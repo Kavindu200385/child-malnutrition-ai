@@ -734,14 +734,14 @@ def reports_full():
         return (today.year - dob.year) * 12 + (today.month - dob.month)
 
     def _last_visit_data(child):
-        if not child.visits:
+        if not child.measurements:
             return {}
-        v = child.visits[0]
+        m = child.measurements[0]
         return {
-            "weight_kg": float(v.weight_kg) if v.weight_kg else None,
-            "height_cm": float(v.height_cm) if v.height_cm else None,
-            "muac_cm": float(v.muac_cm) if v.muac_cm else None,
-            "visit_date": v.visit_date.strftime("%Y-%m-%d") if v.visit_date else None,
+            "weight_kg": float(m.weight_kg) if m.weight_kg else None,
+            "height_cm": float(m.height_cm) if m.height_cm else None,
+            "muac_cm": float(m.muac_cm) if m.muac_cm else None,
+            "visit_date": m.measurement_date.strftime("%Y-%m-%d") if m.measurement_date else None,
         }
 
     # All province children (same as dashboard – includes nutritionist-referred with no area)

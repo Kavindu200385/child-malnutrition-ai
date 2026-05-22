@@ -113,7 +113,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                 <p className="text-sm font-medium">{user.name}</p>
                 <p className="text-xs text-purple-100">
                   {isHealthMinistry && user.is_protected
-                    ? 'System Developer'
+                    ? 'Super Admin'
                     : isHealthMinistry
                       ? 'National Admin (Health Ministry)'
                       : user.role === 'rdhs'

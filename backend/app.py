@@ -416,13 +416,30 @@ def create_app() -> Flask:
         try:
             db.session.execute(text("SELECT 1"))
             db.session.commit()
-            print("[OK] Database connected successfully")
+            db_uri = str(app.config.get("SQLALCHEMY_DATABASE_URI", ""))
+            if "sqlite" in db_uri.lower():
+                print(f"[OK] Database connected successfully (SQLite: {db_uri.split('///')[-1]})")
+            elif "mysql" in db_uri.lower():
+                print("[OK] Database connected successfully (MySQL)")
+            else:
+                print("[OK] Database connected successfully")
         except Exception as e:
             print(f"[ERROR] Database connection failed: {e}")
             print("  Check backend/.env: DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, DB_NAME")
             print("  For MySQL: ensure MySQL is running and the database 'cmras' exists.")
         db.create_all()
         _ensure_db_schema_compatible(app)
+        # Backfill missing child_unique_id from child_id (legacy rows)
+        from backend.models_hierarchical import Child
+        missing_uid = Child.query.filter(
+            Child.child_unique_id.is_(None),
+            Child.child_id.isnot(None),
+        ).all()
+        for row in missing_uid:
+            row.child_unique_id = row.child_id
+        if missing_uid:
+            db.session.commit()
+            print(f"[OK] Backfilled child_unique_id for {len(missing_uid)} child record(s)")
         seed_superadmin()
         # Dummy data seeding removed - system starts clean
 

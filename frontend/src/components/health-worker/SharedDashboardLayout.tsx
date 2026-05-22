@@ -2,8 +2,8 @@
  * Shared dashboard layout – same UI for all roles (Midwife, Pediatric Unit, etc.).
  * Each role sees only their own area's/hospital's data; backend scopes by user.
  */
-import type { ReactNode } from 'react';
-import { AlertTriangle, Users, TrendingUp, Activity } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { AlertTriangle, Users, TrendingUp, Activity, Brain, X } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { getRiskColor, getRiskLabel, getDisplayRiskLevel, getDisplayRiskLevelTyped } from '../../types';
 import { formatDateTime } from '../../utils/formatDate';
@@ -13,6 +13,8 @@ export interface SharedDashboardStats {
   normal_count: number;
   mam_count: number;
   sam_count: number;
+  predicted_sam_count?: number;
+  predicted_mam_count?: number;
 }
 
 export interface SharedDashboardLayoutProps {
@@ -36,10 +38,15 @@ export function SharedDashboardLayout({
   extraCard,
   emptyMessage = 'No children in your area yet.',
 }: SharedDashboardLayoutProps) {
+  const [showPredictedChart, setShowPredictedChart] = useState(false);
+
   const totalChildren = stats.total_children ?? 0;
   const samCount = stats.sam_count ?? 0;
   const mamCount = stats.mam_count ?? 0;
   const normalCount = stats.normal_count ?? 0;
+  const predictedSam = stats.predicted_sam_count ?? 0;
+  const predictedMam = stats.predicted_mam_count ?? 0;
+  const predictedTotal = predictedSam + predictedMam;
 
   const getRisk = (c: any) => getDisplayRiskLevel(c);
   const criticalCases = children.filter((c) => getRisk(c) === 'SAM');
@@ -109,7 +116,7 @@ export function SharedDashboardLayout({
         <p className="text-gray-600 mt-1">{subtitle}</p>
       </div>
 
-      {/* Stats cards – align nicely on medium and large screens (3 cols on md, 4/5 on xl) */}
+      {/* Stats cards */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 ${extraCard ? 'xl:grid-cols-5' : 'xl:grid-cols-4'} gap-4`}>
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
@@ -167,6 +174,81 @@ export function SharedDashboardLayout({
           </div>
         )}
       </div>
+
+      {/* Predicted Cases card – clickable, spans full width as a standalone row */}
+      <button
+        onClick={() => setShowPredictedChart(true)}
+        className="w-full text-left bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg shadow p-5 hover:shadow-md transition-shadow cursor-pointer"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Brain className="w-6 h-6 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-purple-700">Predicted Cases (next 2 months)</p>
+              <p className="text-3xl font-bold text-purple-900 mt-0.5">{predictedTotal}</p>
+              <p className="text-xs text-purple-500 mt-0.5">SAM: {predictedSam} &nbsp;·&nbsp; MAM: {predictedMam}</p>
+            </div>
+          </div>
+          <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-3 py-1 rounded-full">View chart →</span>
+        </div>
+      </button>
+
+      {/* Predicted cases modal chart */}
+      {showPredictedChart && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setShowPredictedChart(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Predicted Risk Cases</h3>
+                <p className="text-sm text-gray-500">AI forecast for next 2 months</p>
+              </div>
+              <button onClick={() => setShowPredictedChart(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart
+                data={[
+                  { name: 'Predicted SAM', count: predictedSam, fill: '#E74C3C' },
+                  { name: 'Predicted MAM', count: predictedMam, fill: '#F1C40F' },
+                ]}
+                margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 13 }} />
+                <YAxis allowDecimals={false} />
+                <Tooltip formatter={(v: any) => [v, 'Children']} />
+                <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                  {[{ fill: '#E74C3C' }, { fill: '#F1C40F' }].map((entry, i) => (
+                    <Cell key={i} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="mt-4 flex gap-4 justify-center text-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-red-500" />
+                <span className="text-gray-700">Predicted SAM: <strong>{predictedSam}</strong></span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-yellow-400" />
+                <span className="text-gray-700">Predicted MAM: <strong>{predictedMam}</strong></span>
+              </div>
+            </div>
+            {predictedTotal === 0 && (
+              <p className="text-center text-gray-400 text-sm mt-3">No predicted risk cases at this time.</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {criticalCases.length > 0 && onViewChild && (
         <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6">

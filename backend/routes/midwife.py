@@ -409,17 +409,17 @@ def add_measurement():
     # Check if escalation needed
     escalation_needed = should_escalate_to_moh(previous_risk, current_risk)
 
-    db.session.commit()
-
     log_audit(
         action="CREATE",
         entity_type="measurement",
         entity_id=measurement.id,
         new_values=measurement.to_dict(),
         user_id=user.id,
-        description=f"Added measurement for child {child.child_unique_id}",
+        description=f"Added measurement for child {child.child_unique_id or child.child_id}",
     )
-    
+
+    db.session.commit()
+
     return jsonify({
         "status": "success",
         "message": "Measurement recorded successfully",
@@ -690,6 +690,40 @@ def get_dashboard_stats():
             Measurement.measurement_date >= thirty_days_ago
         ).count()
 
+    # Get predicted risk counts from the latest measurement per child
+    predicted_sam_count = 0
+    predicted_mam_count = 0
+    child_ids = [c.id for c in children]
+    if child_ids:
+        latest_subq = (
+            db.session.query(
+                Measurement.child_id,
+                db.func.max(Measurement.measurement_date).label("max_date"),
+            )
+            .filter(
+                Measurement.child_id.in_(child_ids),
+                Measurement.predicted_risk_next_2_months.isnot(None),
+            )
+            .group_by(Measurement.child_id)
+            .subquery()
+        )
+        preds = (
+            db.session.query(Measurement.predicted_risk_next_2_months)
+            .join(
+                latest_subq,
+                db.and_(
+                    Measurement.child_id == latest_subq.c.child_id,
+                    Measurement.measurement_date == latest_subq.c.max_date,
+                ),
+            )
+            .all()
+        )
+        for (p,) in preds:
+            if p and p.strip() == "Severe":
+                predicted_sam_count += 1
+            elif p and p.strip() in ("High", "Moderate"):
+                predicted_mam_count += 1
+
     # Optional: resolve PHM area name/full path for frontend display
     phm_area_name = None
     phm_area_full_path = None
@@ -711,6 +745,8 @@ def get_dashboard_stats():
             "sam_count": sam_count,
             "escalated_cases": escalated_count,
             "recent_measurements_30days": recent_measurements,
+            "predicted_sam_count": predicted_sam_count,
+            "predicted_mam_count": predicted_mam_count,
         },
         "phm_area_id": phm_area_id,
         "phm_area_name": phm_area_name,

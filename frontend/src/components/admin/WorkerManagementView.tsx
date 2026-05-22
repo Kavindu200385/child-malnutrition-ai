@@ -432,8 +432,8 @@ export function WorkerManagementView({ onBack }: WorkerManagementViewProps) {
                     <div className="flex items-center gap-3 mb-2">
                       <User className="w-5 h-5 text-gray-400" />
                       <h4 className="text-lg font-bold text-gray-900">{worker.name}</h4>
-                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
-                        {roleDisplayLabels[worker.role] ?? worker.role}
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${worker.is_protected ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
+                        {worker.is_protected ? 'Super Admin' : (roleDisplayLabels[worker.role] ?? worker.role)}
                       </span>
                       {!worker.is_active && (
                         <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">

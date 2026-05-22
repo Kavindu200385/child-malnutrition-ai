@@ -1159,6 +1159,40 @@ def moh_dashboard():
             }
         )
 
+    # Get predicted risk counts from the latest measurement per child
+    predicted_sam_count = 0
+    predicted_mam_count = 0
+    child_ids = [c.id for c in children]
+    if child_ids:
+        latest_subq = (
+            db.session.query(
+                Measurement.child_id,
+                db.func.max(Measurement.measurement_date).label("max_date"),
+            )
+            .filter(
+                Measurement.child_id.in_(child_ids),
+                Measurement.predicted_risk_next_2_months.isnot(None),
+            )
+            .group_by(Measurement.child_id)
+            .subquery()
+        )
+        preds = (
+            db.session.query(Measurement.predicted_risk_next_2_months)
+            .join(
+                latest_subq,
+                db.and_(
+                    Measurement.child_id == latest_subq.c.child_id,
+                    Measurement.measurement_date == latest_subq.c.max_date,
+                ),
+            )
+            .all()
+        )
+        for (p,) in preds:
+            if p and p.strip() == "Severe":
+                predicted_sam_count += 1
+            elif p and p.strip() in ("High", "Moderate"):
+                predicted_mam_count += 1
+
     # Prepare compact high-risk children (top 5)
     high_risk_output: list[dict] = []
     for entry in high_risk_children:
@@ -1208,6 +1242,8 @@ def moh_dashboard():
                 "new_escalations_month": new_escalations_month,
                 "resolved_escalations_month": resolved_escalations_month,
                 "high_risk_children": high_risk_output,
+                "predicted_sam_count": predicted_sam_count,
+                "predicted_mam_count": predicted_mam_count,
             },
         }
     ), 200

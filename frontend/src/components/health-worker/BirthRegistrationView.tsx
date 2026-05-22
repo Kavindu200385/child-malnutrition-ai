@@ -165,14 +165,17 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
       // Prepare data for backend
       const registrationData = {
         child_id: childId,
+        child_unique_id: childId,
         name: step1Data.childName,
         dob: step1Data.childDOB,
         gender: step1Data.gender,
         mother_name: step1Data.motherName,          // save as mother_name for PDF/profile display
         guardian_name: step1Data.motherName,         // also set as guardian (mother is primary caregiver at birth)
         guardian_nic: step1Data.motherNic || null,   // mother's NIC = guardian NIC at birth
-        guardian_phone: '',                          // not collected in this wizard — editable later
+        guardian_phone: null,
         address: step1Data.address,
+        birth_weight_kg: step2Data.birthWeight ? parseFloat(step2Data.birthWeight) : null,
+        birth_height_cm: step2Data.birthLength ? parseFloat(step2Data.birthLength) : null,
         is_draft: isDraft,
         // Additional birth registration data (stored as JSON in database)
         birth_registration: {

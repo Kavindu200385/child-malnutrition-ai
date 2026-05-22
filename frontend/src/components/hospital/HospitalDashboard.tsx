@@ -2,7 +2,7 @@
  * Pediatric Unit Dashboard
  * Pediatric Unit role - Birth Registration & Initial Risk Screening at hospital
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { User } from '../../App';
 import { BirthRegistrationView } from '../health-worker/BirthRegistrationView';
 import { ChildProfileView } from '../health-worker/ChildProfileView';
@@ -31,7 +31,7 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
 
   // Restore last selected hospital view so refresh stays on same page
-  React.useEffect(() => {
+  useEffect(() => {
     try {
       const stored = localStorage.getItem('hospital_current_view') as HospitalView | null;
       if (stored) {

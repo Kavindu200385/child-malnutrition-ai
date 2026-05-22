@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Send, RefreshCw, ChevronDown, Download, Printer } from 'lucide-react';
 import { pdhsAPI } from '../../services/api';
+import { buildSharedReportPdf, type SharedAreaSection } from '../../utils/buildSharedReportPdf';
 
 const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const REFRESH_INTERVAL_MS = 30 * 1000; // 30 seconds when on province tab
@@ -91,241 +92,61 @@ export function PdhsReportsView() {
       .catch((err) => setError(err.response?.data?.message || 'Failed to send report'));
   };
 
-  /** Build full provincial report PDF (districts -> MOH areas -> children). */
+  /** Build full provincial report PDF using the shared PDHS-style template. */
   const buildReportPdf = async (r: any) => {
-    const { jsPDF } = await import('jspdf');
-    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
-    const M = 15;          // left/right margin
-    const PW = 297;        // page width (landscape A4)
-    const PH = 210;        // page height
-    const CW = PW - 2 * M; // content width = 267 mm
-    const ROW_H = 6.5;
-    let y = 0;
-
-    // ── helpers ──────────────────────────────────────────────────────────
-    const newPage = () => {
-      pdf.addPage();
-      drawPageHeader();
-      return HEADER_H + 4;
-    };
-    const ensureY = (needed: number) => { if (y + needed > PH - 12) y = newPage(); };
-
-    // ── column layout (landscape A4, 267 mm content) ──────────────────
-    const COL = {
-      no:     M,            // 6 mm
-      id:     M + 7,        // 28 mm
-      name:   M + 35,       // 44 mm
-      gender: M + 79,       // 12 mm
-      age:    M + 91,       // 12 mm
-      risk:   M + 103,      // 18 mm
-      wt:     M + 121,      // 18 mm
-      ht:     M + 139,      // 18 mm
-      muac:   M + 157,      // 18 mm
-      visit:  M + 175,      // 22 mm
-    };
-
-    // ── page header (blue bar) ────────────────────────────────────────
-    const HEADER_H = 18;
-    const drawPageHeader = () => {
-      pdf.setFillColor(21, 63, 142);       // deep blue
-      pdf.rect(0, 0, PW, HEADER_H, 'F');
-      // Accent strip
-      pdf.setFillColor(37, 99, 235);
-      pdf.rect(0, HEADER_H - 3, PW, 3, 'F');
-
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(13);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('PDHS Provincial Health Report', M, 12);
-
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(7.5);
-      pdf.text(`Generated: ${new Date().toLocaleString('en-GB')}`, PW - M, 12, { align: 'right' });
-    };
-
-    // ── PAGE 1 ────────────────────────────────────────────────────────
-    drawPageHeader();
-    y = HEADER_H + 6;
-
-    // Province + Period block
-    pdf.setDrawColor(220, 230, 245);
-    pdf.setFillColor(248, 250, 255);
-    pdf.roundedRect(M, y, CW, 18, 2, 2, 'FD');
-    pdf.setTextColor(21, 63, 142);
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text(r.province_name || 'Province', M + 5, y + 7);
-    pdf.setTextColor(70, 90, 130);
-    pdf.setFontSize(8);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`Period: ${r.period_label}`, M + 5, y + 13);
-    pdf.text(`${r.start_date} to ${r.end_date}`, M + 60, y + 13);
-    y += 24;
-
-    // ── Province Summary boxes ────────────────────────────────────────
     const s = r.summary || {};
-    const boxes = [
-      { label: 'Total Children', val: s.total_children ?? 0, bg: [235, 245, 255] as [number,number,number], fg: [21, 63, 142] as [number,number,number] },
-      { label: 'Normal',         val: s.normal ?? 0,         bg: [220, 252, 231] as [number,number,number], fg: [22, 101, 52]  as [number,number,number] },
-      { label: 'MAM',            val: s.mam ?? 0,            bg: [254, 243, 199] as [number,number,number], fg: [146, 64, 14]  as [number,number,number] },
-      { label: 'SAM',            val: s.sam ?? 0,            bg: [254, 226, 226] as [number,number,number], fg: [153, 27, 27]  as [number,number,number] },
-      { label: 'Escalations',    val: s.total_escalations ?? 0, bg: [243, 232, 255] as [number,number,number], fg: [109, 40, 217] as [number,number,number] },
-    ];
-    const boxW = (CW - 4 * 3) / 5; // 5 boxes with 3mm gaps
-    pdf.setFontSize(7);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(60, 60, 80);
-    pdf.text('PROVINCE SUMMARY', M, y - 2);
-    boxes.forEach((b, i) => {
-      const bx = M + i * (boxW + 3);
-      pdf.setFillColor(...b.bg);
-      pdf.setDrawColor(...b.bg);
-      pdf.roundedRect(bx, y, boxW, 16, 1.5, 1.5, 'FD');
-      pdf.setTextColor(...b.fg);
-      pdf.setFontSize(7);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(b.label, bx + boxW / 2, y + 5.5, { align: 'center' });
-      pdf.setFontSize(14);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(String(b.val), bx + boxW / 2, y + 13, { align: 'center' });
-    });
-    y += 22;
-
-    // ── Horizontal divider ───────────────────────────────────────────
-    pdf.setDrawColor(200, 215, 235);
-    pdf.line(M, y, PW - M, y);
-    y += 5;
-
-    // ── Districts ────────────────────────────────────────────────────
-    const districts = r.districts || [];
-    districts.forEach((dist: any, dIdx: number) => {
-      ensureY(22);
-
-      // District header bar
+    const sections: SharedAreaSection[] = (r.districts || []).map((dist: any, dIdx: number) => {
       const ds = dist.summary || {};
-      pdf.setFillColor(21, 63, 142);
-      pdf.roundedRect(M, y, CW, 11, 1.5, 1.5, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(9);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(`District ${dIdx + 1}: ${dist.district_name || '—'}`, M + 4, y + 7.5);
-      pdf.setFontSize(7.5);
-      pdf.setFont('helvetica', 'normal');
-      const dSummary = `Children: ${ds.total_children ?? 0}   Normal: ${ds.normal ?? 0}   MAM: ${ds.mam ?? 0}   SAM: ${ds.sam ?? 0}   Escalations: ${ds.total_escalations ?? 0}`;
-      pdf.text(dSummary, PW - M - 4, y + 7.5, { align: 'right' });
-      y += 13;
-
-      const areas = dist.moh_areas || [];
-      areas.forEach((moh: any) => {
-        ensureY(16);
-
-        // MOH sub-header
-        pdf.setFillColor(219, 234, 254);
-        pdf.setDrawColor(147, 197, 253);
-        pdf.roundedRect(M + 2, y, CW - 4, 9, 1, 1, 'FD');
-        pdf.setTextColor(30, 58, 138);
-        pdf.setFontSize(8);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text(`MOH Area: ${moh.moh_name || '—'}`, M + 6, y + 6.5);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(7);
-        const mSummary = `Total: ${moh.total_children ?? 0}   Normal: ${moh.normal ?? 0}   MAM: ${moh.mam ?? 0}   SAM: ${moh.sam ?? 0}   Escalations: ${moh.escalations ?? 0}`;
-        pdf.text(mSummary, PW - M - 6, y + 6.5, { align: 'right' });
-        y += 11;
-
-        const children: any[] = moh.children || [];
-        if (children.length === 0) {
-          pdf.setFont('helvetica', 'italic');
-          pdf.setFontSize(7);
-          pdf.setTextColor(140, 140, 140);
-          pdf.text('No children registered in this MOH area.', M + 6, y + 4);
-          y += 7;
-          return;
-        }
-
-        // Children table header
-        ensureY(10);
-        pdf.setFillColor(37, 99, 235);
-        pdf.rect(M + 2, y, CW - 4, 7, 'F');
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFontSize(6.5);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('#',          COL.no     + 1, y + 5);
-        pdf.text('Child ID',   COL.id     + 1, y + 5);
-        pdf.text('Name',       COL.name   + 1, y + 5);
-        pdf.text('Gender',     COL.gender + 1, y + 5);
-        pdf.text('Age (m)',    COL.age    + 1, y + 5);
-        pdf.text('Risk',       COL.risk   + 1, y + 5);
-        pdf.text('Wt (kg)',    COL.wt     + 1, y + 5);
-        pdf.text('Ht (cm)',    COL.ht     + 1, y + 5);
-        pdf.text('MUAC (cm)',  COL.muac   + 1, y + 5);
-        pdf.text('Last Visit', COL.visit  + 1, y + 5);
-        y += 8;
-
-        children.forEach((ch: any, idx: number) => {
-          ensureY(ROW_H + 1);
-          // Alternating row bg
-          if (idx % 2 === 0) {
-            pdf.setFillColor(245, 249, 255);
-            pdf.rect(M + 2, y - 1, CW - 4, ROW_H + 0.5, 'F');
-          }
-          // Bottom border for each row
-          pdf.setDrawColor(220, 230, 245);
-          pdf.line(M + 2, y + ROW_H - 0.5, PW - M - 2, y + ROW_H - 0.5);
-
-          const risk = (ch.risk_level || '').toUpperCase();
-          // Risk badge bg
-          const riskBg: Record<string, [number,number,number]> = {
-            SAM: [254, 202, 202], MAM: [254, 240, 138], NORMAL: [187, 247, 208],
-          };
-          const riskFg: Record<string, [number,number,number]> = {
-            SAM: [185, 28, 28], MAM: [161, 98, 7], NORMAL: [21, 128, 61],
-          };
-          const rbg = riskBg[risk] || [229, 231, 235];
-          const rfg = riskFg[risk] || [75, 85, 99];
-          pdf.setFillColor(...rbg);
-          pdf.roundedRect(COL.risk, y - 0.5, 15, ROW_H - 0.5, 1, 1, 'F');
-          pdf.setTextColor(...rfg);
-          pdf.setFontSize(6);
-          pdf.setFont('helvetica', 'bold');
-          pdf.text(risk || '—', COL.risk + 7.5, y + 3.5, { align: 'center' });
-
-          pdf.setTextColor(40, 50, 65);
-          pdf.setFont('helvetica', 'normal');
-          pdf.setFontSize(6.5);
-          pdf.text(String(idx + 1), COL.no + 1, y + 4);
-          pdf.text(String(ch.child_id || '—').slice(0, 15), COL.id + 1, y + 4);
-          pdf.text(String(ch.name || '—').slice(0, 26), COL.name + 1, y + 4);
-          pdf.text(String(ch.gender || '—').slice(0, 6), COL.gender + 1, y + 4);
-          pdf.text(ch.age_months != null ? `${ch.age_months}` : '—', COL.age + 1, y + 4);
-          pdf.text(ch.weight_kg != null ? String(ch.weight_kg) : '—', COL.wt + 1, y + 4);
-          pdf.text(ch.height_cm != null ? String(ch.height_cm) : '—', COL.ht + 1, y + 4);
-          pdf.text(ch.muac_cm != null ? String(ch.muac_cm) : '—', COL.muac + 1, y + 4);
-          pdf.text(ch.last_visit_date ? String(ch.last_visit_date) : '—', COL.visit + 1, y + 4);
-          y += ROW_H + 0.5;
-        });
-        y += 5;
-      });
-      y += 4;
+      return {
+        title: `District ${dIdx + 1}: ${dist.district_name || '—'}`,
+        headerLevel: 'primary' as const,
+        summary: {
+          total: ds.total_children ?? 0,
+          normal: ds.normal ?? 0,
+          mam: ds.mam ?? 0,
+          sam: ds.sam ?? 0,
+          escalations: ds.total_escalations ?? 0,
+        },
+        subsections: (dist.moh_areas || []).map((moh: any) => ({
+          title: `MOH Area: ${moh.moh_name || '—'}`,
+          headerLevel: 'secondary' as const,
+          summary: {
+            total: moh.total_children ?? 0,
+            normal: moh.normal ?? 0,
+            mam: moh.mam ?? 0,
+            sam: moh.sam ?? 0,
+            escalations: moh.escalations ?? 0,
+          },
+          children: (moh.children || []).map((ch: any) => ({
+            child_id: ch.child_id,
+            name: ch.name,
+            gender: ch.gender,
+            age_months: ch.age_months,
+            risk_level: ch.risk_level,
+            weight_kg: ch.weight_kg,
+            height_cm: ch.height_cm,
+            muac_cm: ch.muac_cm,
+            last_visit_date: ch.last_visit_date,
+          })),
+        })),
+      };
     });
 
-    // ── Footer with page numbers ─────────────────────────────────────
-    const totalPages = (pdf as any).internal.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-      pdf.setPage(i);
-      // Footer bar
-      pdf.setFillColor(245, 248, 255);
-      pdf.rect(0, PH - 10, PW, 10, 'F');
-      pdf.setDrawColor(200, 215, 235);
-      pdf.line(0, PH - 10, PW, PH - 10);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(7);
-      pdf.setTextColor(100, 120, 160);
-      pdf.text('PDHS Provincial Health Report – Confidential', M, PH - 4);
-      pdf.text(`Page ${i} of ${totalPages}`, PW - M, PH - 4, { align: 'right' });
-    }
-
-    return pdf;
+    return buildSharedReportPdf({
+      roleTitle: 'PDHS Provincial Health Report',
+      areaName: r.province_name || 'Province',
+      periodLabel: r.period_label || '',
+      startDate: r.start_date || '',
+      endDate: r.end_date || '',
+      summary: {
+        total_children: s.total_children ?? 0,
+        normal: s.normal ?? 0,
+        mam: s.mam ?? 0,
+        sam: s.sam ?? 0,
+        escalations: s.total_escalations ?? 0,
+      },
+      sections,
+    });
   };
 
   const handleDownloadReportPdf = async (reportRow: { id: number; month: number; report_year: number }) => {
