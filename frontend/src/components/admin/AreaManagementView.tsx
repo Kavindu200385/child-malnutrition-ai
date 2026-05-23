@@ -2,7 +2,7 @@
  * Area Management View
  * Ministry (Admin) / System Developer can create, update, and manage the area hierarchy
  */
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, ChevronRight, MapPin, AlertCircle, Building2, RefreshCw } from 'lucide-react';
 import { areasHierarchicalAPI, hospitalsAPI } from '../../services/api';
 import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
@@ -155,7 +155,7 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Area Hierarchy Management</h2>
-          <p className="text-gray-600">Structure: Midwife areas (PHM) → MOH areas → Hospitals → RDHS. Ministry and PDHS sit above districts. Nutritionists are assigned to hospitals.</p>
+          <p className="text-gray-600">Structure: Ministry → PDHS (Provincial) → RDHS (District) → MOH Areas → PHM (Midwife) Areas → Hospitals. Nutritionists are assigned to hospitals.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -169,12 +169,9 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
           <button
             type="button"
             onClick={() => { setShowCreateHospital(true); setEditingHospital(null); setShowCreateForm(false); setEditingArea(null); }}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors shadow border-0"
-            style={{ backgroundColor: '#4F46E5', color: '#fff' }}
-            onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#4338CA'; }}
-            onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#4F46E5'; }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors shadow"
           >
-            <Building2 className="w-4 h-4" style={{ color: '#fff' }} />
+            <Building2 className="w-4 h-4" />
             Add Hospital
           </button>
         </div>
@@ -247,10 +244,10 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
         {[
           { value: 'ministry', label: 'Ministry' },
           { value: 'pdhs', label: 'PDHS' },
-          { value: 'phm', label: 'Midwife areas' },
-          { value: 'moh', label: 'MOH areas' },
-          { value: 'hospital', label: 'Hospitals' },
           { value: 'rdhs', label: 'RDHS' },
+          { value: 'moh', label: 'MOH areas' },
+          { value: 'phm', label: 'Midwife areas' },
+          { value: 'hospital', label: 'Hospitals' },
         ].map(({ value, label }) => (
           <button
             key={value}
@@ -276,8 +273,8 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
         </div>
       ) : (
         <div className="space-y-8">
-          {/* Order: 1. Ministry, 2. PDHS, 3. Midwife areas (PHM), 4. MOH areas, 5. Hospitals, 6. RDHS */}
-          {['ministry', 'pdhs', 'phm', 'moh'].map((level) => {
+          {/* Order: Ministry → PDHS → RDHS → MOH → PHM (Midwife) → Hospitals */}
+          {['ministry', 'pdhs', 'rdhs', 'moh', 'phm'].map((level) => {
             const areasAtLevel = getAllAreasAtLevel(hierarchy, level, flatAreas);
             if (selectedLevel !== 'all' && selectedLevel !== level) return null;
 
@@ -311,10 +308,10 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
             );
           })}
 
-          {/* Hospitals – structurally between MOH areas and RDHS */}
+          {/* Hospitals – bottom of the hierarchy, below PHM areas */}
           {(selectedLevel === 'all' || selectedLevel === 'hospital') && (
             <div className="bg-white rounded-lg shadow-lg border-2 border-gray-200">
-              <div className="px-6 py-4 border-b-2 bg-indigo-100 border-indigo-300">
+              <div className="px-6 py-4 border-b-2 bg-blue-100 border-blue-300">
                 <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                   <Building2 className="w-5 h-5" />
                   Hospitals ({hospitals.length} {hospitals.length === 1 ? 'hospital' : 'hospitals'})
@@ -340,41 +337,6 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
               </div>
             </div>
           )}
-
-          {/* RDHS (District) – after Midwife, MOH, Hospitals */}
-          {(() => {
-            const level = 'rdhs';
-            const areasAtLevel = getAllAreasAtLevel(hierarchy, level, flatAreas);
-            if (selectedLevel !== 'all' && selectedLevel !== level) return null;
-            return (
-              <div key={level} className="bg-white rounded-lg shadow-lg border-2 border-gray-200">
-                <div className={`px-6 py-4 border-b-2 ${getLevelHeaderColor(level)}`}>
-                  <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                    <MapPin className="w-5 h-5" />
-                    {getLevelLabel(level)} ({areasAtLevel.length} {areasAtLevel.length === 1 ? 'area' : 'areas'})
-                  </h3>
-                </div>
-                <div className="p-6">
-                  {areasAtLevel.length === 0 ? (
-                    <p className="text-gray-500">No areas at this level yet. Use &quot;Create Area&quot; and select RDHS as the level.</p>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {areasAtLevel.map((area) => (
-                        <AreaCard
-                          key={area.id}
-                          area={area}
-                          level={level}
-                          onEdit={setEditingArea}
-                          onDelete={handleDelete}
-                          getParentName={(id) => getAreaNameById(hierarchy, id)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
         </div>
       )}
     </div>
@@ -897,7 +859,7 @@ function HospitalForm({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-indigo-300 mb-6">
+    <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-blue-300 mb-6">
       <h3 className="text-lg font-bold text-gray-900 mb-4">
         {hospital ? 'Edit Hospital' : 'Add New Hospital'}
       </h3>
@@ -909,7 +871,7 @@ function HospitalForm({
             value={formData.hospital_name}
             onChange={(e) => setFormData({ ...formData, hospital_name: e.target.value })}
             required
-            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           {!hospital && (
             <p className="text-xs text-gray-500 mt-1">Hospital code will be auto-generated (e.g. HOS001, HOS002).</p>
@@ -931,7 +893,7 @@ function HospitalForm({
           <select
             value={formData.district_area_id ?? ''}
             onChange={(e) => setFormData({ ...formData, district_area_id: e.target.value ? Number(e.target.value) : null })}
-            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">— Optional: set district/province from area —</option>
             {rdhsAreas.map((a) => (
@@ -946,7 +908,7 @@ function HospitalForm({
               type="text"
               value={formData.district}
               onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div>
@@ -955,7 +917,7 @@ function HospitalForm({
               type="text"
               value={formData.province}
               onChange={(e) => setFormData({ ...formData, province: e.target.value })}
-              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
         </div>
@@ -965,7 +927,7 @@ function HospitalForm({
             type="text"
             value={formData.address}
             onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
@@ -974,7 +936,7 @@ function HospitalForm({
             type="text"
             value={formData.contact_phone}
             onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
-            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         {hospital && (
@@ -984,7 +946,7 @@ function HospitalForm({
               id="hospital-active"
               checked={formData.is_active}
               onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              className="rounded border-gray-300 text-indigo-600 focus:ring-blue-500"
             />
             <label htmlFor="hospital-active" className="text-sm font-medium text-gray-700">Active</label>
           </div>
@@ -992,7 +954,7 @@ function HospitalForm({
         <div className="flex gap-3 pt-4">
           <button
             type="submit"
-            className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
           >
             {hospital ? 'Update Hospital' : 'Create Hospital'}
           </button>

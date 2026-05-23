@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { mohAPI } from '../../services/api';
 import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
 import { buildSharedReportPdf } from '../../utils/buildSharedReportPdf';
@@ -285,90 +285,26 @@ export function MohReportsView() {
           </div>
           <div className="flex flex-col items-end gap-3">
             <button
+              type="button"
               onClick={handleDownloadSummaryPdf}
               disabled={downloadingPdf}
-              className="no-print"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                padding: '9px 18px',
-                borderRadius: '9999px',
-                border: 'none',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: downloadingPdf ? 'wait' : 'pointer',
-                color: '#ffffff',
-                backgroundColor: '#111827',
-                boxShadow: '0 4px 12px rgba(15,23,42,0.30)',
-                opacity: downloadingPdf ? 0.6 : 1,
-                transition: 'background 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                if (!downloadingPdf) e.currentTarget.style.backgroundColor = '#1f2937';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#111827';
-              }}
+              className="no-print flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-full text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
             >
               {downloadingPdf ? 'Downloading…' : 'Download summary PDF'}
             </button>
             <button
+              type="button"
               onClick={handleLoadSummary}
               disabled={summaryLoading}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                padding: '9px 18px',
-                borderRadius: '9999px',
-                border: 'none',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: summaryLoading ? 'wait' : 'pointer',
-                color: '#ffffff',
-                background: '#1e293b',
-                boxShadow: '0 4px 12px rgba(15,23,42,0.25)',
-                opacity: summaryLoading ? 0.7 : 1,
-                transition: 'background 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                if (!summaryLoading) e.currentTarget.style.background = '#334155';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#1e293b';
-              }}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-full text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
             >
               {summaryLoading ? 'Loading…' : 'View summary'}
             </button>
             <button
+              type="button"
               onClick={handleGenerate}
               disabled={actionLoading}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                padding: '10px 20px',
-                borderRadius: '9999px',
-                border: 'none',
-                fontSize: '14px',
-                fontWeight: 600,
-                cursor: actionLoading ? 'wait' : 'pointer',
-                color: '#ffffff',
-                background: '#0369a1',
-                boxShadow: '0 4px 12px rgba(3,105,161,0.30)',
-                opacity: actionLoading ? 0.7 : 1,
-                transition: 'background 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                if (!actionLoading) e.currentTarget.style.background = '#0284c7';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#0369a1';
-              }}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
               {actionLoading ? 'Generating…' : 'Generate current month'}
             </button>
@@ -470,30 +406,10 @@ export function MohReportsView() {
                     <td className="px-4 py-3">
                       {!r.sent_to_rdhs && (
                         <button
+                          type="button"
                           onClick={() => handleSendToRdhs(r.id)}
                           disabled={actionLoading}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '8px 18px',
-                            borderRadius: '9999px',
-                            border: 'none',
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            cursor: actionLoading ? 'wait' : 'pointer',
-                            color: '#ffffff',
-                            background: '#1e293b',
-                            boxShadow: '0 4px 12px rgba(15,23,42,0.25)',
-                            opacity: actionLoading ? 0.7 : 1,
-                            transition: 'background 0.2s',
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!actionLoading) e.currentTarget.style.background = '#334155';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = '#1e293b';
-                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
                         >
                           Send to RDHS
                         </button>

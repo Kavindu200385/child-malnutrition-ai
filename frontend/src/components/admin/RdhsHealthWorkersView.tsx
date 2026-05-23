@@ -3,7 +3,7 @@
  * Same layout and behaviour as PDHS Health Workers page.
  */
 import React, { useState, useEffect } from 'react';
-import { Users, RefreshCw, UserCheck, UserX, BarChart2, UserCircle, ClipboardList, AlertTriangle, X } from 'lucide-react';
+import { Users, RefreshCw, UserCheck, UserX, BarChart2, UserCircle, ClipboardList, AlertTriangle, CheckCircle, Activity, X } from 'lucide-react';
 import { rdhsAPI } from '../../services/api';
 
 export function RdhsHealthWorkersView() {
@@ -12,6 +12,7 @@ export function RdhsHealthWorkersView() {
   const [error, setError] = useState('');
   const [performanceUser, setPerformanceUser] = useState<any>(null);
   const [performance, setPerformance] = useState<any>(null);
+  const [performanceRole, setPerformanceRole] = useState<string | null>(null);
 
   const load = () => {
     setError('');
@@ -40,11 +41,13 @@ export function RdhsHealthWorkersView() {
 
   const showPerformance = (user: any) => {
     setPerformanceUser(user);
+    setPerformanceRole(null);
     rdhsAPI
       .userPerformance(user.id)
       .then((res) => {
         if (res.data?.status === 'success') {
           setPerformance(res.data.performance);
+          setPerformanceRole(res.data.role ?? null);
         }
       })
       .catch(() => setPerformance(null));
@@ -194,7 +197,7 @@ export function RdhsHealthWorkersView() {
             </div>
             <button
               type="button"
-              onClick={() => { setPerformanceUser(null); setPerformance(null); }}
+              onClick={() => { setPerformanceUser(null); setPerformance(null); setPerformanceRole(null); }}
               className="p-2 rounded-lg text-white/80 hover:bg-white/20 hover:text-white transition-colors"
               aria-label="Close"
             >
@@ -203,34 +206,77 @@ export function RdhsHealthWorkersView() {
           </div>
           <div className="p-6">
             {performance ? (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
-                    <Users className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">Children in area</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-0.5">{performance.children_in_area ?? 0}</p>
-                  </div>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
-                    <ClipboardList className="w-6 h-6 text-emerald-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">Measurements taken</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-0.5">{performance.measurements_taken ?? 0}</p>
-                  </div>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                    <AlertTriangle className="w-6 h-6 text-amber-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">Escalations made</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-0.5">{performance.escalations_made ?? 0}</p>
-                  </div>
-                </div>
+              <div className={`grid grid-cols-1 gap-4 ${performanceRole === 'nutritionist' ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                {performanceRole === 'nutritionist' ? (
+                  <>
+                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                        <Users className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">Children referred</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-0.5">{performance.children_referred ?? 0}</p>
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                        <ClipboardList className="w-6 h-6 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">Measurements taken</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-0.5">{performance.measurements_taken ?? 0}</p>
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
+                        <CheckCircle className="w-6 h-6 text-green-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">Cases resolved</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-0.5">{performance.cases_resolved ?? 0}</p>
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center shrink-0">
+                        <Activity className="w-6 h-6 text-purple-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">Child reviews</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-0.5">{performance.child_reviews ?? 0}</p>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                        <Users className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">Children in area</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-0.5">{performance.children_in_area ?? 0}</p>
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                        <ClipboardList className="w-6 h-6 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">Measurements taken</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-0.5">{performance.measurements_taken ?? 0}</p>
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100 flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                        <AlertTriangle className="w-6 h-6 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 uppercase tracking-wide">Escalations made</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-0.5">{performance.escalations_made ?? 0}</p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="py-12 text-center">
@@ -241,7 +287,7 @@ export function RdhsHealthWorkersView() {
             <div className="mt-6 pt-4 border-t border-gray-100 flex justify-end">
               <button
                 type="button"
-                onClick={() => { setPerformanceUser(null); setPerformance(null); }}
+                onClick={() => { setPerformanceUser(null); setPerformance(null); setPerformanceRole(null); }}
                 className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 transition-colors"
               >
                 Close

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, User, PlusCircle, AlertTriangle, Activity, Calendar, Phone, MapPin, TrendingUp,
 } from 'lucide-react';
@@ -396,6 +396,23 @@ export function NutritionistChildProfileView({ childId, onBack, onAddMeasurement
             {data.referrals.map((r: any) => (
               <li key={r.id} className="text-sm text-gray-700 border-l-2 border-slate-300 pl-3">
                 {r.created_at?.slice(0, 10)} — {r.referral_reason || 'Referred'} — Status: {r.status}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Nutritionist review log */}
+      {data.review_logs?.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Nutritionist review log</h3>
+          <ul className="space-y-2">
+            {data.review_logs.map((log: any) => (
+              <li key={log.id} className="flex items-center gap-2 text-sm text-gray-700 border-l-2 border-blue-200 pl-3">
+                <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="font-medium">{log.reviewed_at?.slice(0, 16).replace('T', ' ')}</span>
+                <span className="text-gray-500">— reviewed by</span>
+                <span className="font-medium text-blue-700">{log.reviewed_by_name}</span>
               </li>
             ))}
           </ul>

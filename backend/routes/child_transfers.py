@@ -22,12 +22,71 @@ from backend.models_hierarchical import (
     ChildTransfer,
     Area,
     User,
+    WorkerAreaMapping,
     TransferStatus,
     RiskLevel,
+    UserRole,
 )
 from backend.utils.audit import log_audit
 
 bp = Blueprint("child_transfers", __name__, url_prefix="/api/transfers")
+
+
+def _midwife_for_phm(phm_area_id: int) -> "User | None":
+    """Return the active midwife assigned to a PHM area, or None."""
+    mapping = (
+        db.session.query(WorkerAreaMapping)
+        .join(User, User.id == WorkerAreaMapping.user_id)
+        .filter(
+            WorkerAreaMapping.area_id == phm_area_id,
+            WorkerAreaMapping.is_active == True,
+            User.role == UserRole.MIDWIFE.value,
+            User.is_active == True,
+        )
+        .first()
+    )
+    return db.session.get(User, mapping.user_id) if mapping else None
+
+
+def _apply_child_assignment(child: Child, transfer: "ChildTransfer", approving_user: User) -> None:
+    """Apply transfer assignment fields to child. Called on approve (or immediate MOH→midwife)."""
+    child.current_assigned_role = transfer.to_role
+    child.current_assigned_area_id = transfer.to_area_id
+    child.assigned_date = datetime.utcnow()
+    child.status = "ACTIVE"
+    child.is_draft = False
+
+    if transfer.to_role == ROLE_MIDWIFE:
+        child.phm_area_id = transfer.to_area_id
+        # Prefer an explicitly named midwife; otherwise look up the one covering
+        # the PHM area; finally fall back to the approving user themselves.
+        if transfer.to_user_id:
+            child.current_assigned_user_id = transfer.to_user_id
+        else:
+            mw = _midwife_for_phm(transfer.to_area_id)
+            child.current_assigned_user_id = mw.id if mw else approving_user.id
+        phm_area = db.session.get(Area, transfer.to_area_id)
+        if phm_area:
+            parent = phm_area.parent  # MOH area
+            if parent:
+                child.moh_area_id = parent.id
+                rdhs_area = parent.parent  # RDHS
+                if rdhs_area:
+                    child.district_id = rdhs_area.id
+                    pdhs_area = rdhs_area.parent  # PDHS
+                    if pdhs_area:
+                        child.province_id = pdhs_area.id
+    elif transfer.to_role in (ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST):
+        child.current_assigned_user_id = transfer.to_user_id if transfer.to_user_id else approving_user.id
+        child.moh_area_id = transfer.to_area_id
+        moh_area = db.session.get(Area, transfer.to_area_id)
+        if moh_area:
+            rdhs_area = moh_area.parent
+            if rdhs_area:
+                child.district_id = rdhs_area.id
+                pdhs_area = rdhs_area.parent
+                if pdhs_area:
+                    child.province_id = pdhs_area.id
 
 
 def validate_transfer_flow(from_role: str, to_role: str) -> tuple[bool, str]:
@@ -130,7 +189,10 @@ def request_transfer(child_id: str):
                 "message": f"Target user must have role {to_role}"
             }), 400
     
-    # Create transfer request
+    # MOH/AMOH → Midwife: auto-complete immediately so the child appears in the
+    # midwife's list without requiring a separate approval step.
+    moh_direct = from_role in (ROLE_MOH, ROLE_AMOH) and to_role == ROLE_MIDWIFE
+
     transfer = ChildTransfer(
         child_id=child.id,
         from_role=from_role,
@@ -139,29 +201,37 @@ def request_transfer(child_id: str):
         to_area_id=to_area_id,
         from_user_id=child.current_assigned_user_id,
         to_user_id=to_user_id,
-        status=TransferStatus.PENDING,
+        status=TransferStatus.APPROVED if moh_direct else TransferStatus.PENDING,
         reason=reason,
         requested_by_user_id=user.id,
     )
-    
+    if moh_direct:
+        transfer.approved_by_user_id = user.id
+        transfer.approval_date = datetime.utcnow()
+        transfer.transfer_date = datetime.utcnow()
+
     db.session.add(transfer)
     db.session.flush()
-    
+
+    if moh_direct:
+        _apply_child_assignment(child, transfer, approving_user=user)
+
     log_audit(
         action="TRANSFER_REQUEST",
         entity_type="child_transfer",
         entity_id=transfer.id,
         new_values=transfer.to_dict(),
         user_id=user.id,
-        description=f"Requested transfer of child {child_id} from {from_role} to {to_role}",
+        description=f"{'Directly assigned' if moh_direct else 'Requested transfer of'} child {child_id} from {from_role} to {to_role}",
     )
-    
+
     db.session.commit()
-    
+
     return jsonify({
         "status": "success",
-        "message": "Transfer request created",
+        "message": "Child assigned to midwife" if moh_direct else "Transfer request created",
         "transfer": transfer.to_dict(),
+        "child": child.to_dict() if moh_direct else None,
     }), 201
 
 
@@ -190,20 +260,22 @@ def list_transfers():
             (ChildTransfer.from_role == role) | (ChildTransfer.to_role == role)
         )
     
-    # Health Ministry sees all, others see only their accessible children
+    # Health Ministry sees all; others see transfers for children they currently hold
+    # OR transfers that are targeted at their areas (so incoming transfers are visible).
     if user.role != ROLE_HEALTH_MINISTRY:
-        # Get accessible child IDs
+        user_area_ids = [wa.area_id for wa in user.worker_areas if wa.is_active]
+
+        # Children currently in the user's area
         accessible_children = db.session.query(Child.id).filter(
-            Child.current_assigned_area_id.in_(
-                [wa.area_id for wa in user.worker_areas if wa.is_active]
-            )
+            Child.current_assigned_area_id.in_(user_area_ids)
         ).all()
         accessible_child_ids = [c[0] for c in accessible_children]
-        
-        if not accessible_child_ids:
-            return jsonify({"status": "success", "transfers": [], "count": 0}), 200
-        
-        query = query.filter(ChildTransfer.child_id.in_(accessible_child_ids))
+
+        # Include transfers whose target area is one the user covers (incoming)
+        query = query.filter(
+            (ChildTransfer.child_id.in_(accessible_child_ids)) |
+            (ChildTransfer.to_area_id.in_(user_area_ids))
+        )
     
     transfers = query.order_by(ChildTransfer.created_at.desc()).limit(100).all()
     
@@ -257,40 +329,10 @@ def approve_transfer(transfer_id: int):
     child = db.session.get(Child, transfer.child_id)
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
-    
-    # Update child assignment
+
     old_values = child.to_dict()
-    child.current_assigned_role = transfer.to_role
-    child.current_assigned_area_id = transfer.to_area_id
-    child.current_assigned_user_id = transfer.to_user_id
-    
-    # Update area assignments based on role, and keep full hierarchy in sync
-    if transfer.to_role == ROLE_MIDWIFE:
-        child.midwife_area_id = transfer.to_area_id
-        # Ensure PHM → MOH → RDHS → PDHS hierarchy is reflected
-        phm_area = db.session.get(Area, transfer.to_area_id)
-        if phm_area:
-            parent = phm_area.parent  # MOH
-            if parent:
-                child.moh_area_id = parent.id
-                rdhs_area = parent.parent  # RDHS
-                if rdhs_area:
-                    child.district_id = rdhs_area.id
-                    pdhs_area = rdhs_area.parent  # PDHS
-                    if pdhs_area:
-                        child.province_id = pdhs_area.id
-    elif transfer.to_role in [ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST]:
-        # MOH / AMOH / Nutritionist all operate at MOH level
-        child.moh_area_id = transfer.to_area_id
-        moh_area = db.session.get(Area, transfer.to_area_id)
-        if moh_area:
-            rdhs_area = moh_area.parent  # RDHS
-            if rdhs_area:
-                child.district_id = rdhs_area.id
-                pdhs_area = rdhs_area.parent  # PDHS
-                if pdhs_area:
-                    child.province_id = pdhs_area.id
-    
+    _apply_child_assignment(child, transfer, approving_user=user)
+
     # Update transfer status
     transfer.status = TransferStatus.APPROVED
     transfer.approved_by_user_id = user.id

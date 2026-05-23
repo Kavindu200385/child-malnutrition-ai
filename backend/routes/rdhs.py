@@ -18,9 +18,11 @@ from backend.models_hierarchical import (
     User,
     Child,
     Area,
+    Hospital,
     WorkerAreaMapping,
     ChildEscalation,
     ChildReferral,
+    AuditLog,
     ReferralStatus,
     Measurement,
     RdhsReport,
@@ -354,34 +356,79 @@ def user_performance(user_id: int):
     target = db.session.get(User, user_id)
     if not target:
         return jsonify({"status": "error", "message": "User not found"}), 404
+
+    is_nutritionist = target.role == 'nutritionist'
+
     target_area_ids = db.session.query(WorkerAreaMapping.area_id).filter(
         WorkerAreaMapping.user_id == target.id,
         WorkerAreaMapping.is_active == True,
     ).distinct().all()
     target_area_ids = [a[0] for a in target_area_ids]
-    if not any(aid in worker_area_ids for aid in target_area_ids):
-        return jsonify({"status": "error", "message": "User not in your district"}), 403
 
-    child_count = db.session.query(Child).filter(
-        Child.current_assigned_area_id.in_(target_area_ids),
-        Child.is_draft == False,
-        Child.status == "ACTIVE",
-    ).count()
-    measurement_count = db.session.query(Measurement).filter(
-        Measurement.measured_by_user_id == target.id
-    ).count()
-    escalation_count = db.session.query(ChildEscalation).filter(
-        ChildEscalation.escalated_by_user_id == target.id
-    ).count()
+    if not is_nutritionist:
+        if not any(aid in worker_area_ids for aid in target_area_ids):
+            return jsonify({"status": "error", "message": "User not in your district"}), 403
+    else:
+        # Nutritionists have no area assignments; verify via their hospital's district string
+        if target.hospital_id:
+            hosp = db.session.get(Hospital, target.hospital_id)
+            if not hosp:
+                return jsonify({"status": "error", "message": "Nutritionist not in your district"}), 403
+            if hosp.district:
+                district_names = [a.name for a in db.session.query(Area).filter(Area.id.in_(district_ids)).all()]
+                if hosp.district not in district_names:
+                    return jsonify({"status": "error", "message": "Nutritionist not in your district"}), 403
+
+    if is_nutritionist:
+        children_referred = db.session.query(ChildReferral).filter(
+            ChildReferral.reviewed_by_user_id == target.id,
+            ChildReferral.status == ReferralStatus.REVIEWED.value,
+        ).count()
+        referred_ids = [r[0] for r in db.session.query(ChildReferral.child_id).filter(
+            ChildReferral.reviewed_by_user_id == target.id,
+            ChildReferral.status == ReferralStatus.REVIEWED.value,
+        ).distinct().all()]
+        cases_resolved = db.session.query(Child).filter(
+            Child.id.in_(referred_ids),
+            Child.current_risk_level == RiskLevel.NORMAL.value,
+        ).count() if referred_ids else 0
+        measurement_count = db.session.query(Measurement).filter(
+            Measurement.measured_by_user_id == target.id
+        ).count()
+        child_reviews = db.session.query(AuditLog).filter(
+            AuditLog.action == "NUTRITIONIST_REVIEW",
+            AuditLog.user_id == target.id,
+            AuditLog.entity_type == "child",
+        ).count()
+        performance = {
+            "children_referred": children_referred,
+            "measurements_taken": measurement_count,
+            "cases_resolved": cases_resolved,
+            "child_reviews": child_reviews,
+        }
+    else:
+        child_count = db.session.query(Child).filter(
+            Child.current_assigned_area_id.in_(target_area_ids),
+            Child.is_draft == False,
+            Child.status == "ACTIVE",
+        ).count()
+        measurement_count = db.session.query(Measurement).filter(
+            Measurement.measured_by_user_id == target.id
+        ).count()
+        escalation_count = db.session.query(ChildEscalation).filter(
+            ChildEscalation.escalated_by_user_id == target.id
+        ).count()
+        performance = {
+            "children_in_area": child_count,
+            "measurements_taken": measurement_count,
+            "escalations_made": escalation_count,
+        }
 
     return jsonify({
         "status": "success",
         "user": target.to_dict(include_areas=True),
-        "performance": {
-            "children_in_area": child_count,
-            "measurements_taken": measurement_count,
-            "escalations_made": escalation_count,
-        },
+        "performance": performance,
+        "role": target.role,
     }), 200
 
 

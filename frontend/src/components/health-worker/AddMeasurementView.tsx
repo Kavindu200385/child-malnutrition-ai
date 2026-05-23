@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { calculateRiskLevel, getRiskColor, getRiskLabel } from '../../types';
 import { ArrowLeft, Save, CheckCircle, AlertTriangle, Brain, TrendingUp, Calendar, FileText, TrendingDown, Activity } from 'lucide-react';
 import { nutritionistAPI, midwifeAPI, mohAPI, childrenAPI } from '../../services/api';
@@ -187,8 +187,9 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
     setNutError('');
     const numericChildId = selectedChild?.id ?? childId;
     const apiCall = isMoh ? mohAPI.addMeasurement : midwifeAPI.addMeasurement;
+    let apiRes: any = null;
     try {
-      await apiCall({
+      apiRes = await apiCall({
         child_id: Number(numericChildId),
         weight_kg: weightNum,
         height_cm: heightNum,
@@ -201,11 +202,13 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
     }
     setMidwifeLoading(false);
 
-    // Client-side display: simplified Z-scores for UI only (backend has run AI)
-    const weightForAge = (weightNum - 11) / 1.5;
-    const heightForAge = (heightNum - 85) / 3;
-    const weightForHeight = (weightNum - 11.5) / 1.8;
-    const riskLevel = calculateRiskLevel(weightForAge, heightForAge, weightForHeight);
+    // Use actual AI result from server — client-side formulas use wrong baselines
+    const serverRiskRaw = (apiRes?.data?.new_risk || 'NORMAL').toUpperCase();
+    const riskLevel: 'normal' | 'mam' | 'sam' = serverRiskRaw === 'SAM' ? 'sam' : serverRiskRaw === 'MAM' ? 'mam' : 'normal';
+    const serverMeas = apiRes?.data?.measurement;
+    const weightForAge = serverMeas?.z_score_wfa ?? 0;
+    const heightForAge = serverMeas?.z_score_hfa ?? 0;
+    const weightForHeight = serverMeas?.z_score_wfh ?? 0;
     const prediction: PredictionData | undefined = undefined as PredictionData | undefined;
 
     // Generate AI-powered recommendations

@@ -23,6 +23,7 @@ from backend.models_hierarchical import (
     Visit,
     ChildReferral,
     ChildEscalation,
+    AuditLog,
     UserRole,
     RiskLevel,
     EscalationStatus,
@@ -185,6 +186,29 @@ def get_child(child_id: int):
         .all()
     )
 
+    # Log this review so it appears in child history and counts toward nutritionist performance
+    log_audit(
+        action="NUTRITIONIST_REVIEW",
+        entity_type="child",
+        entity_id=child.id,
+        user_id=user.id,
+        description=f"Nutritionist {user.name} reviewed child record",
+    )
+    db.session.commit()
+
+    # Fetch review history for this child (most recent 20)
+    review_logs = (
+        db.session.query(AuditLog)
+        .filter(
+            AuditLog.action == "NUTRITIONIST_REVIEW",
+            AuditLog.entity_id == child.id,
+            AuditLog.entity_type == "child",
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(20)
+        .all()
+    )
+
     return jsonify({
         "status": "success",
         "child": child.to_dict(),
@@ -201,6 +225,15 @@ def get_child(child_id: int):
                 "risk_level": m.risk_level,
             }
             for m in measurements
+        ],
+        "review_logs": [
+            {
+                "id": log.id,
+                "reviewed_by_user_id": log.user_id,
+                "reviewed_by_name": log.user.name if log.user else "Unknown",
+                "reviewed_at": log.created_at.isoformat() if log.created_at else None,
+            }
+            for log in review_logs
         ],
     }), 200
 

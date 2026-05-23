@@ -3,7 +3,7 @@
  * Tabs: Generate Report | Saved Reports | Reports from PDHS (ministry only).
  * Saved Reports: View (professional report with charts), Download (print/PDF), Delete.
  */
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -12,6 +12,7 @@ import { FileText, BarChart3, RefreshCw, MapPin, Trash2, Eye, Save, Calendar, Cl
 import { reportsAPI, adminAPI } from '../../services/api';
 import { User } from '../../App';
 import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
+import { buildSharedReportPdf, type SharedReportData, type SharedAreaSection } from '../../utils/buildSharedReportPdf';
 
 const RISK_COLORS: Record<string, string> = {
   NORMAL: '#22c55e', MODERATE: '#f59e0b', HIGH: '#f97316', CRITICAL: '#ef4444', MAM: '#f59e0b', SAM: '#ef4444',
@@ -33,35 +34,87 @@ function fmtDateTime(d: string | null | undefined) {
 }
 function capitalize(s: string) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
-// ─── Printable HTML for Download (no charts, for new window + print) ──────────
-function buildPrintableReportHtml(report: any): string {
+// ─── Adapter: maps any saved report to the shared PDF template format ─────────
+function buildAdminReportPdfData(report: any): SharedReportData {
   const d = report.report_data || {};
   const type = report.report_type || 'national';
-  const period = report.start_date ? `${report.start_date} to ${report.end_date || '—'}` : '—';
-  let body = '';
+  const startDate = report.start_date || '';
+  const endDate = report.end_date || '';
+  const periodLabel = startDate ? `${startDate} to ${endDate || '—'}` : 'All time';
+
   if (type === 'district') {
-    const s = d.summary || {}, dist = d.risk_distribution || {};
-    const adminWorkers = d.worker_performance_admin || (d.worker_performance || []).filter((w: any) => w.role_category === 'admin');
-    const fieldWorkers = d.worker_performance_field || (d.worker_performance || []).filter((w: any) => w.role_category === 'field');
-    body += `<div class="cards"><div class="card" style="background:#eff6ff"><span class="card-label">Total Children</span><div class="card-value">${s.total_children ?? 0}</div></div><div class="card" style="background:#f0fdf4"><span class="card-label">Total Visits</span><div class="card-value">${s.total_visits ?? 0}</div></div><div class="card" style="background:#f5f3ff"><span class="card-label">Avg Visits/Child</span><div class="card-value">${s.average_visits_per_child ?? 0}</div></div></div>`;
-    if (Object.keys(dist).length) { body += '<h4>Risk Distribution</h4><table><tr>' + Object.entries(dist).map(([k, v]) => `<th>${k}</th>`).join('') + '</tr><tr>' + Object.entries(dist).map(([_, v]) => `<td>${v}</td>`).join('') + '</tr></table>'; }
-    if (adminWorkers.length) { body += '<h4>Worker Performance – Admin (RDHS / PDHS)</h4><table><thead><tr><th>Worker</th><th>Role</th><th>Children</th><th>Visits</th></tr></thead><tbody>' + adminWorkers.map((w: any) => `<tr><td>${w.worker_name || ''}</td><td>${w.role || ''}</td><td>${w.children_count ?? 0}</td><td>${w.visits_count ?? 0}</td></tr>`).join('') + '</tbody></table>'; }
-    if (fieldWorkers.length) { body += '<h4>Worker Performance – Field (MOH, Midwife, Nutritionist)</h4><table><thead><tr><th>Worker</th><th>Role</th><th>Children</th><th>Visits</th></tr></thead><tbody>' + fieldWorkers.map((w: any) => `<tr><td>${w.worker_name || ''}</td><td>${w.role || ''}</td><td>${w.children_count ?? 0}</td><td>${w.visits_count ?? 0}</td></tr>`).join('') + '</tbody></table>'; }
+    const s = d.summary || {};
+    const dist = d.risk_distribution || {};
+    return {
+      roleTitle: 'District Health Report',
+      areaName: s.area_name || 'District',
+      periodLabel, startDate, endDate,
+      summary: {
+        total_children: s.total_children ?? 0,
+        normal: dist.NORMAL ?? 0,
+        mam: (dist.MAM ?? 0) + (dist.MODERATE ?? 0),
+        sam: (dist.SAM ?? 0) + (dist.CRITICAL ?? 0),
+        escalations: s.total_escalations ?? 0,
+      },
+      sections: [],
+    };
   } else if (type === 'provincial') {
-    const sum = d.provincial_summary || {}, comp = d.district_comparison || [];
-    body += `<div class="cards"><div class="card" style="background:#eff6ff"><span class="card-label">Total Children</span><div class="card-value">${sum.total_children ?? 0}</div></div><div class="card" style="background:#f0fdf4"><span class="card-label">Districts</span><div class="card-value">${sum.total_districts ?? 0}</div></div></div>`;
-    if (sum.risk_distribution) body += '<h4>Risk Summary</h4><table><tr>' + Object.entries(sum.risk_distribution).map(([k, v]) => `<th>${k}</th>`).join('') + '</tr><tr>' + Object.entries(sum.risk_distribution).map(([_, v]) => `<td>${v}</td>`).join('') + '</tr></table>';
-    if (comp.length) body += '<h4>District Comparison</h4><table><thead><tr><th>District</th><th>Total</th><th>Normal</th><th>Moderate</th><th>High</th><th>Critical</th></tr></thead><tbody>' + comp.map((r: any) => `<tr><td>${r.district_name || ''}</td><td>${r.total_children ?? 0}</td><td>${r.risk_distribution?.NORMAL ?? 0}</td><td>${r.risk_distribution?.MODERATE ?? 0}</td><td>${r.risk_distribution?.HIGH ?? 0}</td><td>${r.risk_distribution?.CRITICAL ?? 0}</td></tr>`).join('') + '</tbody></table>';
+    const sum = d.provincial_summary || {};
+    const rr = sum.risk_distribution || {};
+    const sections: SharedAreaSection[] = (d.district_comparison || []).map((dist: any) => ({
+      title: dist.district_name || 'District',
+      headerLevel: 'primary' as const,
+      summary: {
+        total: dist.total_children ?? 0,
+        normal: dist.risk_distribution?.NORMAL ?? 0,
+        mam: (dist.risk_distribution?.MAM ?? 0) + (dist.risk_distribution?.MODERATE ?? 0),
+        sam: (dist.risk_distribution?.SAM ?? 0) + (dist.risk_distribution?.CRITICAL ?? 0),
+        escalations: 0,
+      },
+      children: [],
+    }));
+    return {
+      roleTitle: 'Provincial Health Report',
+      areaName: sum.province_name || 'Province',
+      periodLabel, startDate, endDate,
+      summary: {
+        total_children: sum.total_children ?? 0,
+        normal: rr.NORMAL ?? 0,
+        mam: (rr.MAM ?? 0) + (rr.MODERATE ?? 0),
+        sam: (rr.SAM ?? 0) + (rr.CRITICAL ?? 0),
+        escalations: 0,
+      },
+      sections,
+    };
   } else {
-    const nat = d.national_summary || {}, prov = d.province_comparison || [];
+    const nat = d.national_summary || {};
     const rr = nat.risk_distribution || {};
-    const normalCount = (rr.NORMAL ?? 0) + (rr.Normal ?? 0);
-    const samCritical = (rr.SAM ?? 0) + (rr.CRITICAL ?? 0) + (rr.Critical ?? 0);
-    body += `<div class="cards"><div class="card" style="background:#eff6ff"><span class="card-label">Total Children</span><div class="card-value">${nat.total_children ?? 0}</div></div><div class="card" style="background:#f5f3ff"><span class="card-label">AI Predictions</span><div class="card-value">${d.ai_prediction_analytics?.total_predictions ?? 0}</div></div><div class="card" style="background:#f0fdf4"><span class="card-label">Normal</span><div class="card-value">${normalCount}</div></div><div class="card" style="background:#fef2f2"><span class="card-label">SAM/Critical</span><div class="card-value">${samCritical}</div></div></div>`;
-    if (nat.risk_distribution) body += '<h4>National Risk Distribution</h4><table><tr>' + Object.entries(nat.risk_distribution).map(([k, v]) => `<th>${k}</th>`).join('') + '</tr><tr>' + Object.entries(nat.risk_distribution).map(([_, v]) => `<td>${v}</td>`).join('') + '</tr></table>';
-    if (prov.length) body += '<h4>Province Comparison</h4><table><thead><tr><th>Province</th><th>Total</th><th>Normal</th><th>MAM</th><th>High</th><th>SAM</th></tr></thead><tbody>' + prov.map((p: any) => `<tr><td>${(p.province_name || '').replace(/&/g, '&amp;')}</td><td>${p.total_children ?? 0}</td><td>${p.risk_distribution?.NORMAL ?? 0}</td><td>${p.risk_distribution?.MAM ?? p.risk_distribution?.MODERATE ?? 0}</td><td>${p.risk_distribution?.HIGH ?? 0}</td><td>${p.risk_distribution?.SAM ?? p.risk_distribution?.CRITICAL ?? 0}</td></tr>`).join('') + '</tbody></table>';
+    const sections: SharedAreaSection[] = (d.province_comparison || []).map((prov: any) => ({
+      title: prov.province_name || 'Province',
+      headerLevel: 'primary' as const,
+      summary: {
+        total: prov.total_children ?? 0,
+        normal: prov.risk_distribution?.NORMAL ?? 0,
+        mam: (prov.risk_distribution?.MAM ?? 0) + (prov.risk_distribution?.MODERATE ?? 0),
+        sam: (prov.risk_distribution?.SAM ?? 0) + (prov.risk_distribution?.CRITICAL ?? 0),
+        escalations: 0,
+      },
+      children: [],
+    }));
+    return {
+      roleTitle: 'National Health Report',
+      areaName: 'National',
+      periodLabel, startDate, endDate,
+      summary: {
+        total_children: nat.total_children ?? 0,
+        normal: rr.NORMAL ?? 0,
+        mam: (rr.MAM ?? 0) + (rr.MODERATE ?? 0),
+        sam: (rr.SAM ?? 0) + (rr.CRITICAL ?? 0),
+        escalations: 0,
+      },
+      sections,
+    };
   }
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${(report.title || 'Report').replace(/</g, '&lt;')}</title><style>body{font-family:system-ui,sans-serif;padding:24px;color:#111;max-width:900px;margin:0 auto;background:#fff}.meta{color:#555;font-size:13px;margin-bottom:20px}h1{font-size:20px;margin:0 0 8px 0}h4{font-size:14px;margin:20px 0 10px 0;border-bottom:1px solid #e5e7eb;padding-bottom:6px}table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}th,td{border:1px solid #ddd;padding:8px 10px;text-align:left}th{background:#f3f4f6;font-weight:600}.cards{margin:16px 0}.card{display:inline-block;padding:14px 18px;border-radius:10px;margin:0 12px 12px 0;min-width:140px;border:1px solid #e5e7eb}.card-label{font-size:12px;color:#555;display:block}.card-value{font-size:24px;font-weight:700}@media print{body{padding:16px}table{break-inside:avoid}.card{break-inside:avoid}}</style></head><body><div class="meta">Period: ${period} · Saved: ${report.created_at || '—'} · By: ${(report.created_by_name || '—').replace(/</g, '&lt;')}</div><h1>${(report.title || capitalize(type) + ' Report').replace(/</g, '&lt;')}</h1>${body}</body></html>`;
 }
 
 // Worker table (shared for admin/field sections)
@@ -528,14 +581,18 @@ function ReportViewerModal({ report, onClose }: { report: any; onClose: () => vo
     return () => { clearTimeout(t); ro.disconnect(); };
   }, [report]);
 
-  const handlePrint = () => {
-    const html = buildPrintableReportHtml(report);
-    const win = window.open('', '_blank');
-    if (!win) { toast.error('Allow popups to print report'); return; }
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    setTimeout(() => { win.print(); win.close(); }, 400);
+  const handlePrint = async () => {
+    try {
+      const data = buildAdminReportPdfData(report);
+      const pdf = await buildSharedReportPdf(data);
+      const blob = pdf.output('blob');
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank');
+      if (w) w.onload = () => { w.print(); URL.revokeObjectURL(url); };
+      else URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to generate PDF for printing');
+    }
   };
 
   return (
@@ -602,7 +659,7 @@ function ReportViewerModal({ report, onClose }: { report: any; onClose: () => vo
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <button type="button" onClick={handlePrint}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: '#1f2937', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}>
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors">
               <Printer className="w-4 h-4" /> Print / PDF
             </button>
             <button type="button" onClick={onClose}
@@ -696,19 +753,21 @@ function SavedReportsTab({ user }: { user: User }) {
     } catch { toast.error('Failed to load report details'); }
   };
 
-  const handleDownload = (r: any) => {
-    const openPrint = (fullReport: any) => {
-      const html = buildPrintableReportHtml(fullReport);
-      const win = window.open('', '_blank');
-      if (!win) { toast.error('Allow popups to download report'); return; }
-      win.document.write(html);
-      win.document.close();
-      win.focus();
-      setTimeout(() => { win.print(); win.close(); }, 500);
-      toast.success('Use "Save as PDF" or "Print" in the dialog to download.');
+  const handleDownload = async (r: any) => {
+    const doDownload = async (fullReport: any) => {
+      const data = buildAdminReportPdfData(fullReport);
+      const pdf = await buildSharedReportPdf(data);
+      const title = (fullReport.title || fullReport.report_type || 'report').replace(/\s+/g, '_');
+      pdf.save(`${title}.pdf`);
+      toast.success('Report downloaded.');
     };
-    if (r.report_data) openPrint(r);
-    else reportsAPI.getById(r.id).then((res: any) => { if (res.data?.status === 'success') openPrint(res.data.report); }).catch(() => toast.error('Failed to load report'));
+    try {
+      if (r.report_data) { await doDownload(r); return; }
+      const res = await reportsAPI.getById(r.id);
+      if (res.data?.status === 'success') await doDownload(res.data.report);
+    } catch {
+      toast.error('Failed to download report');
+    }
   };
 
   return (
@@ -724,7 +783,7 @@ function SavedReportsTab({ user }: { user: User }) {
           <option value="provincial">Provincial</option>
           <option value="national">National</option>
         </select>
-        <button onClick={load} disabled={loading} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+        <button onClick={load} disabled={loading} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
@@ -763,14 +822,14 @@ function SavedReportsTab({ user }: { user: User }) {
                   <td className="px-4 py-2 text-gray-600">{fmtDateTime(r.created_at)}</td>
                   <td className="px-4 py-2">
                     <div className="flex items-center justify-center gap-2 flex-wrap">
-                      <button onClick={() => handleView(r)} className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700">
-                        <Eye className="w-3 h-3" /> View
+                      <button type="button" onClick={() => handleView(r)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-medium hover:bg-blue-700 transition-colors">
+                        <Eye className="w-4 h-4" /> View
                       </button>
-                      <button onClick={() => handleDownload(r)} className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700">
-                        <Download className="w-3 h-3" /> Download
+                      <button type="button" onClick={() => handleDownload(r)} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-full text-sm font-medium hover:bg-green-700 transition-colors">
+                        <Download className="w-4 h-4" /> Download
                       </button>
-                      <button onClick={() => handleDelete(r.id)} disabled={deleting === r.id} className="flex items-center gap-1 px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-medium hover:bg-red-100 disabled:opacity-50">
-                        <Trash2 className="w-3 h-3" /> {deleting === r.id ? '…' : 'Delete'}
+                      <button type="button" onClick={() => handleDelete(r.id)} disabled={deleting === r.id} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-full text-sm font-medium hover:bg-red-100 disabled:opacity-50 transition-colors">
+                        <Trash2 className="w-4 h-4" /> {deleting === r.id ? '…' : 'Delete'}
                       </button>
                     </div>
                   </td>

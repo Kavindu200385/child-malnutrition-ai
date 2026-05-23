@@ -1,7 +1,7 @@
 /**
  * RDHS Reports – list monthly reports, generate, download (daily/weekly/monthly), send to PDHS.
  */
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Send, RefreshCw, ChevronDown, Download, Printer } from 'lucide-react';
 import { rdhsAPI } from '../../services/api';
 import { buildSharedReportPdf, type SharedAreaSection } from '../../utils/buildSharedReportPdf';
@@ -313,14 +313,14 @@ export function RdhsReportsView() {
       </div>
 
       {/* Sub-navigation for the two report pages – flat button style like main admin nav */}
-      <div className="flex gap-2 mt-2 border-b border-gray-200 text-sm font-medium">
+      <div className="flex gap-2 mt-2 flex-wrap">
         <button
           type="button"
           onClick={() => setActiveTab('district')}
-          className={`px-4 py-2 rounded-lg transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
             activeTab === 'district'
-              ? 'text-purple-700 bg-purple-50 border border-b-white border-purple-200'
-              : 'text-gray-600 hover:bg-gray-50 border border-transparent'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
           }`}
         >
           RDHS consolidated report
@@ -328,10 +328,10 @@ export function RdhsReportsView() {
         <button
           type="button"
           onClick={() => setActiveTab('moh')}
-          className={`px-4 py-2 rounded-lg transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
             activeTab === 'moh'
-              ? 'text-purple-700 bg-purple-50 border border-b-white border-purple-200'
-              : 'text-gray-600 hover:bg-gray-50 border border-transparent'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
           }`}
         >
           MOH reports from areas
@@ -346,16 +346,16 @@ export function RdhsReportsView() {
       {activeTab === 'district' && (
         <>
           {/* Period filter: Monthly | Weekly | Daily */}
-          <div className="flex gap-2 border-b border-gray-200 text-sm font-medium">
+          <div className="flex gap-2 flex-wrap">
             {(['monthly', 'weekly', 'daily'] as const).map((period) => (
               <button
                 key={period}
                 type="button"
                 onClick={() => setReportPeriodFilter(period)}
-                className={`px-4 py-2 rounded-lg transition-colors capitalize ${
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm capitalize transition-colors ${
                   reportPeriodFilter === period
-                    ? 'text-purple-700 bg-purple-50 border border-b-white border-purple-200'
-                    : 'text-gray-600 hover:bg-gray-50 border border-transparent'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
                 }`}
               >
                 {period}
@@ -443,7 +443,7 @@ export function RdhsReportsView() {
                                 type="button"
                                 onClick={() => handleDownloadReportPdf(r)}
                                 disabled={downloadingReportId === r.id}
-                                className="flex items-center gap-1 text-sm text-teal-600 hover:underline disabled:opacity-50"
+                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-full text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
                                 title="Download PDF"
                               >
                                 <Download className="w-4 h-4" />
@@ -453,7 +453,7 @@ export function RdhsReportsView() {
                                 type="button"
                                 onClick={() => handlePrintReport(r)}
                                 disabled={printingReportId === r.id}
-                                className="flex items-center gap-1 text-sm text-gray-700 hover:underline disabled:opacity-50"
+                                className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-full text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
                                 title="Print"
                               >
                                 <Printer className="w-4 h-4" />
@@ -463,7 +463,7 @@ export function RdhsReportsView() {
                                 <button
                                   type="button"
                                   onClick={() => handleSendToPdhs(r.id)}
-                                  className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
+                                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-medium hover:bg-blue-700 transition-colors"
                                 >
                                   <Send className="w-4 h-4" /> Send to PDHS
                                 </button>
@@ -527,7 +527,7 @@ export function RdhsReportsView() {
                                   type="button"
                                   onClick={() => handleDownloadPeriodPdf(reportPeriodFilter, row.date)}
                                   disabled={isDownloading}
-                                  className="flex items-center gap-1 text-sm text-teal-600 hover:underline disabled:opacity-50"
+                                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-full text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
                                   title="Download PDF"
                                 >
                                   <Download className="w-4 h-4" />
@@ -537,7 +537,7 @@ export function RdhsReportsView() {
                                   type="button"
                                   onClick={() => handlePrintPeriodReport(reportPeriodFilter, row.date)}
                                   disabled={isPrinting}
-                                  className="flex items-center gap-1 text-sm text-gray-700 hover:underline disabled:opacity-50"
+                                  className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-full text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
                                   title="Print"
                                 >
                                   <Printer className="w-4 h-4" />
@@ -548,7 +548,7 @@ export function RdhsReportsView() {
                                     type="button"
                                     onClick={() => handleSendPeriodRowToPdhs(reportPeriodFilter, row.date)}
                                     disabled={isSending}
-                                    className="flex items-center gap-1 text-sm text-blue-600 hover:underline disabled:opacity-50"
+                                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
                                   >
                                     <Send className="w-4 h-4" />
                                     {isSending ? 'Sending…' : 'Send to PDHS'}
@@ -602,16 +602,16 @@ export function RdhsReportsView() {
         </div>
 
         {/* Period tabs: Daily | Weekly | Monthly – frame design like reference (rounded, bordered; active = purple) */}
-        <div className="flex gap-2 border-b border-gray-200 px-6 pt-4 pb-3">
+        <div className="flex gap-2 flex-wrap px-6 pt-4 pb-3">
           {(['daily', 'weekly', 'monthly'] as const).map((period) => (
             <button
               key={period}
               type="button"
               onClick={() => setMohPeriodTab(period)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors border ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm capitalize transition-colors ${
                 mohPeriodTab === period
-                  ? 'bg-purple-50 text-purple-700 border-purple-200'
-                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
               }`}
             >
               {period}

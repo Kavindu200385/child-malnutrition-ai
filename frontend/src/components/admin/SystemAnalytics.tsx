@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Users, Activity, FileText, Building2 } from 'lucide-react';
 import { reportsAPI } from '../../services/api';
@@ -187,14 +187,21 @@ export function SystemAnalytics() {
             <h3 className="text-lg font-bold text-gray-900">MOH Areas by Child Count</h3>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full table-fixed">
+              <colgroup>
+                <col className="w-1/2" />
+                <col className="w-1/8" />
+                <col className="w-1/8" />
+                <col className="w-1/8" />
+                <col className="w-1/8" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-700">Area</th>
-                  <th className="text-right py-2 text-sm font-medium text-gray-700">Children</th>
-                  <th className="text-right py-2 text-sm font-medium text-gray-700">SAM</th>
-                  <th className="text-right py-2 text-sm font-medium text-gray-700">MAM</th>
-                  <th className="text-right py-2 text-sm font-medium text-gray-700">Normal</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Area</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Children</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">SAM</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">MAM</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700">Normal</th>
                 </tr>
               </thead>
               <tbody>
@@ -202,12 +209,12 @@ export function SystemAnalytics() {
                   .sort((a, b) => b.total - a.total)
                   .slice(0, 10)
                   .map((row) => (
-                    <tr key={row.clinic_name + row.district} className="border-b border-gray-100">
-                      <td className="py-2 px-4 text-sm text-gray-900">{row.clinic_name}</td>
-                      <td className="py-2 text-sm text-gray-900 text-right">{row.total}</td>
-                      <td className="py-2 text-sm text-red-600 text-right">{row.sam}</td>
-                      <td className="py-2 text-sm text-yellow-600 text-right">{row.mam}</td>
-                      <td className="py-2 text-sm text-green-600 text-right">{row.normal}</td>
+                    <tr key={row.clinic_name + row.district} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-3 px-4 text-sm text-gray-900 truncate">{row.clinic_name}</td>
+                      <td className="py-3 px-4 text-sm text-gray-900 text-right">{row.total}</td>
+                      <td className="py-3 px-4 text-sm text-red-600 text-right font-medium">{row.sam}</td>
+                      <td className="py-3 px-4 text-sm text-yellow-600 text-right font-medium">{row.mam}</td>
+                      <td className="py-3 px-4 text-sm text-green-600 text-right font-medium">{row.normal}</td>
                     </tr>
                   ))}
               </tbody>

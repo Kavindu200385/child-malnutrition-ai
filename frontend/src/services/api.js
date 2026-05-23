@@ -192,6 +192,8 @@ export const pdhsAPI = {
   rdhsPeriodReports: (params) => api.get('/api/pdhs/rdhs-period-reports', { params }),
   /** Full report for month/year: province + all districts + MOH + children (for PDF download/print) */
   getFullReport: (params) => api.get('/api/pdhs/reports/full', { params }),
+  /** Delete an RDHS period report received by this PDHS */
+  deleteRdhsPeriodReport: (reportId) => api.delete(`/api/pdhs/rdhs-period-reports/${reportId}`),
 };
 
 // Admin (Health Ministry) API – national dashboard, messaging, settings

@@ -2,8 +2,10 @@
  * PDHS Reports – list provincial monthly reports, generate, send to Health Ministry.
  * Also lists RDHS period reports (daily/weekly/monthly) sent from districts in this province.
  */
-import { useState, useEffect } from 'react';
-import { Plus, Send, RefreshCw, ChevronDown, Download, Printer } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Send, RefreshCw, ChevronDown, Download, Printer, Eye, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
 import { pdhsAPI } from '../../services/api';
 import { buildSharedReportPdf, type SharedAreaSection } from '../../utils/buildSharedReportPdf';
 
@@ -24,6 +26,10 @@ export function PdhsReportsView() {
   const [expandedRdhsId, setExpandedRdhsId] = useState<number | null>(null);
   const [downloadingReportId, setDownloadingReportId] = useState<number | null>(null);
   const [printingReportId, setPrintingReportId] = useState<number | null>(null);
+  const [downloadingPeriodId, setDownloadingPeriodId] = useState<number | null>(null);
+  const [viewingPeriodId, setViewingPeriodId] = useState<number | null>(null);
+  const [deletingPeriodId, setDeletingPeriodId] = useState<number | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<ConfirmDialogState | null>(null);
 
   const load = (isBackground = false, periodType?: 'daily' | 'weekly' | 'monthly') => {
     if (!isBackground) {
@@ -184,6 +190,99 @@ export function PdhsReportsView() {
     }
   };
 
+  /** Build PDF from an RDHS period report payload (same structure as RDHS own reports). */
+  const buildRdhsPeriodPdf = async (payload: any) => {
+    const s = payload.summary || {};
+    const sections: SharedAreaSection[] = (payload.moh_areas || []).map((moh: any) => ({
+      title: `MOH Area: ${moh.moh_name || '—'}`,
+      headerLevel: 'secondary' as const,
+      summary: {
+        total: moh.total_children ?? 0,
+        normal: moh.normal ?? 0,
+        mam: moh.mam ?? 0,
+        sam: moh.sam ?? 0,
+        escalations: moh.escalations ?? 0,
+      },
+      children: (moh.children || []).map((ch: any) => ({
+        child_id: ch.child_id,
+        name: ch.name,
+        gender: ch.gender,
+        age_months: ch.age_months,
+        risk_level: ch.risk_level,
+        weight_kg: ch.weight_kg,
+        height_cm: ch.height_cm,
+        muac_cm: ch.muac_cm,
+        last_visit_date: ch.last_visit_date,
+      })),
+    }));
+    return buildSharedReportPdf({
+      roleTitle: 'RDHS District Health Report',
+      areaName: payload.district_name || 'District',
+      periodLabel: payload.period_label || '',
+      startDate: payload.start_date || '',
+      endDate: payload.end_date || '',
+      summary: {
+        total_children: s.total_children ?? 0,
+        normal: s.normal ?? 0,
+        mam: s.mam ?? 0,
+        sam: s.sam ?? 0,
+        escalations: s.total_escalations ?? 0,
+      },
+      sections,
+    });
+  };
+
+  const handleViewRdhsPeriod = async (r: any) => {
+    setViewingPeriodId(r.id);
+    try {
+      const pdf = await buildRdhsPeriodPdf(r.payload || {});
+      const blob = pdf.output('blob');
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank');
+      if (w) w.onload = () => URL.revokeObjectURL(url);
+      else URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to open report');
+    } finally {
+      setViewingPeriodId(null);
+    }
+  };
+
+  const handleDownloadRdhsPeriod = async (r: any) => {
+    setDownloadingPeriodId(r.id);
+    try {
+      const pdf = await buildRdhsPeriodPdf(r.payload || {});
+      const label = `${(r.payload?.district_name || 'District').replace(/\s+/g, '_')}_${r.payload?.period_label || r.id}`.replace(/\s+/g, '_');
+      pdf.save(`RDHS_Report_${label}.pdf`);
+    } catch {
+      toast.error('Failed to download report');
+    } finally {
+      setDownloadingPeriodId(null);
+    }
+  };
+
+  const handleDeleteRdhsPeriod = (r: any) => {
+    setDeleteConfirm({
+      title: 'Delete RDHS Report',
+      message: `Delete the report from ${r.payload?.district_name || 'this district'} (${r.payload?.period_label || ''})? This cannot be undone.`,
+      variant: 'danger',
+      confirmLabel: 'Yes, Delete',
+      cancelLabel: 'Cancel',
+      onConfirm: async () => {
+        setDeletingPeriodId(r.id);
+        try {
+          await pdhsAPI.deleteRdhsPeriodReport(r.id);
+          toast.success('Report deleted');
+          setRdhsPeriodReports(prev => prev.filter((x: any) => x.id !== r.id));
+        } catch (err: any) {
+          toast.error(err.response?.data?.message || 'Failed to delete report');
+        } finally {
+          setDeletingPeriodId(null);
+        }
+      },
+    });
+  };
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -207,7 +306,7 @@ export function PdhsReportsView() {
         </div>
         <button
           type="button"
-          onClick={load}
+          onClick={() => load()}
           className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium"
         >
           <RefreshCw className="w-4 h-4" />
@@ -216,14 +315,14 @@ export function PdhsReportsView() {
       </div>
 
       {/* Tabs – same style as RDHS (purple active state) */}
-      <div className="flex gap-2 mt-2 border-b border-gray-200 text-sm font-medium">
+      <div className="flex gap-2 mt-2 flex-wrap">
         <button
           type="button"
           onClick={() => setActiveTab('province')}
-          className={`px-4 py-2 rounded-lg transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
             activeTab === 'province'
-              ? 'text-purple-700 bg-purple-50 border border-b-white border-purple-200'
-              : 'text-gray-600 hover:bg-gray-50 border border-transparent'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
           }`}
         >
           PDHS consolidated report
@@ -231,10 +330,10 @@ export function PdhsReportsView() {
         <button
           type="button"
           onClick={() => setActiveTab('rdhs')}
-          className={`px-4 py-2 rounded-lg transition-colors ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
             activeTab === 'rdhs'
-              ? 'text-purple-700 bg-purple-50 border border-b-white border-purple-200'
-              : 'text-gray-600 hover:bg-gray-50 border border-transparent'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
           }`}
         >
           RDHS reports from districts
@@ -326,7 +425,7 @@ export function PdhsReportsView() {
                             type="button"
                             onClick={() => handleDownloadReportPdf(r)}
                             disabled={downloadingReportId === r.id}
-                            className="flex items-center gap-1 text-sm text-teal-600 hover:underline disabled:opacity-50"
+                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-full text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
                             title="Download PDF"
                           >
                             <Download className="w-4 h-4" />
@@ -336,7 +435,7 @@ export function PdhsReportsView() {
                             type="button"
                             onClick={() => handlePrintReport(r)}
                             disabled={printingReportId === r.id}
-                            className="flex items-center gap-1 text-sm text-gray-700 hover:underline disabled:opacity-50"
+                            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-full text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
                             title="Print"
                           >
                             <Printer className="w-4 h-4" />
@@ -346,7 +445,7 @@ export function PdhsReportsView() {
                             <button
                               type="button"
                               onClick={() => handleSendToMinistry(r.id)}
-                              className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
+                              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-medium hover:bg-blue-700 transition-colors"
                             >
                               <Send className="w-4 h-4" /> Send to Ministry
                             </button>
@@ -382,16 +481,16 @@ export function PdhsReportsView() {
           </div>
 
           {/* Period tabs: Daily | Weekly | Monthly */}
-          <div className="flex gap-2 border-b border-gray-200 px-6 pt-2 pb-0">
+          <div className="flex gap-2 flex-wrap px-6 pt-3 pb-3">
             {(['daily', 'weekly', 'monthly'] as const).map((period) => (
               <button
                 key={period}
                 type="button"
                 onClick={() => setRdhsPeriodTab(period)}
-                className={`px-4 py-2 rounded-t-lg text-sm font-medium capitalize transition-colors ${
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm capitalize transition-colors ${
                   rdhsPeriodTab === period
-                    ? 'text-purple-700 bg-white border border-b-0 border-gray-200 -mb-px'
-                    : 'text-gray-600 hover:bg-gray-50 border border-transparent'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
                 }`}
               >
                 {period}
@@ -409,20 +508,57 @@ export function PdhsReportsView() {
                 const mohAreas = payload.moh_areas || [];
                 const isExpanded = expandedRdhsId === r.id;
                 return (
-                  <details key={r.id} open={isExpanded} className="group">
-                    <summary
-                      className="flex items-center justify-between px-6 py-3 cursor-pointer hover:bg-gray-50 list-none"
-                      onClick={(e) => { e.preventDefault(); setExpandedRdhsId(isExpanded ? null : r.id); }}
-                    >
-                      <div>
+                  <div key={r.id} className="border-b last:border-0">
+                    {/* Row header — info on left, actions + chevron on right */}
+                    <div className="flex items-center justify-between px-6 py-3 hover:bg-gray-50">
+                      <div
+                        className="flex-1 min-w-0 cursor-pointer"
+                        onClick={() => setExpandedRdhsId(isExpanded ? null : r.id)}
+                      >
                         <p className="text-sm font-semibold text-gray-900">{payload.district_name || 'District'}</p>
                         <p className="text-xs text-gray-500">
                           {payload.period_label} ({payload.period}) · {payload.start_date} to {payload.end_date}
                           {r.sent_at ? ` · Sent ${new Date(r.sent_at).toLocaleString()}` : ''}
                         </p>
                       </div>
-                      <ChevronDown className="w-4 h-4 text-gray-500 transition-transform group-open:rotate-180 shrink-0" />
-                    </summary>
+                      <div className="flex items-center gap-2 shrink-0 ml-4">
+                        <button
+                          type="button"
+                          onClick={() => handleViewRdhsPeriod(r)}
+                          disabled={viewingPeriodId === r.id}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                        >
+                          <Eye className="w-4 h-4" />
+                          {viewingPeriodId === r.id ? '…' : 'View'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadRdhsPeriod(r)}
+                          disabled={downloadingPeriodId === r.id}
+                          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-full text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
+                        >
+                          <Download className="w-4 h-4" />
+                          {downloadingPeriodId === r.id ? '…' : 'Download'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRdhsPeriod(r)}
+                          disabled={deletingPeriodId === r.id}
+                          className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-full text-sm font-medium hover:bg-red-100 disabled:opacity-50 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          {deletingPeriodId === r.id ? '…' : 'Delete'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedRdhsId(isExpanded ? null : r.id)}
+                          className="p-1 rounded hover:bg-gray-100 transition-colors"
+                        >
+                          <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                        </button>
+                      </div>
+                    </div>
+                    {isExpanded && (
                     <div className="px-6 pb-4 border-t bg-gray-50/50">
                       <div className="pt-3 mb-3 text-sm text-gray-700">
                         <strong>Summary:</strong> Total children: {summary.total_children ?? 0} · Normal: {summary.normal ?? 0} · MAM: {summary.mam ?? 0} · SAM: {summary.sam ?? 0} · Escalations: {summary.total_escalations ?? 0}
@@ -506,12 +642,17 @@ export function PdhsReportsView() {
                         </div>
                       )}
                     </div>
-                  </details>
+                    )}
+                  </div>
                 );
               })}
             </div>
           )}
         </div>
+      )}
+
+      {deleteConfirm && (
+        <ConfirmDialog state={deleteConfirm} onClose={() => setDeleteConfirm(null)} />
       )}
     </div>
   );

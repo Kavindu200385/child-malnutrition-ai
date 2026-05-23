@@ -21,7 +21,9 @@ from backend.models_hierarchical import (
     WorkerAreaMapping,
     ChildEscalation,
     ChildReferral,
+    AuditLog,
     Measurement,
+    Hospital,
     PdhsReport,
     RdhsPeriodReport,
     ReferralStatus,
@@ -515,30 +517,72 @@ def user_performance(user_id: int):
         WorkerAreaMapping.is_active == True,
     ).distinct().all()
     target_area_ids = [a[0] for a in target_area_ids]
-    if not any(aid in worker_area_ids for aid in target_area_ids):
-        return jsonify({"status": "error", "message": "User not in your province"}), 403
 
-    child_count = db.session.query(Child).filter(
-        (Child.current_assigned_area_id.in_(target_area_ids)) |
-        (Child.district_id.in_(target_area_ids)),
-        Child.is_draft == False,
-        Child.status == "ACTIVE",
-    ).count()
-    measurement_count = db.session.query(Measurement).filter(
-        Measurement.measured_by_user_id == target.id
-    ).count()
-    escalation_count = db.session.query(ChildEscalation).filter(
-        ChildEscalation.escalated_by_user_id == target.id
-    ).count()
+    is_nutritionist = target.role == 'nutritionist'
+    if not is_nutritionist:
+        if not any(aid in worker_area_ids for aid in target_area_ids):
+            return jsonify({"status": "error", "message": "User not in your province"}), 403
+    else:
+        if target.hospital_id:
+            hosp = db.session.get(Hospital, target.hospital_id)
+            if not hosp:
+                return jsonify({"status": "error", "message": "Nutritionist not in your province"}), 403
+            if hosp.province:
+                province_names = [a.name for a in db.session.query(Area).filter(Area.id.in_(province_ids)).all()]
+                if hosp.province not in province_names:
+                    return jsonify({"status": "error", "message": "Nutritionist not in your province"}), 403
+
+    if is_nutritionist:
+        children_referred = db.session.query(ChildReferral).filter(
+            ChildReferral.reviewed_by_user_id == target.id,
+            ChildReferral.status == ReferralStatus.REVIEWED.value,
+        ).count()
+        referred_ids = [r[0] for r in db.session.query(ChildReferral.child_id).filter(
+            ChildReferral.reviewed_by_user_id == target.id,
+            ChildReferral.status == ReferralStatus.REVIEWED.value,
+        ).distinct().all()]
+        cases_resolved = db.session.query(Child).filter(
+            Child.id.in_(referred_ids),
+            Child.current_risk_level == RiskLevel.NORMAL.value,
+        ).count() if referred_ids else 0
+        measurement_count = db.session.query(Measurement).filter(
+            Measurement.measured_by_user_id == target.id
+        ).count()
+        child_reviews = db.session.query(AuditLog).filter(
+            AuditLog.action == "NUTRITIONIST_REVIEW",
+            AuditLog.user_id == target.id,
+            AuditLog.entity_type == "child",
+        ).count()
+        performance = {
+            "children_referred": children_referred,
+            "measurements_taken": measurement_count,
+            "cases_resolved": cases_resolved,
+            "child_reviews": child_reviews,
+        }
+    else:
+        child_count = db.session.query(Child).filter(
+            (Child.current_assigned_area_id.in_(target_area_ids)) |
+            (Child.district_id.in_(target_area_ids)),
+            Child.is_draft == False,
+            Child.status == "ACTIVE",
+        ).count()
+        measurement_count = db.session.query(Measurement).filter(
+            Measurement.measured_by_user_id == target.id
+        ).count()
+        escalation_count = db.session.query(ChildEscalation).filter(
+            ChildEscalation.escalated_by_user_id == target.id
+        ).count()
+        performance = {
+            "children_in_area": child_count,
+            "measurements_taken": measurement_count,
+            "escalations_made": escalation_count,
+        }
 
     return jsonify({
         "status": "success",
         "user": target.to_dict(include_areas=True),
-        "performance": {
-            "children_in_area": child_count,
-            "measurements_taken": measurement_count,
-            "escalations_made": escalation_count,
-        },
+        "performance": performance,
+        "role": target.role,
     }), 200
 
 
@@ -723,6 +767,25 @@ def rdhs_period_reports():
         "reports": [r.to_dict() for r in reports],
         "count": len(reports),
     }), 200
+
+
+@bp.route("/rdhs-period-reports/<int:report_id>", methods=["DELETE"])
+@pdhs_required
+def delete_rdhs_period_report(report_id: int):
+    """Delete an RDHS period report that was sent to this PDHS province."""
+    user, ctx, err = _pdhs_context()
+    if err:
+        return err
+    province_ids, _ = ctx
+    district_ids = list(_district_ids_under_province(province_ids))
+    report = db.session.get(RdhsPeriodReport, report_id)
+    if not report:
+        return jsonify({"status": "error", "message": "Report not found"}), 404
+    if report.district_id not in district_ids:
+        return jsonify({"status": "error", "message": "Report not in your province"}), 403
+    db.session.delete(report)
+    db.session.commit()
+    return jsonify({"status": "success", "message": "Report deleted"}), 200
 
 
 @bp.route("/reports/full", methods=["GET"])

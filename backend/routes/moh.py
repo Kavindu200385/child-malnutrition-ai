@@ -604,10 +604,26 @@ def assign_returned_child(child_id: int):
         if not phm_area:
             return jsonify({"status": "error", "message": "PHM area not found"}), 404
         child.phm_area_id = phm_area_id
-        child.current_assigned_role = "midwife"
+        child.current_assigned_role = UserRole.MIDWIFE.value
+        child.current_assigned_area_id = phm_area_id
+        # Assign to the midwife covering this PHM area so the child appears in
+        # their list (list_children filters on current_assigned_user_id).
+        midwife_mapping = (
+            db.session.query(WorkerAreaMapping)
+            .join(User, User.id == WorkerAreaMapping.user_id)
+            .filter(
+                WorkerAreaMapping.area_id == phm_area_id,
+                WorkerAreaMapping.is_active == True,
+                User.role == UserRole.MIDWIFE.value,
+                User.is_active == True,
+            )
+            .first()
+        )
+        if midwife_mapping:
+            child.current_assigned_user_id = midwife_mapping.user_id
         action_desc = f"assigned to PHM area {phm_area.name}"
     else:
-        child.current_assigned_role = "moh"
+        child.current_assigned_role = UserRole.MOH.value
         action_desc = "kept under MOH care"
 
     escalation.status = EscalationRecordStatus.REVIEWED.value
@@ -651,13 +667,32 @@ def return_to_midwife(child_id: int):
 
     child.current_risk_level = RiskLevel.NORMAL.value
     child.escalation_status = EscalationStatus.NONE.value
+    child.current_assigned_role = UserRole.MIDWIFE.value
+
+    # Re-assign to the midwife covering child's PHM area so the child appears
+    # in that midwife's list (list_children filters on current_assigned_user_id).
+    if child.phm_area_id:
+        midwife_mapping = (
+            db.session.query(WorkerAreaMapping)
+            .join(User, User.id == WorkerAreaMapping.user_id)
+            .filter(
+                WorkerAreaMapping.area_id == child.phm_area_id,
+                WorkerAreaMapping.is_active == True,
+                User.role == UserRole.MIDWIFE.value,
+                User.is_active == True,
+            )
+            .first()
+        )
+        if midwife_mapping:
+            child.current_assigned_user_id = midwife_mapping.user_id
+            child.current_assigned_area_id = child.phm_area_id
 
     db.session.flush()
     log_audit(
         action="UPDATE",
         entity_type="child",
         entity_id=child.id,
-        new_values={"current_risk_level": "NORMAL", "escalation_status": "NONE"},
+        new_values={"current_risk_level": "NORMAL", "escalation_status": "NONE", "current_assigned_role": "midwife"},
         user_id=user.id,
         description=f"MOH returned child {child_id} to midwife care",
     )
