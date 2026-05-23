@@ -36,6 +36,10 @@ from backend.models_hierarchical import (
     RiskLevel,
     ChildReferral,
     ReferralStatus,
+    ChildEscalation,
+    ChildTransfer,
+    AreaChangeRequest,
+    Measurement,
     User,
     WorkerAreaMapping,
 )
@@ -436,15 +440,19 @@ def get_child(child_id: str):
     if not user_can_access_child(user, child):
         return jsonify({"status": "error", "message": "No access to this child"}), 403
     
-    # Include visits/transfers for measurement roles and RDHS (read-only)
-    include_visits = user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS]
+    # Include visits/transfers for measurement roles and RDHS (read-only); hospital gets visits but not transfers
+    include_visits = user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS, ROLE_HOSPITAL]
     include_transfers = user.role in [ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS]
     
     child_data = child.to_dict(include_visits=include_visits, include_transfers=include_transfers)
     if user.role in (ROLE_MOH, ROLE_AMOH):
         moh_area_ids = get_moh_area_ids(user)
         child_data["can_moh_add_measurement"] = child_was_escalated_to_moh(child, moh_area_ids)
-    
+    if user.role == ROLE_NUTRITIONIST and user.hospital_id:
+        from backend.models_hierarchical import EscalationStatus
+        is_active = (child.escalation_status or "") == EscalationStatus.ESCALATED_TO_NUTRITIONIST.value
+        child_data["can_nutritionist_add_measurement"] = is_active
+
     return jsonify({
         "status": "success",
         "child": child_data
@@ -562,9 +570,7 @@ def update_child(child_id: str):
 def delete_child(child_id: str):
     """Delete child. Pediatric Unit, Midwife, MOH/AMOH, and Health Ministry can delete children they have access to."""
     user = get_current_user()
-    child = db.session.query(Child).filter(Child.child_id == child_id).first()
-    if not child and child_id.isdigit():
-        child = db.session.get(Child, int(child_id))
+    child = _find_child_by_ref(child_id)
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
 
@@ -581,6 +587,16 @@ def delete_child(child_id: str):
             return jsonify({"status": "error", "message": "Pediatric Unit can delete child only within 1 day of registration"}), 403
 
     old_values = child.to_dict()
+
+    # Delete related records that lack cascade-delete on the ORM relationship.
+    # (Visit already has cascade="all, delete-orphan", so it's handled automatically.)
+    db.session.query(Measurement).filter(Measurement.child_id == child.id).delete(synchronize_session=False)
+    db.session.query(ChildEscalation).filter(ChildEscalation.child_id == child.id).delete(synchronize_session=False)
+    db.session.query(ChildReferral).filter(ChildReferral.child_id == child.id).delete(synchronize_session=False)
+    db.session.query(ChildTransfer).filter(ChildTransfer.child_id == child.id).delete(synchronize_session=False)
+    db.session.query(AreaChangeRequest).filter(AreaChangeRequest.child_id == child.id).delete(synchronize_session=False)
+    db.session.flush()
+
     db.session.delete(child)
     db.session.flush()
 

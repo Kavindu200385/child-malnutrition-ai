@@ -556,39 +556,46 @@ def submit_clinic_report():
     """
     user = get_current_user()
     data = request.get_json() or {}
-    
+
+    phm_area_id = _get_midwife_phm_area_id(user)
+    if phm_area_id is None:
+        return jsonify({
+            "status": "error",
+            "message": "Midwife has no PHM area assigned"
+        }), 400
+
     report_month = data.get("report_month")
     report_year = data.get("report_year")
-    
+
     if not report_month or not report_year:
         return jsonify({
             "status": "error",
             "message": "report_month (1-12) and report_year are required"
         }), 400
-    
+
     # Check if report already exists
     existing = db.session.query(ClinicReport).filter(
-        ClinicReport.phm_area_id == user.phm_area_id,
+        ClinicReport.phm_area_id == phm_area_id,
         ClinicReport.report_month == report_month,
         ClinicReport.report_year == report_year
     ).first()
-    
+
     if existing and existing.submitted_to_moh:
         return jsonify({
             "status": "error",
             "message": "Report already submitted for this month"
         }), 400
-    
+
     # Aggregate data for the month
     start_date = datetime(report_year, report_month, 1)
     if report_month == 12:
         end_date = datetime(report_year + 1, 1, 1)
     else:
         end_date = datetime(report_year, report_month + 1, 1)
-    
+
     # Get all children in this area
     children = db.session.query(Child).filter(
-        Child.phm_area_id == user.phm_area_id,
+        Child.phm_area_id == phm_area_id,
         Child.assigned_date >= start_date,
         Child.assigned_date < end_date
     ).all()
@@ -610,7 +617,7 @@ def submit_clinic_report():
         report.escalated_cases = escalated_count
     else:
         report = ClinicReport(
-            phm_area_id=user.phm_area_id,
+            phm_area_id=phm_area_id,
             report_month=report_month,
             report_year=report_year,
             total_children_seen=total,
@@ -700,10 +707,7 @@ def get_dashboard_stats():
                 Measurement.child_id,
                 db.func.max(Measurement.measurement_date).label("max_date"),
             )
-            .filter(
-                Measurement.child_id.in_(child_ids),
-                Measurement.predicted_risk_next_2_months.isnot(None),
-            )
+            .filter(Measurement.child_id.in_(child_ids))
             .group_by(Measurement.child_id)
             .subquery()
         )
@@ -716,6 +720,7 @@ def get_dashboard_stats():
                     Measurement.measurement_date == latest_subq.c.max_date,
                 ),
             )
+            .filter(Measurement.predicted_risk_next_2_months.isnot(None))
             .all()
         )
         for (p,) in preds:

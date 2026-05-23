@@ -73,20 +73,24 @@ function mapToMeasurements(items: any[], dob: string | null) {
   return items.map((v) => {
     const dateStr = v.measurement_date || v.visit_date;
     const visitDate = dateStr ? new Date(dateStr) : new Date();
-    const ageMonths = dobDate ? Math.floor((visitDate.getTime() - dobDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)) : 0;
+    // Keep fractional months so chart dots land at the exact position; round only for display
+    const ageMonths = dobDate ? (visitDate.getTime() - dobDate.getTime()) / (1000 * 60 * 60 * 24 * 30.4375) : 0;
     const risk = (v.risk_level || v.current_risk || 'NORMAL').toLowerCase();
     const r = risk === 'sam' || risk === 'critical' ? 'sam' : risk === 'mam' || risk === 'moderate' || risk === 'high' ? 'mam' : 'normal';
     const wKg = Number(v.weight_kg) || 0;
     const hCm = Number(v.height_cm) || 0;
     const male = (v.gender || '').toLowerCase() === 'male';
 
-    // Use stored Z-scores if available; fall back to approximation for chart display
+    // Clamp Z-scores to a valid clinical range; outliers (e.g. -24.9 from calculation errors) are treated as missing
+    const clampZ = (z: number | null | undefined): number | undefined =>
+      z != null && isFinite(z) && z >= -6 && z <= 6 ? z : undefined;
+
     const rawWfa = (v.z_score_wfa ?? v.z_wfa);
     const rawHfa = (v.z_score_hfa ?? v.z_hfa);
     const rawWfh = (v.z_score_wfh ?? v.z_wfh);
-    const weightForAge = rawWfa != null ? Number(rawWfa) : (wKg > 0 && ageMonths >= 0 ? approxWFA(wKg, ageMonths, male) : undefined);
-    const heightForAge = rawHfa != null ? Number(rawHfa) : (hCm > 0 && ageMonths >= 0 ? approxHFA(hCm, ageMonths, male) : undefined);
-    const weightForHeight = rawWfh != null ? Number(rawWfh) : (wKg > 0 && hCm > 0 ? (wKg - hCm * 0.13) / 1.5 : undefined);
+    const weightForAge = clampZ(rawWfa != null ? Number(rawWfa) : (wKg > 0 && ageMonths >= 0 ? approxWFA(wKg, ageMonths, male) : undefined));
+    const heightForAge = clampZ(rawHfa != null ? Number(rawHfa) : (hCm > 0 && ageMonths >= 0 ? approxHFA(hCm, ageMonths, male) : undefined));
+    const weightForHeight = clampZ(rawWfh != null ? Number(rawWfh) : (wKg > 0 && hCm > 0 ? (wKg - hCm * 0.13) / 1.5 : undefined));
 
     return {
       id: v.id || String(visitDate.getTime()),
@@ -270,7 +274,15 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
       return 'normal' as RiskLevel;
     })(),
     measurements: (() => {
-      const baseList = mapToMeasurements([...(apiChild.measurements || []), ...(apiChild.visits || [])], apiChild.dob);
+      // Deduplicate: measurements (rich, has Z-scores + AI) take priority.
+      // Only include a visit if no measurement already covers that calendar day.
+      const measDates = new Set(
+        (apiChild.measurements || []).map((m: any) => (m.measurement_date || '').slice(0, 10))
+      );
+      const uniqueVisits = (apiChild.visits || []).filter(
+        (v: any) => !measDates.has((v.visit_date || '').slice(0, 10))
+      );
+      const baseList = mapToMeasurements([...(apiChild.measurements || []), ...uniqueVisits], apiChild.dob);
       const hasBirth =
         apiChild.dob &&
         (Number(apiChild.birth_weight_kg) > 0 ||
@@ -278,9 +290,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
           apiChild.birth_risk_level ||
           apiChild.birth_muac_cm != null);
       const birth = hasBirth ? [createBirthMeasurement(apiChild)] : [];
-      // Pediatric Unit should only see birth-time measurement; others see birth + clinic visits
-      const list = isHospital ? [] : baseList;
-      return [...birth, ...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      return [...birth, ...baseList].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     })(),
   } : null;
 
@@ -318,10 +328,14 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
 
     const latestMeasurement = child.measurements[0];
 
-    // Project 1-2 months ahead
-    const predictedWFA = (latestMeasurement.weightForAge ?? 0) + (avgWFATrend * 2);
-    const predictedHFA = (latestMeasurement.heightForAge ?? 0) + (avgWFATrend * 0.5);
-    const predictedWFH = (latestMeasurement.weightForHeight ?? 0) + (avgWFATrend * 1.5);
+    // Project 1-2 months ahead; skip any dimension whose current Z-score is unknown
+    const latestWFA = latestMeasurement.weightForAge;
+    const latestHFA = latestMeasurement.heightForAge;
+    const latestWFH = latestMeasurement.weightForHeight;
+
+    const predictedWFA = latestWFA != null ? latestWFA + (avgWFATrend * 2) : null;
+    const predictedHFA = latestHFA != null ? latestHFA + (avgWFATrend * 0.5) : null;
+    const predictedWFH = latestWFH != null ? latestWFH + (avgWFATrend * 1.5) : null;
 
     const predictedRisk = calculateRiskLevel(predictedWFA, predictedHFA, predictedWFH);
 
@@ -391,11 +405,14 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
 
   const isMoh = user?.role === 'moh' || user?.role === 'amoh';
   const isHospitalRole = user?.role === 'hospital';
+  const isNutritionist = user?.role === 'nutritionist';
   const canAddMeasurement = isHospitalRole
     ? false
     : isMoh
       ? apiChild?.can_moh_add_measurement === true
-      : true;
+      : isNutritionist
+        ? apiChild?.can_nutritionist_add_measurement === true
+        : true;
 
   let canEditDelete = false;
   if (apiChild && user?.role) {
@@ -1001,8 +1018,15 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                     <p className="text-2xl font-bold text-gray-900 mt-1">{latestMeasurement.height} cm</p>
                   </div>
                   <div className="bg-blue-50 rounded-lg p-4">
-                    <p className="text-sm text-gray-600">MUAC</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">{latestMeasurement.muac ?? '—'} cm</p>
+                    <p className="text-sm text-gray-600">
+                      MUAC
+                      {latestMeasurement.ageMonths < 6 && (
+                        <span className="ml-1 text-xs text-amber-600">(not assessed &lt;6m)</span>
+                      )}
+                    </p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                      {latestMeasurement.muac != null ? `${latestMeasurement.muac} cm` : '—'}
+                    </p>
                   </div>
                   <div className="bg-blue-50 rounded-lg p-4">
                     <p className="text-sm text-gray-600">Date</p>
@@ -1059,10 +1083,19 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                   {child.measurements.map((measurement) => (
                     <tr key={measurement.id} className="border-b border-gray-100">
                       <td className="py-3 px-4 text-sm text-gray-900">{formatDate(measurement.date)}</td>
-                      <td className="py-3 px-4 text-sm text-gray-600">{measurement.ageMonths}m</td>
+                      <td className="py-3 px-4 text-sm text-gray-600">{Math.round(measurement.ageMonths)}m</td>
                       <td className="py-3 px-4 text-sm text-gray-900">{measurement.weight} kg</td>
                       <td className="py-3 px-4 text-sm text-gray-900">{measurement.height} cm</td>
-                      <td className="py-3 px-4 text-sm text-gray-600">{measurement.muac != null ? `${measurement.muac} cm` : '—'}</td>
+                      <td className="py-3 px-4 text-sm text-gray-600">
+                        {measurement.muac != null ? (
+                          <>
+                            {measurement.muac} cm
+                            {measurement.ageMonths < 6 && (
+                              <span className="ml-1 text-xs text-amber-600" title="MUAC not used for risk assessment under 6 months">(not assessed)</span>
+                            )}
+                          </>
+                        ) : '—'}
+                      </td>
                       <td className="py-3 px-4">
                         <span
                           className="inline-block px-2 py-1 rounded-full text-xs font-medium text-white"

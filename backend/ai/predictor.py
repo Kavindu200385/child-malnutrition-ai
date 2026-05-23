@@ -428,6 +428,11 @@ def predict_future_risk(data: Dict[str, Any]) -> Dict[str, Any]:
             wfa, hfa, wfh = compute_z_scores(age_months=age, sex=sex, weight_kg=weight, height_cm=height)
             z_wfa, z_hfa, z_wfh = float(wfa), float(hfa), float(wfh)
 
+        # Clamp Z-scores to valid clinical range to avoid outlier values corrupting predictions
+        z_wfa = max(-6.0, min(6.0, z_wfa))
+        z_hfa = max(-6.0, min(6.0, z_hfa))
+        z_wfh = max(-6.0, min(6.0, z_wfh))
+
         # current risk text: accept if provided, else derive from current model output
         current_risk_text = data.get("current_risk")
         if not current_risk_text:

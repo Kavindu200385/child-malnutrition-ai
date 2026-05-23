@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Save, Database, Bell, Shield, Globe, Download, Upload } from 'lucide-react';
+import React, { useState } from 'react';
+import { Save, Database, Bell, Shield, Globe, Download, Upload, Brain } from 'lucide-react';
+import { adminAPI } from '../../services/api';
 
 export function SystemSettings() {
   const [autoBackup, setAutoBackup] = useState(true);
@@ -7,6 +8,8 @@ export function SystemSettings() {
   const [smsAlerts, setSmsAlerts] = useState(false);
   const [twoFactorAuth, setTwoFactorAuth] = useState(true);
   const [language, setLanguage] = useState('en');
+  const [recomputeStatus, setRecomputeStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [recomputeResult, setRecomputeResult] = useState<{ updated?: number; total?: number; errors?: number } | null>(null);
 
   const handleSaveSettings = () => {
     alert('Settings saved successfully!');
@@ -22,6 +25,18 @@ export function SystemSettings() {
 
   const handleImportData = () => {
     alert('This would open a file picker to import data from CSV/Excel files.');
+  };
+
+  const handleRecomputePredictions = async () => {
+    setRecomputeStatus('running');
+    setRecomputeResult(null);
+    try {
+      const res = await adminAPI.recomputeMeasurements();
+      setRecomputeResult(res.data?.result ?? res.data);
+      setRecomputeStatus('done');
+    } catch {
+      setRecomputeStatus('error');
+    }
   };
 
   return (
@@ -252,6 +267,35 @@ export function SystemSettings() {
               <Upload className="w-4 h-4" />
               Import Data
             </button>
+          </div>
+
+          {/* AI Prediction Recompute */}
+          <div className="mt-4 border-t border-gray-200 pt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Brain className="w-4 h-4 text-purple-600" />
+              <p className="font-medium text-gray-900">Re-run AI Predictions</p>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">
+              Recomputes Z-scores and 2-month risk predictions for all clinic measurements.
+              Run this if dashboard predicted-case counts look incorrect.
+            </p>
+            <button
+              onClick={handleRecomputePredictions}
+              disabled={recomputeStatus === 'running'}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white rounded-lg font-medium transition-colors"
+            >
+              <Brain className="w-4 h-4" />
+              {recomputeStatus === 'running' ? 'Running…' : 'Re-run Now'}
+            </button>
+            {recomputeStatus === 'done' && recomputeResult && (
+              <p className="mt-2 text-sm text-green-700">
+                Done — updated {recomputeResult.updated} / {recomputeResult.total} measurements
+                {recomputeResult.errors ? ` (${recomputeResult.errors} errors)` : ''}.
+              </p>
+            )}
+            {recomputeStatus === 'error' && (
+              <p className="mt-2 text-sm text-red-600">Failed. Check server logs.</p>
+            )}
           </div>
         </div>
       </div>

@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify
 
 from backend.auth_utils import admin_required
 from backend.demo_children_seed import reset_demo_children_data
-from backend.maintenance import recompute_all_visits
+from backend.maintenance import recompute_all_visits, recompute_all_measurements
 
 bp = Blueprint("admin_tools", __name__, url_prefix="/api/admin")
 
@@ -36,5 +36,17 @@ def recompute_visits():
         return jsonify({"status": "error", "message": "Admin tools are disabled"}), 403
 
     result = recompute_all_visits()
+    return jsonify({"status": "success", "result": result}), 200
+
+
+@bp.route("/recompute-measurements", methods=["POST"])
+@admin_required
+def recompute_measurements():
+    """
+    Recompute z-scores and predicted_risk_next_2_months for all Measurements
+    (hierarchical schema). Fixes stale predictions caused by unclamped Z-scores.
+    No env-flag guard — safe to call at any time (read-only for children, updates only measurements).
+    """
+    result = recompute_all_measurements()
     return jsonify({"status": "success", "result": result}), 200
 

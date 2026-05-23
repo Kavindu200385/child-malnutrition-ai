@@ -3,8 +3,8 @@
  * Same UI layout as Admin Overview but district-filtered data only.
  * Auto-refreshes so details stay live.
  */
-import { useState, useEffect, useCallback } from 'react';
-import { Users, Building2, AlertTriangle, Activity, Stethoscope, UserCheck, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Users, Building2, AlertTriangle, Activity, Stethoscope, UserCheck, RefreshCw, Brain } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { rdhsAPI } from '../../services/api';
 
@@ -76,6 +76,9 @@ export function RdhsOverview() {
   const districtNames = (data?.district_names || []).join(', ') || 'Your District';
   const totalChildren = data?.total_children ?? 0;
   const samCount = data?.sam_count ?? 0;
+  const predictedSam = data?.predicted_sam_count ?? 0;
+  const predictedMam = data?.predicted_mam_count ?? 0;
+  const predictedTotal = predictedSam + predictedMam;
   const totalMoh = data?.total_moh_areas ?? 0;
   const totalMidwives = data?.total_midwives ?? 0;
   const totalNutritionists = data?.total_nutritionists ?? 0;
@@ -156,7 +159,7 @@ export function RdhsOverview() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-lg shadow p-6">
           <p className="text-sm text-gray-600">Critical Cases (SAM)</p>
           <p className="text-3xl font-bold text-red-600 mt-2">{samCount}</p>
@@ -165,6 +168,14 @@ export function RdhsOverview() {
           <p className="text-sm text-gray-600">Escalations</p>
           <p className="text-3xl font-bold text-gray-900 mt-2">{escalationSummary.total}</p>
           <p className="text-xs text-gray-500 mt-1">Pending: {escalationSummary.pending} · Reviewed: {escalationSummary.reviewed}</p>
+        </div>
+        <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg shadow p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <Brain className="w-4 h-4 text-purple-600" />
+            <p className="text-sm font-medium text-purple-700">AI Predicted (next 2 months)</p>
+          </div>
+          <p className="text-3xl font-bold text-purple-900">{predictedTotal}</p>
+          <p className="text-xs text-purple-500 mt-1">SAM: {predictedSam} · MAM: {predictedMam}</p>
         </div>
       </div>
 

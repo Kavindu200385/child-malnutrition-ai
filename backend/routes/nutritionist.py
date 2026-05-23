@@ -54,13 +54,28 @@ def _display_risk_level(child: Child) -> str:
 
 
 def _nutritionist_can_access_child(user, child):
-    """Strict: child must be referred to this nutritionist's hospital."""
+    """View access: child was ever referred to this nutritionist's hospital (any status)."""
     if not user or user.role != UserRole.NUTRITIONIST.value or not user.hospital_id:
         return False
     ref = db.session.query(ChildReferral).filter(
         ChildReferral.child_id == child.id,
         ChildReferral.hospital_id == user.hospital_id,
         ChildReferral.referred_to_role == "nutritionist",
+    ).first()
+    return ref is not None
+
+
+def _nutritionist_can_add_measurement(user, child):
+    """Write access: only allowed while child is actively under nutritionist care."""
+    if not user or user.role != UserRole.NUTRITIONIST.value or not user.hospital_id:
+        return False
+    if (child.escalation_status or "") != EscalationStatus.ESCALATED_TO_NUTRITIONIST.value:
+        return False
+    ref = db.session.query(ChildReferral).filter(
+        ChildReferral.child_id == child.id,
+        ChildReferral.hospital_id == user.hospital_id,
+        ChildReferral.referred_to_role == "nutritionist",
+        ChildReferral.status == ReferralStatus.REVIEWED.value,
     ).first()
     return ref is not None
 
@@ -97,8 +112,6 @@ def referred_children():
             ChildReferral.status == ReferralStatus.REVIEWED.value,
         )
         .order_by(
-            case((ChildReferral.reviewed_at.is_(None), 1), else_=0),
-            desc(ChildReferral.reviewed_at),
             desc(ChildReferral.created_at),
         )
         .all()
@@ -112,6 +125,14 @@ def referred_children():
             .first()
         )
         display_risk = _display_risk_level(child)
+        is_escalated = (child.escalation_status or "") == EscalationStatus.ESCALATED_TO_NUTRITIONIST.value
+        pending_return = db.session.query(ChildEscalation).filter(
+            ChildEscalation.child_id == child.id,
+            ChildEscalation.from_role == "nutritionist",
+            ChildEscalation.to_role == "moh",
+            ChildEscalation.status == "PENDING",
+        ).first() is not None
+        is_active = is_escalated and not pending_return
         out.append({
             "child": child.to_dict(),
             "referral": ref.to_dict(),
@@ -119,9 +140,13 @@ def referred_children():
             "birth_risk_level": child.birth_risk_level,
             "display_risk_level": display_risk,
             "escalation_status": child.escalation_status,
+            "is_active": is_active,
+            "pending_moh_return": pending_return,
             "last_measurement_date": last_m.measurement_date.isoformat() if last_m and last_m.measurement_date else None,
             "last_measurement_confidence": float(last_m.model_confidence) if last_m and last_m.model_confidence else None,
         })
+    # Active cases first, then returned-to-MOH cases
+    out.sort(key=lambda x: (0 if x["is_active"] else 1))
     return jsonify({"status": "success", "children": out}), 200
 
 
@@ -200,8 +225,11 @@ def add_measurement():
     child = db.session.get(Child, int(child_id))
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
-    if not _nutritionist_can_access_child(user, child):
-        return jsonify({"status": "error", "message": "Access denied"}), 403
+    if not _nutritionist_can_add_measurement(user, child):
+        return jsonify({
+            "status": "error",
+            "message": "Cannot add measurement. This child has been returned to MOH and is no longer under nutritionist care."
+        }), 403
 
     weight_kg = data.get("weight_kg") or data.get("weight")
     height_cm = data.get("height_cm") or data.get("height")
@@ -350,35 +378,62 @@ def return_to_moh(child_id: int):
         }), 400
 
     try:
-        refs = (
-            db.session.query(ChildReferral)
-            .filter(
-                ChildReferral.child_id == child.id,
-                ChildReferral.hospital_id == user.hospital_id,
-                ChildReferral.referred_to_role == "nutritionist",
-                ChildReferral.status == ReferralStatus.PENDING.value,
-            )
-            .all()
-        )
-        child.current_risk_level = RiskLevel.NORMAL.value
-        child.escalation_status = EscalationStatus.NONE.value
-        for r in refs:
-            r.status = ReferralStatus.REVIEWED.value
-            r.reviewed_by_user_id = user.id
-            r.reviewed_at = datetime.utcnow()
+        # Don't change escalation_status yet — MOH must accept first.
+        # Create a pending escalation record so MOH sees this in their "Incoming Transfers" queue.
+        moh_area_id = child.moh_area_id
 
-        db.session.commit()
-        log_audit(
-            action="UPDATE",
-            entity_type="child",
-            entity_id=child.id,
-            new_values={"escalation_status": "NONE", "current_risk_level": "NORMAL"},
-            user_id=user.id,
-            description=f"Nutritionist returned child {child_id} to MOH",
+        # Fallback: derive MOH area from the nutritionist's hospital district if not already set
+        if not moh_area_id and user.hospital_id:
+            from backend.models_hierarchical import Hospital, Area as _Area
+            hospital = db.session.get(Hospital, user.hospital_id)
+            if hospital and hospital.district:
+                moh_fallback = db.session.query(_Area).filter(
+                    _Area.level == "moh",
+                    _Area.district == hospital.district,
+                    _Area.is_active == True,
+                ).first()
+                if moh_fallback:
+                    moh_area_id = moh_fallback.id
+                    child.moh_area_id = moh_area_id  # persist for future use
+
+        if not moh_area_id:
+            return jsonify({"status": "error", "message": "Child has no MOH area set and none could be derived from your hospital"}), 400
+
+        # Prevent duplicate pending returns
+        existing = db.session.query(ChildEscalation).filter(
+            ChildEscalation.child_id == child.id,
+            ChildEscalation.from_role == "nutritionist",
+            ChildEscalation.to_role == "moh",
+            ChildEscalation.status == "PENDING",
+        ).first()
+        if existing:
+            return jsonify({"status": "error", "message": "A return request is already pending MOH review"}), 400
+
+        escalation = ChildEscalation(
+            child_id=child.id,
+            escalated_by_user_id=user.id,
+            from_role="nutritionist",
+            to_role="moh",
+            moh_id=moh_area_id,
+            reason=request.get_json(silent=True, force=True).get("reason", "Child recovered — ready for PHM monitoring") if request.is_json else "Child recovered — ready for PHM monitoring",
+            previous_risk_level=child.current_risk_level,
+            new_risk_level=RiskLevel.NORMAL.value,
+            status="PENDING",
         )
+        db.session.add(escalation)
+        db.session.flush()
+        log_audit(
+            action="CREATE",
+            entity_type="escalation",
+            entity_id=escalation.id,
+            new_values=escalation.to_dict(),
+            user_id=user.id,
+            description=f"Nutritionist sent return request for child {child_id} to MOH",
+        )
+        db.session.commit()
         return jsonify({
             "status": "success",
-            "message": "Child returned to MOH",
+            "message": "Return request sent to MOH. Child will be assigned once MOH reviews.",
             "child": child.to_dict(),
         }), 200
     except Exception as e:
@@ -625,22 +680,25 @@ def accept_transfer_request(referral_id: int):
     child = db.session.get(Child, referral.child_id)
     if child:
         child.escalation_status = EscalationStatus.ESCALATED_TO_NUTRITIONIST.value
-        # Resolve RDHS/MOH by walking UP from nutritionist's assigned areas (PHM -> MOH -> RDHS)
-        # so even if nutritionist is only assigned to a PHM, we still set district_id for RDHS list
+        # Resolve RDHS/MOH by walking UP from nutritionist's assigned areas (PHM -> MOH -> RDHS).
+        # Preserve existing moh_area_id — only fill in if missing — so the child stays linked to
+        # the MOH that originally escalated them (overwriting it would break return-to-MOH routing).
         from backend.auth_utils_hierarchical import get_moh_and_rdhs_for_user
         from backend.models_hierarchical import Area
         moh_area, rdhs_area = get_moh_and_rdhs_for_user(user)
-        if moh_area:
+        if moh_area and not child.moh_area_id:
             child.moh_area_id = moh_area.id
         if rdhs_area:
-            child.district_id = rdhs_area.id
+            if not child.district_id:
+                child.district_id = rdhs_area.id
             pdhs_area = rdhs_area.parent
-            if pdhs_area:
+            if pdhs_area and not child.province_id:
                 child.province_id = pdhs_area.id
         elif moh_area and moh_area.parent:
             rdhs_area = moh_area.parent
-            child.district_id = rdhs_area.id
-            if rdhs_area.parent:
+            if not child.district_id:
+                child.district_id = rdhs_area.id
+            if rdhs_area.parent and not child.province_id:
                 child.province_id = rdhs_area.parent.id
 
     db.session.commit()

@@ -135,15 +135,11 @@ export function getRiskTextColor(riskLevel: RiskLevel): string {
  * Calculate risk level based on Z-scores
  * This is a simplified version - in production, use the actual AI model
  */
-export function calculateRiskLevel(wfa: number, hfa: number, wfh: number): RiskLevel {
-  // Use the most severe indicator
-  const minZ = Math.min(wfa, hfa, wfh);
-
-  if (minZ < -3) {
-    return 'sam';
-  } else if (minZ < -2) {
-    return 'mam';
-  } else {
-    return 'normal';
-  }
+export function calculateRiskLevel(wfa?: number | null, hfa?: number | null, wfh?: number | null): RiskLevel {
+  const scores = [wfa, hfa, wfh].filter((z): z is number => z != null && isFinite(z));
+  if (scores.length === 0) return 'normal';
+  const minZ = Math.min(...scores);
+  if (minZ < -3) return 'sam';
+  if (minZ < -2) return 'mam';
+  return 'normal';
 }

@@ -548,6 +548,90 @@ def escalate_to_nutritionist(child_id: int):
 # ---------------------------------------------------------------------------
 # Return child to midwife (downgrade risk: MAM/SAM → NORMAL)
 # ---------------------------------------------------------------------------
+@bp.route("/escalations/badge-count", methods=["GET"])
+@moh_required
+def escalations_badge_count():
+    """Count of pending escalations (from midwife or nutritionist) for nav badge."""
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+    count = db.session.query(ChildEscalation).filter(
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.moh_id.in_(moh_area_ids),
+        ChildEscalation.status == EscalationRecordStatus.PENDING.value,
+    ).count()
+    return jsonify({"status": "success", "pending_count": count}), 200
+
+
+@bp.route("/assign-returned-child/<int:child_id>", methods=["POST"])
+@moh_required
+def assign_returned_child(child_id: int):
+    """
+    Accept a child returned from nutritionist and route them:
+    - phm_area_id in body → assign to that PHM (midwife monitoring)
+    - no phm_area_id → keep under MOH care
+    Clears escalation_status, marks escalation REVIEWED.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    child = db.session.get(Child, child_id)
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+    if not _child_in_moh_area(child, moh_area_ids):
+        return jsonify({"status": "error", "message": "Child is not in your MOH area"}), 403
+
+    data = request.get_json() or {}
+    phm_area_id = data.get("phm_area_id")
+
+    escalation = db.session.query(ChildEscalation).filter(
+        ChildEscalation.child_id == child_id,
+        ChildEscalation.from_role == "nutritionist",
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.moh_id.in_(moh_area_ids),
+        ChildEscalation.status == EscalationRecordStatus.PENDING.value,
+    ).order_by(ChildEscalation.created_at.desc()).first()
+
+    if not escalation:
+        return jsonify({"status": "error", "message": "No pending return request found for this child"}), 404
+
+    child.escalation_status = EscalationStatus.NONE.value
+    child.current_risk_level = RiskLevel.NORMAL.value
+
+    if phm_area_id:
+        phm_area = db.session.get(Area, phm_area_id)
+        if not phm_area:
+            return jsonify({"status": "error", "message": "PHM area not found"}), 404
+        child.phm_area_id = phm_area_id
+        child.current_assigned_role = "midwife"
+        action_desc = f"assigned to PHM area {phm_area.name}"
+    else:
+        child.current_assigned_role = "moh"
+        action_desc = "kept under MOH care"
+
+    escalation.status = EscalationRecordStatus.REVIEWED.value
+    escalation.reviewed_by_user_id = user.id
+    escalation.reviewed_at = datetime.utcnow()
+    escalation.review_notes = data.get("notes", "")
+
+    db.session.flush()
+    log_audit(
+        action="UPDATE",
+        entity_type="child",
+        entity_id=child.id,
+        new_values=child.to_dict(),
+        user_id=user.id,
+        description=f"MOH accepted returned child {child_id} from nutritionist — {action_desc}",
+    )
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "message": f"Child accepted and {action_desc}",
+        "child": child.to_dict(),
+    }), 200
+
+
 @bp.route("/return-to-midwife/<int:child_id>", methods=["POST"])
 @moh_required
 def return_to_midwife(child_id: int):
@@ -1169,10 +1253,7 @@ def moh_dashboard():
                 Measurement.child_id,
                 db.func.max(Measurement.measurement_date).label("max_date"),
             )
-            .filter(
-                Measurement.child_id.in_(child_ids),
-                Measurement.predicted_risk_next_2_months.isnot(None),
-            )
+            .filter(Measurement.child_id.in_(child_ids))
             .group_by(Measurement.child_id)
             .subquery()
         )
@@ -1185,6 +1266,7 @@ def moh_dashboard():
                     Measurement.measurement_date == latest_subq.c.max_date,
                 ),
             )
+            .filter(Measurement.predicted_risk_next_2_months.isnot(None))
             .all()
         )
         for (p,) in preds:

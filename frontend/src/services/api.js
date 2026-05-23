@@ -150,6 +150,8 @@ export const mohAPI = {
   listWorkers: () => api.get('/api/moh/workers'),
   setWorkerActive: (workerId, active) => api.post(`/api/moh/workers/${workerId}/activate`, { active }),
   getAreas: () => api.get('/api/moh/areas'),
+  escalationsBadgeCount: () => api.get('/api/moh/escalations/badge-count'),
+  assignReturnedChild: (childId, data) => api.post(`/api/moh/assign-returned-child/${childId}`, data),
   getMonthlyReports: (params) => api.get('/api/moh/reports/monthly', { params }),
   generateMonthlyReport: (data) => api.post('/api/moh/reports/monthly/generate', data),
   sendReportToRdhs: (reportId) => api.post(`/api/moh/send-report-to-rdhs/${reportId}`),
@@ -208,6 +210,8 @@ export const adminAPI = {
   listReferrals: (params) => api.get('/api/admin/referrals', { params }),
   /** PDHS reports sent to ministry (island-wide). Optional params: year, month */
   pdhsReportsSentToMinistry: (params) => api.get('/api/admin/pdhs-reports-sent-to-ministry', { params }),
+  /** Re-run AI predictions for all clinic measurements (fixes stale Z-score predictions) */
+  recomputeMeasurements: () => api.post('/api/admin/recompute-measurements'),
 };
 
 // Sign Page Upload API (Health Ministry / Superadmin dashboard)

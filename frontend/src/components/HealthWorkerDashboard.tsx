@@ -17,7 +17,7 @@ import { NutritionistDashboardView } from './health-worker/NutritionistDashboard
 import { NutritionistReferredView } from './health-worker/NutritionistReferredView';
 import { NutritionistChildProfileView } from './health-worker/NutritionistChildProfileView';
 import { NutritionistTransferRequestsView } from './health-worker/NutritionistTransferRequestsView';
-import { nutritionistAPI } from '../services/api';
+import { nutritionistAPI, mohAPI } from '../services/api';
 import {
   LayoutDashboard,
   Search,
@@ -100,6 +100,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
   const [topBarVisible, setTopBarVisible] = useState(true);
   const [nutPendingCount, setNutPendingCount] = useState(0);
+  const [mohPendingCount, setMohPendingCount] = useState(0);
   const lastScrollY = React.useRef(0);
 
   const isHospital = user.role === 'hospital';
@@ -130,9 +131,27 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
       }
     };
     fetchBadge();
-    const interval = setInterval(fetchBadge, 30000); // refresh every 30s
+    const interval = setInterval(fetchBadge, 30000);
     return () => clearInterval(interval);
   }, [isNutritionist]);
+
+  // Poll pending escalation badge count for MOH
+  useEffect(() => {
+    if (!isMoh) return;
+    const fetchBadge = async () => {
+      try {
+        const res = await mohAPI.escalationsBadgeCount();
+        if (res.data?.status === 'success') {
+          setMohPendingCount(res.data.pending_count || 0);
+        }
+      } catch {
+        // silently ignore
+      }
+    };
+    fetchBadge();
+    const interval = setInterval(fetchBadge, 30000);
+    return () => clearInterval(interval);
+  }, [isMoh]);
 
   useEffect(() => {
     const onScroll = () => {
@@ -185,7 +204,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
         ? [
           { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
           { id: 'search', label: 'Search Child', icon: Search },
-          { id: 'moh-escalated', label: 'Escalated Children', icon: AlertTriangle },
+          { id: 'moh-escalated', label: 'Incoming Transfers', icon: AlertTriangle, badge: mohPendingCount },
           { id: 'moh-workers', label: 'Area Health Workers', icon: Users },
           { id: 'moh-reports', label: 'MOH Reports', icon: ClipboardList },
           { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },

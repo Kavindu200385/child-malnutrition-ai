@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Users, Activity, AlertTriangle, TrendingUp, UserCheck, Send, Clock, RefreshCw } from 'lucide-react';
 import { nutritionistAPI } from '../../services/api';
 import {
@@ -117,8 +117,8 @@ export function NutritionistDashboardView() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Under Your Care</p>
-              <p className="text-xs text-gray-400 mt-0.5">Accepted transfers</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{data.total_referred ?? 0}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Active cases</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{data.pending_cases ?? 0}</p>
             </div>
             <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
               <Users className="w-6 h-6 text-slate-700" />

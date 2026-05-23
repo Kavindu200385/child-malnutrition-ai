@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { midwifeAPI } from '../../services/api';
 import { SharedDashboardLayout } from './SharedDashboardLayout';
+
+const POLL_MS = 30_000;
 
 interface DashboardViewProps {
   onViewChild: (childId: string) => void;
@@ -10,30 +13,36 @@ export function DashboardView({ onViewChild }: DashboardViewProps) {
   const [stats, setStats] = useState<{ total_children: number; normal_count: number; mam_count: number; sam_count: number; predicted_sam_count?: number; predicted_mam_count?: number } | null>(null);
   const [children, setChildren] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
+    setError('');
+    try {
+      const [statsRes, childrenRes] = await Promise.all([
+        midwifeAPI.getDashboardStats(),
+        midwifeAPI.listChildren({}),
+      ]);
+      setStats(statsRes.data?.stats ?? null);
+      setChildren(Array.isArray(childrenRes.data?.children) ? childrenRes.data.children : []);
+      setLastUpdated(new Date());
+    } catch (err: any) {
+      if (!silent) setError(err.response?.data?.message || 'Failed to load dashboard');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError('');
-    Promise.all([
-      midwifeAPI.getDashboardStats().then((r) => r.data?.stats ?? null),
-      midwifeAPI.listChildren({}).then((r) => (r.data?.status === 'success' ? r.data.children || [] : [])),
-    ])
-      .then(([s, c]) => {
-        if (!cancelled) {
-          setStats(s || null);
-          setChildren(Array.isArray(c) ? c : []);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.response?.data?.message || 'Failed to load dashboard');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
+    load(false);
+    timerRef.current = setInterval(() => load(true), POLL_MS);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [load]);
 
   if (loading) {
     return (
@@ -60,7 +69,25 @@ export function DashboardView({ onViewChild }: DashboardViewProps) {
   return (
     <SharedDashboardLayout
       title="Dashboard"
-      subtitle="Overview of child nutrition status in your area"
+      subtitle={
+        lastUpdated ? (
+          <span className="flex items-center gap-2">
+            Overview of child nutrition status in your area
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              Live · {lastUpdated.toLocaleTimeString()}
+            </span>
+            <button
+              onClick={() => load(true)}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-900 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </span>
+        ) : 'Overview of child nutrition status in your area'
+      }
       stats={{
         total_children: stats?.total_children ?? 0,
         normal_count: stats?.normal_count ?? 0,

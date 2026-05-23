@@ -785,6 +785,36 @@ def overview_stats():
         })
     clinic_performance.sort(key=lambda x: -x["total"])
 
+    # Predicted risk from latest measurement per child (national)
+    from sqlalchemy import func as sql_func, and_ as sql_and
+    predicted_sam_count = 0
+    predicted_mam_count = 0
+    all_child_ids = [c.id for c in all_children]
+    if all_child_ids:
+        latest_subq = (
+            db.session.query(
+                Measurement.child_id,
+                sql_func.max(Measurement.measurement_date).label("max_date"),
+            )
+            .filter(Measurement.child_id.in_(all_child_ids))
+            .group_by(Measurement.child_id)
+            .subquery()
+        )
+        preds = (
+            db.session.query(Measurement.predicted_risk_next_2_months)
+            .join(latest_subq, sql_and(
+                Measurement.child_id == latest_subq.c.child_id,
+                Measurement.measurement_date == latest_subq.c.max_date,
+            ))
+            .filter(Measurement.predicted_risk_next_2_months.isnot(None))
+            .all()
+        )
+        for (p,) in preds:
+            if p and p.strip() == "Severe":
+                predicted_sam_count += 1
+            elif p and p.strip() in ("High", "Moderate"):
+                predicted_mam_count += 1
+
     return jsonify({
         "status": "success",
         "data": {
@@ -794,6 +824,8 @@ def overview_stats():
             "sam_count": sam_count,
             "mam_count": mam_count,
             "normal_count": normal_count,
+            "predicted_sam_count": predicted_sam_count,
+            "predicted_mam_count": predicted_mam_count,
             "district_breakdown": district_breakdown,
             "monthly_trend": monthly_trend,
             "clinic_performance": clinic_performance,

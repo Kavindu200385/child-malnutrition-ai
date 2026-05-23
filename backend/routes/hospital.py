@@ -9,11 +9,12 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from datetime import datetime
 from decimal import Decimal
+from sqlalchemy import func
 
 from backend.auth_utils_hierarchical import get_current_user
 from backend.extensions import db
 from backend.models_hierarchical import (
-    User, Child, Hospital, ChildReferral, UserRole, BirthRiskLevel, TransferStatus, ReferralStatus
+    User, Child, Hospital, ChildReferral, Measurement, UserRole, BirthRiskLevel, TransferStatus, ReferralStatus
 )
 from backend.utils.hospital_helpers import (
     generate_child_unique_id,
@@ -330,18 +331,47 @@ def transfer_to_nutritionist(child_id: int):
 def get_hospital_stats():
     """Get hospital statistics (hospital-scoped)"""
     user = get_current_user()
-    
-    # Get all children for this hospital
+
     all_children = db.session.query(Child).filter(
         Child.hospital_id == user.hospital_id
     ).all()
-    
+
     total = len(all_children)
     sam_count = sum(1 for c in all_children if c.birth_risk_level == BirthRiskLevel.SAM.value)
     mam_count = sum(1 for c in all_children if c.birth_risk_level == BirthRiskLevel.MAM.value)
     normal_count = sum(1 for c in all_children if c.birth_risk_level == BirthRiskLevel.NORMAL.value)
     transferred_count = sum(1 for c in all_children if c.is_transferred)
-    
+
+    # TBA: registered but not yet assigned to a midwife and not transferred to nutritionist
+    tba_count = sum(1 for c in all_children if not c.phm_area_id and not c.is_transferred)
+
+    # Predicted risk from the latest measurement per child
+    predicted_sam_count = 0
+    predicted_mam_count = 0
+    child_ids = [c.id for c in all_children]
+    if child_ids:
+        latest_subq = db.session.query(
+            Measurement.child_id,
+            func.max(Measurement.measurement_date).label("max_date"),
+        ).filter(
+            Measurement.child_id.in_(child_ids)
+        ).group_by(Measurement.child_id).subquery()
+
+        latest_measurements = db.session.query(Measurement).join(
+            latest_subq,
+            (Measurement.child_id == latest_subq.c.child_id) &
+            (Measurement.measurement_date == latest_subq.c.max_date),
+        ).all()
+
+        predicted_sam_count = sum(
+            1 for m in latest_measurements
+            if m.predicted_risk_next_2_months and m.predicted_risk_next_2_months.strip() == "Severe"
+        )
+        predicted_mam_count = sum(
+            1 for m in latest_measurements
+            if m.predicted_risk_next_2_months and m.predicted_risk_next_2_months.strip() in ("High", "Moderate")
+        )
+
     return jsonify({
         "status": "success",
         "stats": {
@@ -350,6 +380,9 @@ def get_hospital_stats():
             "mam_cases": mam_count,
             "normal_cases": normal_count,
             "transferred_to_nutritionist": transferred_count,
+            "tba_cases": tba_count,
+            "predicted_sam_cases": predicted_sam_count,
+            "predicted_mam_cases": predicted_mam_count,
         },
         "hospital_id": user.hospital_id,
     }), 200

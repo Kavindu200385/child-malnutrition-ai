@@ -350,6 +350,35 @@ def dashboard_summary():
     province_areas = db.session.query(Area).filter(Area.id.in_(province_ids)).all()
     province_names = [a.name or a.province or f"Province {a.id}" for a in province_areas]
 
+    # Predicted risk from latest measurement per child
+    predicted_sam_count = 0
+    predicted_mam_count = 0
+    if province_child_ids:
+        from sqlalchemy import func as sql_func, and_ as sql_and
+        latest_subq = (
+            db.session.query(
+                Measurement.child_id,
+                sql_func.max(Measurement.measurement_date).label("max_date"),
+            )
+            .filter(Measurement.child_id.in_(province_child_ids))
+            .group_by(Measurement.child_id)
+            .subquery()
+        )
+        preds = (
+            db.session.query(Measurement.predicted_risk_next_2_months)
+            .join(latest_subq, sql_and(
+                Measurement.child_id == latest_subq.c.child_id,
+                Measurement.measurement_date == latest_subq.c.max_date,
+            ))
+            .filter(Measurement.predicted_risk_next_2_months.isnot(None))
+            .all()
+        )
+        for (p,) in preds:
+            if p and p.strip() == "Severe":
+                predicted_sam_count += 1
+            elif p and p.strip() in ("High", "Moderate"):
+                predicted_mam_count += 1
+
     return jsonify({
         "status": "success",
         "data": {
@@ -359,6 +388,8 @@ def dashboard_summary():
             "normal_count": normal_count,
             "mam_count": mam_count,
             "sam_count": sam_count,
+            "predicted_sam_count": predicted_sam_count,
+            "predicted_mam_count": predicted_mam_count,
             "risk_distribution": [
                 {"name": "Normal", "value": normal_count, "color": "#2ECC71"},
                 {"name": "MAM", "value": mam_count, "color": "#F1C40F"},

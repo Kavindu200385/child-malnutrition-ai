@@ -13,6 +13,7 @@ import {
   ReferenceDot,
   LineChart,
   ReferenceArea,
+  LabelList,
 } from 'recharts';
 
 interface Measurement {
@@ -162,15 +163,25 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
     .sort((a, b) => a.length - b.length);
 
   // ── Z-score timeline (Chart 4) ────────────────────────────────────────────
+  // Clamp to physiologically valid range so a bad stored value can't distort the axis
+  const clampZ = (z: number | null | undefined) =>
+    z != null && isFinite(z) && z >= -6 && z <= 6 ? z : null;
+
   const nutritionalStatusData = sorted.map(m => ({
     date: m.date,
     age: m.ageMonths,
     status: m.riskLevel === 'sam' ? 'SAM' : m.riskLevel === 'mam' ? 'MAM' : 'Normal',
     color: m.riskLevel === 'sam' ? '#E74C3C' : m.riskLevel === 'mam' ? '#F39C12' : '#2ECC71',
-    wfa: m.weightForAge,
-    hfa: m.heightForAge,
-    wfh: m.weightForHeight,
+    wfa: clampZ(m.weightForAge),
+    hfa: clampZ(m.heightForAge),
+    wfh: clampZ(m.weightForHeight),
   }));
+
+  // Integer ticks covering all visit ages
+  const chart4MaxAge = sorted.length > 0
+    ? Math.max(1, Math.ceil(sorted[sorted.length - 1].ageMonths))
+    : 12;
+  const chart4Ticks = Array.from({ length: chart4MaxAge + 1 }, (_, i) => i);
 
   // ── Chart 5 Trend ─────────────────────────────────────────────────────────
   const latestMeasurement = sorted[sorted.length - 1];
@@ -190,7 +201,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
         <div className="bg-white border-2 border-blue-500 rounded-lg shadow-lg p-3" style={{ minWidth: 180 }}>
           <p className="text-xs font-bold text-gray-900 mb-1">Measurement Details</p>
           {d.date && <p className="text-xs text-gray-700">Date: {d.date}</p>}
-          {d.age !== undefined && <p className="text-xs text-gray-700">Age: {d.age} months</p>}
+          {d.age !== undefined && <p className="text-xs text-gray-700">Age: {Math.round(d.age)} months</p>}
           {payload.map((e: any, i: number) => (
             <p key={i} className="text-xs" style={{ color: e.color }}>
               {e.name}: {typeof e.value === 'number' ? e.value.toFixed(2) : e.value}
@@ -267,7 +278,20 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
               <ReferenceLine x={24} stroke="#6B7280" strokeWidth={1} strokeDasharray="5 5"
                 label={{ value: '2 Yrs', position: 'top', fill: '#6B7280', fontSize: 10 }} />
 
-              {/* Child measurement dots — guaranteed to show regardless of age rounding */}
+              {/* Connecting growth line */}
+              {childWeightForAgeLine.length >= 2 && (
+                <Line
+                  data={childWeightForAgeLine}
+                  dataKey="childWeight"
+                  stroke="#2563EB"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                  legendType="none"
+                  isAnimationActive={false}
+                />
+              )}
+              {/* Child measurement dots */}
               {sorted.filter(m => m.weight > 0).map((m, i) => (
                 <ReferenceDot key={i} x={m.ageMonths} y={m.weight}
                   r={7} fill={dotColor(m.riskLevel)} stroke="#fff" strokeWidth={2}
@@ -276,6 +300,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
 
               <XAxis
                 dataKey="age"
+                type="number"
                 label={{
                   value: 'Age (months)',
                   position: 'insideBottom',
@@ -331,6 +356,18 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 <Line type="monotone" dataKey="minus2sd" stroke="#F59E0B" strokeWidth={1.5} dot={false} name="−2 SD" />
                 <Line type="monotone" dataKey="minus3sd" stroke="#DC2626" strokeWidth={1.5} dot={false} name="−3 SD" />
 
+                {childLengthForAgeLine.length >= 2 && (
+                  <Line
+                    data={childLengthForAgeLine}
+                    dataKey="childHeight"
+                    stroke="#2563EB"
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls
+                    legendType="none"
+                    isAnimationActive={false}
+                  />
+                )}
                 {sorted.filter(m => m.height > 0 && m.ageMonths <= 24).map((m, i) => (
                   <ReferenceDot key={i} x={m.ageMonths} y={m.height}
                     r={7} fill={dotColor(m.riskLevel)} stroke="#fff" strokeWidth={2}
@@ -339,6 +376,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
 
                 <XAxis
                   dataKey="age"
+                  type="number"
                   label={{
                     value: 'Age (months)',
                     position: 'insideBottom',
@@ -385,6 +423,18 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 <Line type="monotone" dataKey="minus2sd" stroke="#F59E0B" strokeWidth={1.5} dot={false} name="−2 SD" />
                 <Line type="monotone" dataKey="minus3sd" stroke="#DC2626" strokeWidth={1.5} dot={false} name="−3 SD" />
 
+                {childHeightForAgeLine.length >= 2 && (
+                  <Line
+                    data={childHeightForAgeLine}
+                    dataKey="childHeight"
+                    stroke="#2563EB"
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls
+                    legendType="none"
+                    isAnimationActive={false}
+                  />
+                )}
                 {sorted.filter(m => m.height > 0 && m.ageMonths >= 24).map((m, i) => (
                   <ReferenceDot key={i} x={m.ageMonths} y={m.height}
                     r={7} fill={dotColor(m.riskLevel)} stroke="#fff" strokeWidth={2}
@@ -393,6 +443,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
 
                 <XAxis
                   dataKey="age"
+                  type="number"
                   label={{
                     value: 'Age (months)',
                     position: 'insideBottom',
@@ -439,6 +490,19 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
               <Line type="monotone" dataKey="minus2sd" stroke="#F59E0B" strokeWidth={1.5} dot={false} name="−2 SD" />
               <Line type="monotone" dataKey="minus3sd" stroke="#DC2626" strokeWidth={1.5} dot={false} name="−3 SD" />
 
+              {/* Connecting growth line */}
+              {childWeightForHeightLine.length >= 2 && (
+                <Line
+                  data={childWeightForHeightLine}
+                  dataKey="childWeight"
+                  stroke="#2563EB"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                  legendType="none"
+                  isAnimationActive={false}
+                />
+              )}
               {/* Each measurement plotted at its actual (height, weight) position */}
               {sorted.filter(m => m.height > 0 && m.weight > 0).map((m, i) => (
                 <ReferenceDot key={i} x={parseFloat(m.height.toFixed(1))} y={m.weight}
@@ -496,7 +560,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                 {nutritionalStatusData.map((entry, i) => (
                   <div key={i} className="flex items-center gap-4 border-b border-gray-100 pb-2">
                     <div className="w-28 text-sm text-gray-700 font-medium">{entry.date?.slice(0, 10)}</div>
-                    <div className="w-16 text-sm text-gray-500">{entry.age}m</div>
+                    <div className="w-16 text-sm text-gray-500">{Math.round(entry.age)}m</div>
                     <div className="flex-1">
                       <div className="h-8 rounded-lg flex items-center px-4 text-white font-bold text-sm shadow-sm"
                         style={{ backgroundColor: entry.color }}>
@@ -504,102 +568,85 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                       </div>
                     </div>
                     <div className="w-36 text-xs text-gray-600 text-center">
-                      {entry.wfa != null ? entry.wfa.toFixed(2) : '—'} /&nbsp;
-                      {entry.hfa != null ? entry.hfa.toFixed(2) : '—'} /&nbsp;
-                      {entry.wfh != null ? entry.wfh.toFixed(2) : '—'}
+                      {entry.wfa != null ? (entry.wfa as number).toFixed(2) : '—'} /&nbsp;
+                      {entry.hfa != null ? (entry.hfa as number).toFixed(2) : '—'} /&nbsp;
+                      {entry.wfh != null ? (entry.wfh as number).toFixed(2) : '—'}
                     </div>
                   </div>
                 ))}
               </div>
 
               {/* Z-score trend line chart */}
-              {nutritionalStatusData.length >= 2 && (
-                <ResponsiveContainer width="100%" height={320}>
+              {nutritionalStatusData.length >= 1 && (
+                <ResponsiveContainer width="100%" height={380}>
                   <LineChart
                     data={nutritionalStatusData}
-                    margin={{ top: 20, right: 40, left: 20, bottom: 80 }}
+                    margin={{ top: 36, right: 110, left: 20, bottom: 70 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
 
-                    {/* Soft coloured bands for Z-score zones */}
-                    <ReferenceArea y1={-4} y2={-3} fill="#FCA5A5" fillOpacity={0.25} />
-                    <ReferenceArea y1={-3} y2={-2} fill="#FED7AA" fillOpacity={0.25} />
-                    <ReferenceArea y1={-2} y2={2} fill="#BBF7D0" fillOpacity={0.18} />
+                    {/* Coloured zone bands with labels */}
+                    <ReferenceArea y1={-2} y2={3} fill="#BBF7D0" fillOpacity={0.2}
+                      label={{ value: 'Normal Zone', position: 'insideTopRight', fill: '#059669', fontSize: 10, fontWeight: 600 }} />
+                    <ReferenceArea y1={-3} y2={-2} fill="#FED7AA" fillOpacity={0.35}
+                      label={{ value: 'MAM Zone', position: 'insideTopRight', fill: '#D97706', fontSize: 10, fontWeight: 600 }} />
+                    <ReferenceArea y1={-4} y2={-3} fill="#FCA5A5" fillOpacity={0.35}
+                      label={{ value: 'SAM Zone', position: 'insideTopRight', fill: '#DC2626', fontSize: 10, fontWeight: 600 }} />
+
+                    <ReferenceLine y={0} stroke="#059669" strokeWidth={1} strokeDasharray="4 4"
+                      label={{ value: 'Median (0)', position: 'right', fill: '#059669', fontSize: 10 }} />
+                    <ReferenceLine y={-2} stroke="#F97316" strokeWidth={1.5} strokeDasharray="5 5"
+                      label={{ value: '−2 SD', position: 'right', fill: '#F97316', fontSize: 10 }} />
+                    <ReferenceLine y={-3} stroke="#DC2626" strokeWidth={1.5} strokeDasharray="5 5"
+                      label={{ value: '−3 SD', position: 'right', fill: '#DC2626', fontSize: 10 }} />
+
                     <XAxis
                       dataKey="age"
-                      label={{
-                        value: 'Age (months)',
-                        position: 'insideBottom',
-                        offset: -1,
-                        style: { fontSize: 13, fontWeight: 'bold' },
-                      }}
+                      type="number"
+                      domain={[0, chart4MaxAge]}
+                      ticks={chart4Ticks}
+                      tickFormatter={(v) => v === 0 ? 'Birth' : `${v}m`}
+                      label={{ value: 'Age (months)', position: 'insideBottom', offset: -1, style: { fontSize: 13, fontWeight: 'bold' } }}
                       tick={{ fontSize: 11 }}
                     />
                     <YAxis
-                      label={{
-                        value: 'Z-Score',
-                        angle: -90,
-                        position: 'insideLeft',
-                        style: { fontSize: 13, fontWeight: 'bold' },
-                      }}
-                      tick={{ fontSize: 11 }}
                       domain={[-4, 3]}
+                      allowDataOverflow
+                      ticks={[-4, -3, -2, -1, 0, 1, 2, 3]}
+                      label={{ value: 'Z-Score', angle: -90, position: 'insideLeft', style: { fontSize: 13, fontWeight: 'bold' } }}
+                      tick={{ fontSize: 11 }}
                     />
                     <Tooltip content={<CustomTooltip />} />
                     <Legend
-                      iconType="line"
-                      wrapperStyle={{ fontSize: 12, marginTop: 24, paddingTop: 8 }}
+                      iconType="circle"
+                      wrapperStyle={{ fontSize: 12, paddingTop: 16 }}
                       verticalAlign="bottom"
                       align="center"
                     />
-                    <ReferenceLine
-                      y={-3}
-                      stroke="#FCA5A5"
-                      strokeWidth={1.5}
-                      strokeDasharray="5 5"
-                      label={{ value: '−3 SD', fill: '#DC2626', fontSize: 11 }}
-                    />
-                    <ReferenceLine
-                      y={-2}
-                      stroke="#FED7AA"
-                      strokeWidth={1.5}
-                      strokeDasharray="5 5"
-                      label={{ value: '−2 SD', fill: '#F97316', fontSize: 11 }}
-                    />
-                    <ReferenceLine
-                      y={0}
-                      stroke="#BBF7D0"
-                      strokeWidth={1.5}
-                      strokeDasharray="4 4"
-                      label={{ value: 'Median', fill: '#059669', fontSize: 11 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="wfa"
-                      stroke="#2563EB"
-                      strokeWidth={3}
-                      dot={{ r: 6, fill: '#2563EB' }}
-                      name="Weight-for-Age Z"
-                      connectNulls
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="hfa"
-                      stroke="#10B981"
-                      strokeWidth={3}
-                      dot={{ r: 6, fill: '#10B981' }}
-                      name="Height-for-Age Z"
-                      connectNulls
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="wfh"
-                      stroke="#9333EA"
-                      strokeWidth={3}
-                      dot={{ r: 6, fill: '#9333EA' }}
-                      name="Weight-for-Height Z"
-                      connectNulls
-                    />
+
+                    <Line type="monotone" dataKey="wfa" stroke="#2563EB" strokeWidth={2.5}
+                      dot={{ r: 8, fill: '#2563EB', stroke: '#fff', strokeWidth: 2 }}
+                      activeDot={{ r: 10 }} name="Weight-for-Age Z" connectNulls>
+                      <LabelList dataKey="wfa" position="top"
+                        formatter={(v: any) => (v != null ? Number(v).toFixed(1) : '')}
+                        style={{ fontSize: 11, fill: '#1D4ED8', fontWeight: 700 }} />
+                    </Line>
+
+                    <Line type="monotone" dataKey="hfa" stroke="#10B981" strokeWidth={2.5}
+                      dot={{ r: 8, fill: '#10B981', stroke: '#fff', strokeWidth: 2 }}
+                      activeDot={{ r: 10 }} name="Height-for-Age Z" connectNulls>
+                      <LabelList dataKey="hfa" position="bottom"
+                        formatter={(v: any) => (v != null ? Number(v).toFixed(1) : '')}
+                        style={{ fontSize: 11, fill: '#047857', fontWeight: 700 }} />
+                    </Line>
+
+                    <Line type="monotone" dataKey="wfh" stroke="#9333EA" strokeWidth={2.5}
+                      dot={{ r: 8, fill: '#9333EA', stroke: '#fff', strokeWidth: 2 }}
+                      activeDot={{ r: 10 }} name="Weight-for-Height Z" connectNulls>
+                      <LabelList dataKey="wfh" position="top"
+                        formatter={(v: any) => (v != null ? Number(v).toFixed(1) : '')}
+                        style={{ fontSize: 11, fill: '#7E22CE', fontWeight: 700 }} />
+                    </Line>
                   </LineChart>
                 </ResponsiveContainer>
               )}
@@ -628,7 +675,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
               </div>
               <div className="mt-4 text-xs text-gray-600 space-y-1">
                 <div className="flex justify-between"><span>Last Visit:</span><span className="font-medium">{latestMeasurement?.date?.slice(0, 10) || 'N/A'}</span></div>
-                <div className="flex justify-between"><span>Age:</span><span className="font-medium">{latestMeasurement?.ageMonths || 0} months</span></div>
+                <div className="flex justify-between"><span>Age:</span><span className="font-medium">{Math.round(latestMeasurement?.ageMonths || 0)} months</span></div>
                 <div className="flex justify-between"><span>Weight:</span><span className="font-medium">{latestMeasurement?.weight ? `${latestMeasurement.weight} kg` : 'N/A'}</span></div>
                 <div className="flex justify-between"><span>Height:</span><span className="font-medium">{latestMeasurement?.height ? `${latestMeasurement.height} cm` : 'N/A'}</span></div>
               </div>

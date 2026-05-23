@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { nutritionistAPI } from '../../services/api';
 import { User, PlusCircle, ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { formatDate } from '../../utils/formatDate';
@@ -250,8 +250,7 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
         </div>
       ) : (
         <div style={cardsWrapperStyle}>
-          {items.map(({ child, referral, display_risk_level, current_risk_level, last_measurement_date, last_measurement_confidence, }: any) => {
-            // Use backend display_risk_level so list matches profile (birth risk when no clinic measurements yet).
+          {items.map(({ child, display_risk_level, current_risk_level, is_active, pending_moh_return, last_measurement_date, last_measurement_confidence, }: any) => {
             const displayRisk = (display_risk_level ||
               child.display_risk_level ||
               current_risk_level ||
@@ -261,11 +260,31 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
             if (displayRisk === 'MAM') riskStyle = { ...pillBase, background: '#fef9c3', color: '#92400e' };
             if (displayRisk === 'SAM') riskStyle = { ...pillBase, background: '#fee2e2', color: '#b91c1c' };
 
-            // Return to MOH is governed by current_risk_level in the backend; keep button in sync with that.
-            const canReturn = (current_risk_level || '').toUpperCase() === 'NORMAL';
+            const returnedBadge: React.CSSProperties = {
+              ...pillBase,
+              background: '#f0fdf4',
+              color: '#166534',
+              border: '1px solid #bbf7d0',
+            };
+
+            const canReturn = is_active && (current_risk_level || '').toUpperCase() === 'NORMAL';
+
+            const borderColor = pending_moh_return ? '#f59e0b' : is_active ? '#0369a1' : '#22c55e';
+            const cardBorderStyle: React.CSSProperties = {
+              ...cardStyle,
+              borderLeft: `4px solid ${borderColor}`,
+              opacity: is_active || pending_moh_return ? 1 : 0.85,
+            };
+
+            const pendingReturnBadge: React.CSSProperties = {
+              ...pillBase,
+              background: '#fef3c7',
+              color: '#92400e',
+              border: '1px solid #fcd34d',
+            };
 
             return (
-              <div key={child.id} style={cardStyle}>
+              <div key={child.id} style={cardBorderStyle}>
                 <div style={topRowStyle}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -273,6 +292,12 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
                         {child.name || child.child_id || child.child_unique_id}
                       </span>
                       <span style={riskStyle}>{displayRisk}</span>
+                      {pending_moh_return && (
+                        <span style={pendingReturnBadge}>Pending MOH Review</span>
+                      )}
+                      {!is_active && !pending_moh_return && (
+                        <span style={returnedBadge}>Returned to MOH</span>
+                      )}
                     </div>
                     <div style={childIdStyle}>
                       ID: {child.child_unique_id || child.child_id || child.id}
@@ -290,8 +315,10 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
                         : '—'}
                     </div>
                     <div style={{ marginTop: '2px' }}>
-                      Referral status:{' '}
-                      <strong style={{ color: '#111827' }}>{referral?.status || '—'}</strong>
+                      Status:{' '}
+                      <strong style={{ color: pending_moh_return ? '#b45309' : is_active ? '#0369a1' : '#166534' }}>
+                        {pending_moh_return ? 'Pending MOH review' : is_active ? 'Under your care' : 'Returned to MOH'}
+                      </strong>
                     </div>
                   </div>
                 </div>
@@ -300,7 +327,8 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
                   {child.gender && <span>Sex: <strong>{String(child.gender).toUpperCase()}</strong></span>}
                   {child.dob && <span>DOB: <strong>{formatDate(child.dob)}</strong></span>}
                   {child.guardian_name && <span>Guardian: <strong>{child.guardian_name}</strong></span>}
-                  {child.moh_area && <span>MOH: <strong>{child.moh_area}</strong></span>}
+                  {child.moh_area && <span>MOH: <strong>{typeof child.moh_area === 'object' ? child.moh_area.name : child.moh_area}</strong></span>}
+                  {child.phm_area && <span>PHM Area: <strong>{typeof child.phm_area === 'object' ? child.phm_area.name : child.phm_area}</strong></span>}
                 </div>
 
                 <div style={actionsRowStyle}>
@@ -314,16 +342,18 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
                     <User size={16} />
                     View profile
                   </button>
-                  <button
-                    type="button"
-                    style={btnPrimary}
-                    onClick={() => onAddMeasurement(String(child.id))}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = '#0284c7')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = '#0369a1')}
-                  >
-                    <PlusCircle size={16} />
-                    Add measurement
-                  </button>
+                  {is_active && (
+                    <button
+                      type="button"
+                      style={btnPrimary}
+                      onClick={() => onAddMeasurement(String(child.id))}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = '#0284c7')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = '#0369a1')}
+                    >
+                      <PlusCircle size={16} />
+                      Add measurement
+                    </button>
+                  )}
                   {canReturn && (
                     <button
                       type="button"

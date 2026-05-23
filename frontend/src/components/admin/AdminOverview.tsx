@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Users, Building2, AlertTriangle, Activity, MapPin } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Users, Building2, AlertTriangle, Activity, RefreshCw, Brain } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { reportsAPI } from '../../services/api';
 
@@ -10,38 +10,48 @@ interface OverviewStats {
   sam_count: number;
   mam_count: number;
   normal_count: number;
+  predicted_sam_count: number;
+  predicted_mam_count: number;
   district_breakdown: { district: string; total: number; sam: number; mam: number; normal: number }[];
   monthly_trend: { month: string; children: number; sam: number; mam: number }[];
   clinic_performance: { clinic_name: string; district: string; total: number; sam: number; mam: number; normal: number; status: string }[];
 }
 
+const POLL_MS = 45_000;
+
 export function AdminOverview() {
   const [stats, setStats] = useState<OverviewStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
+    setError('');
+    try {
+      const res = await reportsAPI.overviewStats();
+      if (res.data?.status === 'success' && res.data?.data) {
+        setStats(res.data.data);
+        setLastUpdated(new Date());
+      } else if (!silent) {
+        setError(res.data?.message || 'Failed to load overview');
+      }
+    } catch (err: any) {
+      if (!silent) setError(err.response?.data?.message || 'Failed to load overview');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    setError('');
-    setLoading(true);
-    reportsAPI
-      .overviewStats()
-      .then((res) => {
-        if (cancelled) return;
-        if (res.data?.status === 'success' && res.data?.data) {
-          setStats(res.data.data);
-        } else {
-          setError(res.data?.message || 'Failed to load overview');
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.response?.data?.message || 'Failed to load overview');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
+    load(false);
+    timerRef.current = setInterval(() => load(true), POLL_MS);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [load]);
 
   if (loading) {
     return (
@@ -71,6 +81,9 @@ export function AdminOverview() {
   const samCases = stats?.sam_count ?? 0;
   const mamCases = stats?.mam_count ?? 0;
   const normalCases = stats?.normal_count ?? 0;
+  const predictedSam = stats?.predicted_sam_count ?? 0;
+  const predictedMam = stats?.predicted_mam_count ?? 0;
+  const predictedTotal = predictedSam + predictedMam;
 
   const districtData = (stats?.district_breakdown ?? []).map((d) => ({
     district: d.district.length > 20 ? d.district.slice(0, 18) + '…' : d.district,
@@ -92,9 +105,27 @@ export function AdminOverview() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">System Overview</h2>
-        <p className="text-gray-600 mt-1">National child malnutrition monitoring dashboard</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">System Overview</h2>
+          <p className="text-gray-600 mt-1">National child malnutrition monitoring dashboard</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastUpdated && (
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              Live · updated {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            onClick={() => load(true)}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Key Metrics */}
@@ -163,6 +194,22 @@ export function AdminOverview() {
           </div>
         </div>
       )}
+
+      {/* AI Predicted Cases */}
+      <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg shadow p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Brain className="w-6 h-6 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-purple-700">AI Predicted Cases (next 2 months) – National</p>
+              <p className="text-3xl font-bold text-purple-900 mt-0.5">{predictedTotal}</p>
+              <p className="text-xs text-purple-500 mt-0.5">SAM: {predictedSam} &nbsp;·&nbsp; MAM: {predictedMam}</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
