@@ -11,7 +11,7 @@ from backend.auth_utils_hierarchical import (
     health_ministry_required,
 )
 from backend.extensions import db
-from backend.models_hierarchical import Area, AreaLevel, Child, WorkerAreaMapping, Hospital
+from backend.models_hierarchical import Area, AreaLevel, Child, WorkerAreaMapping, Hospital, User
 from backend.utils.audit import log_audit
 
 bp = Blueprint("areas_hierarchical", __name__, url_prefix="/api/areas")
@@ -370,53 +370,72 @@ def update_area(area_id: int):
     return jsonify({"status": "success", "area": area.to_dict()}), 200
 
 
-@bp.route("/<int:area_id>", methods=["DELETE"])
-@health_ministry_required
-def delete_area(area_id: int):
+def _cascade_delete_area(area_id: int, user_id: int) -> list:
     """
-    Delete area (soft delete by setting is_active=False)
-    Cannot delete if has children, linked children, or linked workers
+    Recursively soft-delete an area and all its sub-areas.
+    Also deactivates all worker mappings for each area.
+    Returns list of area IDs that have actively assigned children (blocking).
     """
-    user = get_current_user()
+    blocked = []
+
+    sub_areas = db.session.query(Area).filter(
+        Area.parent_id == area_id,
+        Area.is_active == True,
+    ).all()
+    for sub in sub_areas:
+        blocked.extend(_cascade_delete_area(sub.id, user_id))
+
     area = db.session.get(Area, area_id)
-    if not area:
-        return jsonify({"status": "error", "message": "Area not found"}), 404
-    
-    if area.has_children():
-        return jsonify({
-            "status": "error",
-            "message": "Cannot delete: area has child areas. Delete or move children first."
-        }), 400
-    
+    if not area or not area.is_active:
+        return blocked
+
     if area.has_linked_children():
-        return jsonify({
-            "status": "error",
-            "message": "Cannot delete: area has linked children. Reassign children first."
-        }), 400
-    
-    if area.has_linked_workers():
-        return jsonify({
-            "status": "error",
-            "message": "Cannot delete: area has linked workers. Reassign workers first."
-        }), 400
-    
+        blocked.append(area.name)
+        return blocked
+
+    # Deactivate worker mappings for this area
+    db.session.query(WorkerAreaMapping).filter(
+        WorkerAreaMapping.area_id == area_id,
+        WorkerAreaMapping.is_active == True,
+    ).update({"is_active": False}, synchronize_session=False)
+
     old_values = area.to_dict()
     area.is_active = False
-    
     db.session.flush()
-    
     log_audit(
         action="DELETE",
         entity_type="area",
         entity_id=area.id,
         old_values=old_values,
         new_values=area.to_dict(),
-        user_id=user.id,
+        user_id=user_id,
         description=f"Deleted area: {area.name}",
     )
-    
+    return blocked
+
+
+@bp.route("/<int:area_id>", methods=["DELETE"])
+@health_ministry_required
+def delete_area(area_id: int):
+    """
+    Delete area (soft delete). Cascades to sub-areas and deactivates worker mappings.
+    Blocked only if any area in the subtree has actively assigned children.
+    """
+    user = get_current_user()
+    area = db.session.get(Area, area_id)
+    if not area:
+        return jsonify({"status": "error", "message": "Area not found"}), 404
+
+    blocked = _cascade_delete_area(area_id, user.id)
+    if blocked:
+        db.session.rollback()
+        names = ", ".join(blocked)
+        return jsonify({
+            "status": "error",
+            "message": f"Cannot delete: the following areas still have assigned children — {names}. Reassign children first.",
+        }), 400
+
     db.session.commit()
-    
     return jsonify({"status": "success", "message": "Area deleted successfully"}), 200
 
 
@@ -424,7 +443,7 @@ def delete_area(area_id: int):
 @area_management_required
 def get_area_hierarchy():
     """Get full area hierarchy tree (includes active and inactive so all DB areas are visible)."""
-    include_inactive = request.args.get("include_inactive", "true").lower() == "true"
+    include_inactive = request.args.get("include_inactive", "false").lower() == "true"
     query = db.session.query(Area).order_by(Area.level, Area.name)
     if not include_inactive:
         query = query.filter(Area.is_active == True)
@@ -603,3 +622,50 @@ def update_hospital(hospital_id: int):
     )
     db.session.commit()
     return jsonify({"status": "success", "hospital": hospital.to_dict()}), 200
+
+
+@bp.route("/hospitals/<int:hospital_id>", methods=["DELETE"])
+@health_ministry_required
+def delete_hospital(hospital_id: int):
+    """
+    Delete hospital (soft delete). Restricted to health_ministry (admin/superadmin).
+    Blocked if hospital has linked children or linked users.
+    """
+    user = get_current_user()
+    hospital = db.session.get(Hospital, hospital_id)
+    if not hospital:
+        return jsonify({"status": "error", "message": "Hospital not found"}), 404
+
+    linked_children = db.session.query(Child).filter(
+        Child.hospital_id == hospital_id,
+    ).count()
+    if linked_children:
+        return jsonify({
+            "status": "error",
+            "message": f"Cannot delete: hospital has {linked_children} linked child record(s). Reassign children first.",
+        }), 400
+
+    linked_users = db.session.query(User).filter(
+        User.hospital_id == hospital_id,
+        User.is_active == True,
+    ).count()
+    if linked_users:
+        return jsonify({
+            "status": "error",
+            "message": f"Cannot delete: hospital has {linked_users} linked user(s). Reassign users first.",
+        }), 400
+
+    old_values = hospital.to_dict()
+    hospital.is_active = False
+    db.session.flush()
+    log_audit(
+        action="DELETE",
+        entity_type="hospital",
+        entity_id=hospital.id,
+        old_values=old_values,
+        new_values=hospital.to_dict(),
+        user_id=user.id,
+        description=f"Deleted hospital: {hospital.hospital_name}",
+    )
+    db.session.commit()
+    return jsonify({"status": "success"}), 200

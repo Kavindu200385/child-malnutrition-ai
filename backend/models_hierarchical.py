@@ -172,11 +172,9 @@ class Area(db.Model):
         ).count() > 0
 
     def has_linked_children(self) -> bool:
-        """Check if area has linked children (Child records)"""
+        """Check if area has actively assigned children"""
         return db.session.query(Child).filter(
-            (Child.current_assigned_area_id == self.id) |
-            (Child.phm_area_id == self.id) |
-            (Child.moh_area_id == self.id)
+            Child.current_assigned_area_id == self.id
         ).count() > 0
 
     def has_linked_workers(self) -> bool:

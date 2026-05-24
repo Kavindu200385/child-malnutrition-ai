@@ -506,10 +506,7 @@ def assign_worker_areas(worker_id: int):
     
     data = request.get_json() or {}
     area_ids = data.get("area_ids", [])
-    
-    if not area_ids:
-        return jsonify({"status": "error", "message": "area_ids is required"}), 400
-    
+
     # Validate areas
     areas = []
     for area_id in area_ids:

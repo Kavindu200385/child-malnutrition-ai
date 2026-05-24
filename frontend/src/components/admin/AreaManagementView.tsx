@@ -2,7 +2,7 @@
  * Area Management View
  * Ministry (Admin) / System Developer can create, update, and manage the area hierarchy
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Edit, Trash2, ChevronRight, MapPin, AlertCircle, Building2, RefreshCw } from 'lucide-react';
 import { areasHierarchicalAPI, hospitalsAPI } from '../../services/api';
 import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
@@ -24,6 +24,11 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
   const [showCreateHospital, setShowCreateHospital] = useState(false);
   const [editingHospital, setEditingHospital] = useState<any>(null);
   const [dialog, setDialog] = useState<ConfirmDialogState | null>(null);
+  const formRef = useRef<HTMLDivElement>(null);
+  const hospitalFormRef = useRef<HTMLDivElement>(null);
+
+  const scrollToForm = () => setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  const scrollToHospitalForm = () => setTimeout(() => hospitalFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
 
   useEffect(() => {
     loadHierarchy();
@@ -109,7 +114,7 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
   const loadHospitals = async () => {
     setHospitalsLoading(true);
     try {
-      const response = await hospitalsAPI.list({ include_inactive: true });
+      const response = await hospitalsAPI.list({ include_inactive: false });
       if (response.data.status === 'success') {
         setHospitals(response.data.hospitals || []);
       }
@@ -132,6 +137,27 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to create hospital');
     }
+  };
+
+  const handleDeleteHospital = async (hospitalId: number) => {
+    setDialog({
+      title: 'Delete Hospital',
+      message: 'Are you sure you want to delete this hospital? This action cannot be undone.',
+      variant: 'danger',
+      confirmLabel: 'Yes, Delete',
+      onConfirm: async () => {
+        try {
+          const response = await hospitalsAPI.delete(hospitalId);
+          if (response.data.status === 'success') {
+            await loadHospitals();
+          } else {
+            setError(response.data.message || 'Failed to delete hospital');
+          }
+        } catch (err: any) {
+          setError(err.response?.data?.message || 'Failed to delete hospital');
+        }
+      },
+    });
   };
 
   const handleUpdateHospital = async (hospitalId: number, data: any) => {
@@ -187,37 +213,41 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
 
       {/* Create/Edit Area Form */}
       {(showCreateForm || editingArea) && (
-        <AreaForm
-          area={editingArea}
-          onSave={(data) => {
-            if (editingArea) {
-              handleUpdate(editingArea.id, data);
-            } else {
-              handleCreate(data);
-            }
-          }}
-          onCancel={() => {
-            setShowCreateForm(false);
-            setEditingArea(null);
-          }}
-        />
+        <div ref={formRef}>
+          <AreaForm
+            area={editingArea}
+            onSave={(data) => {
+              if (editingArea) {
+                handleUpdate(editingArea.id, data);
+              } else {
+                handleCreate(data);
+              }
+            }}
+            onCancel={() => {
+              setShowCreateForm(false);
+              setEditingArea(null);
+            }}
+          />
+        </div>
       )}
 
       {/* Add/Edit Hospital Form (at top like Area form, so Hospital section below stays card-only) */}
       {(showCreateHospital || editingHospital) && (
-        <HospitalForm
-          hospital={editingHospital}
-          hierarchy={hierarchy}
-          flatAreas={flatAreas}
-          onSave={(data) => {
-            if (editingHospital) {
-              handleUpdateHospital(editingHospital.id, data);
-            } else {
-              handleCreateHospital(data);
-            }
-          }}
-          onCancel={() => { setShowCreateHospital(false); setEditingHospital(null); }}
-        />
+        <div ref={hospitalFormRef}>
+          <HospitalForm
+            hospital={editingHospital}
+            hierarchy={hierarchy}
+            flatAreas={flatAreas}
+            onSave={(data) => {
+              if (editingHospital) {
+                handleUpdateHospital(editingHospital.id, data);
+              } else {
+                handleCreateHospital(data);
+              }
+            }}
+            onCancel={() => { setShowCreateHospital(false); setEditingHospital(null); }}
+          />
+        </div>
       )}
 
       {/* Level Filter + Refresh – order: Midwife, MOH, Hospitals, RDHS (+ Ministry, PDHS) */}
@@ -296,7 +326,7 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
                           key={area.id}
                           area={area}
                           level={level}
-                          onEdit={setEditingArea}
+                          onEdit={(area) => { setEditingArea(area); scrollToForm(); }}
                           onDelete={handleDelete}
                           getParentName={(id) => getAreaNameById(hierarchy, id)}
                         />
@@ -329,7 +359,8 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
                       <HospitalCard
                         key={h.id}
                         hospital={h}
-                        onEdit={(hospital) => setEditingHospital(hospital)}
+                        onEdit={(hospital) => { setEditingHospital(hospital); scrollToHospitalForm(); }}
+                        onDelete={handleDeleteHospital}
                       />
                     ))}
                   </div>
@@ -344,7 +375,7 @@ export function AreaManagementView({ onBack }: AreaManagementViewProps) {
 }
 
 // Hospital Card – same layout as AreaCard (like RDHS/MOH/PHM cards)
-function HospitalCard({ hospital, onEdit }: { hospital: any; onEdit: (hospital: any) => void }) {
+function HospitalCard({ hospital, onEdit, onDelete }: { hospital: any; onEdit: (hospital: any) => void; onDelete: (hospitalId: number) => void }) {
   return (
     <div className="border-2 border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
       <div className="flex items-start justify-between mb-3">
@@ -371,6 +402,13 @@ function HospitalCard({ hospital, onEdit }: { hospital: any; onEdit: (hospital: 
             title="Edit Hospital"
           >
             <Edit className="w-4 h-4 text-blue-600" />
+          </button>
+          <button
+            onClick={() => onDelete(hospital.id)}
+            className="p-2 hover:bg-red-100 rounded transition-colors"
+            title="Delete Hospital"
+          >
+            <Trash2 className="w-4 h-4 text-red-600" />
           </button>
         </div>
       </div>

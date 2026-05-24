@@ -61,6 +61,7 @@ export const hospitalsAPI = {
   list: (params) => api.get('/api/areas/hospitals', { params }),
   create: (data) => api.post('/api/areas/hospitals', data),
   update: (hospitalId, data) => api.put(`/api/areas/hospitals/${hospitalId}`, data),
+  delete: (hospitalId) => api.delete(`/api/areas/hospitals/${hospitalId}`),
 };
 
 // Child Transfers API
