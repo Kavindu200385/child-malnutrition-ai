@@ -546,12 +546,14 @@ def create_hospital():
     except ValueError as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+    moh_area_ids = data.get("moh_area_ids", [])
+
     if district_area_id:
-        area = db.session.get(Area, district_area_id)
-        if area and area.level == "rdhs":
-            district = area.name
-            if area.parent_id:
-                parent = db.session.get(Area, area.parent_id)
+        rdhs_area = db.session.get(Area, district_area_id)
+        if rdhs_area and rdhs_area.level == "rdhs":
+            district = rdhs_area.name
+            if rdhs_area.parent_id:
+                parent = db.session.get(Area, rdhs_area.parent_id)
                 if parent:
                     province = parent.name
 
@@ -566,6 +568,16 @@ def create_hospital():
     )
     db.session.add(hospital)
     db.session.flush()
+
+    # Stamp district/province on selected MOH areas so escalation routing works
+    if moh_area_ids and district:
+        for moh_id in moh_area_ids:
+            moh_area = db.session.get(Area, moh_id)
+            if moh_area and moh_area.level == "moh":
+                moh_area.district = district
+                if province:
+                    moh_area.province = province
+
     log_audit(
         action="CREATE",
         entity_type="hospital",
@@ -603,13 +615,23 @@ def update_hospital(hospital_id: int):
 
     district_area_id = data.get("district_area_id")
     if district_area_id:
-        area = db.session.get(Area, district_area_id)
-        if area and area.level == "rdhs":
-            hospital.district = area.name
-            if area.parent_id:
-                parent = db.session.get(Area, area.parent_id)
+        rdhs_area = db.session.get(Area, district_area_id)
+        if rdhs_area and rdhs_area.level == "rdhs":
+            hospital.district = rdhs_area.name
+            if rdhs_area.parent_id:
+                parent = db.session.get(Area, rdhs_area.parent_id)
                 if parent:
                     hospital.province = parent.name
+
+    # Stamp district/province on selected MOH areas so escalation routing works
+    moh_area_ids = data.get("moh_area_ids", [])
+    if moh_area_ids and hospital.district:
+        for moh_id in moh_area_ids:
+            moh_area = db.session.get(Area, moh_id)
+            if moh_area and moh_area.level == "moh":
+                moh_area.district = hospital.district
+                if hospital.province:
+                    moh_area.province = hospital.province
 
     db.session.flush()
     log_audit(

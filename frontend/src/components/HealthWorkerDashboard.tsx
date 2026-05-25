@@ -9,8 +9,9 @@ import { BirthRegistrationView } from './health-worker/BirthRegistrationView';
 import { ReportsView } from './health-worker/ReportsView';
 import { AssignChildView } from './health-worker/AssignChildView';
 import { TransferReviewView } from './health-worker/TransferReviewView';
-import { MidwifeTransferView } from './health-worker/MidwifeTransferView';
 import { EscalatedChildrenView } from './health-worker/EscalatedChildrenView';
+import { MohHighRiskChildrenView } from './health-worker/MohHighRiskChildrenView';
+import { MohMyChildrenView } from './health-worker/MohMyChildrenView';
 import { AreaWorkersView } from './health-worker/AreaWorkersView';
 import { MohReportsView } from './health-worker/MohReportsView';
 import { NutritionistDashboardView } from './health-worker/NutritionistDashboardView';
@@ -31,6 +32,7 @@ import {
   Users,
   ClipboardList,
   Shield,
+  TrendingUp,
 } from 'lucide-react';
 
 /** Full header gradient classes (explicit so Tailwind includes them) */
@@ -90,6 +92,8 @@ type View =
   | 'assign-child'
   | 'transfers'
   | 'moh-escalated'
+  | 'moh-high-risk'
+  | 'moh-my-children'
   | 'moh-workers'
   | 'moh-reports'
   | 'nut-referred'
@@ -97,6 +101,7 @@ type View =
 
 export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardProps) {
   const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [previousView, setPreviousView] = useState<View>('dashboard');
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
   const [topBarVisible, setTopBarVisible] = useState(true);
   const [nutPendingCount, setNutPendingCount] = useState(0);
@@ -106,13 +111,15 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
   const isHospital = user.role === 'hospital';
   const isNutritionist = user.role === 'nutritionist';
   const isMoh = user.role === 'moh' || user.role === 'amoh';
-  const canReviewTransfers = ['moh', 'amoh', 'nutritionist'].includes(user.role);
+  const canReviewTransfers = !isMoh && !isNutritionist && !isHospital && user.role !== 'midwife';
 
   // Restore last selected view for this role so refresh stays on same page
+  // Skip sub-views that require context (profile, add-child) — fall back to dashboard
   useEffect(() => {
     const key = `hw_current_view_${user.role}`;
     const stored = localStorage.getItem(key) as View | null;
-    if (stored) {
+    const contextViews: View[] = ['profile', 'add-child', 'assign-child'];
+    if (stored && !contextViews.includes(stored)) {
       setCurrentView(stored);
     }
   }, [user.role]);
@@ -176,6 +183,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
             : 'Health Worker';
 
   const handleViewChild = (childId: string) => {
+    setPreviousView(currentView);
     setSelectedChildId(childId);
     setCurrentView('profile');
   };
@@ -205,10 +213,11 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
           { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
           { id: 'search', label: 'Search Child', icon: Search },
           { id: 'moh-escalated', label: 'Incoming Transfers', icon: AlertTriangle, badge: mohPendingCount },
+          { id: 'moh-high-risk', label: 'High-Risk Children', icon: TrendingUp },
+          { id: 'moh-my-children', label: 'My Children', icon: Users },
           { id: 'moh-workers', label: 'Area Health Workers', icon: Users },
           { id: 'moh-reports', label: 'MOH Reports', icon: ClipboardList },
           { id: 'add-measurement', label: 'Add Measurement', icon: PlusCircle },
-          { id: 'transfers', label: 'Review Transfers', icon: ArrowRightLeft },
         ]
         : isNutritionist
           ? [
@@ -344,7 +353,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
           ) : (
             <ChildProfileView
               childId={selectedChildId}
-              onBack={() => setCurrentView('search')}
+              onBack={() => setCurrentView(previousView)}
               onAddMeasurement={handleAddMeasurement}
               user={user}
             />
@@ -360,6 +369,8 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
         )}
         {currentView === 'reports' && !isHospital && !isMoh && <ReportsView user={user} />}
         {currentView === 'moh-escalated' && isMoh && <EscalatedChildrenView onViewChild={handleViewChild} />}
+        {currentView === 'moh-high-risk' && isMoh && <MohHighRiskChildrenView onViewChild={handleViewChild} />}
+        {currentView === 'moh-my-children' && isMoh && <MohMyChildrenView onViewChild={handleViewChild} />}
         {currentView === 'moh-workers' && isMoh && <AreaWorkersView />}
         {currentView === 'moh-reports' && isMoh && <MohReportsView />}
         {currentView === 'assign-child' && user.role === 'midwife' && (

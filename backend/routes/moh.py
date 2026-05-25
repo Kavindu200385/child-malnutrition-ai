@@ -1119,8 +1119,385 @@ def send_report_to_rdhs(report_id: int):
 
 
 # ---------------------------------------------------------------------------
+# Children currently under MOH direct care
+# ---------------------------------------------------------------------------
+@bp.route("/my-children", methods=["GET"])
+@moh_required
+def get_my_children():
+    """
+    List children currently assigned to MOH care (current_assigned_role=moh/amoh)
+    in this MOH's area. MOH can escalate them to nutritionist or assign them back
+    to a PHM when condition improves.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    children = (
+        db.session.query(Child)
+        .filter(
+            Child.moh_area_id.in_(moh_area_ids),
+            Child.status == "ACTIVE",
+            Child.current_assigned_role.in_([UserRole.MOH.value, UserRole.AMOH.value]),
+        )
+        .order_by(Child.current_risk_level.desc(), Child.last_risk_update.desc())
+        .all()
+    )
+
+    out = []
+    for c in children:
+        d = c.to_dict()
+        last_m = (
+            db.session.query(Measurement)
+            .filter(Measurement.child_id == c.id)
+            .order_by(Measurement.measurement_date.desc())
+            .first()
+        )
+        d["last_measurement_date"] = last_m.measurement_date.isoformat() if last_m else None
+        phm_area = db.session.get(Area, c.phm_area_id) if c.phm_area_id else None
+        d["phm_area_name"] = phm_area.name if phm_area else None
+        out.append(d)
+
+    return jsonify({
+        "status": "success",
+        "children": out,
+        "count": len(out),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# High-risk children under midwife care (MAM/SAM, not yet escalated to MOH)
+# ---------------------------------------------------------------------------
+@bp.route("/high-risk-midwife-children", methods=["GET"])
+@moh_required
+def get_high_risk_midwife_children():
+    """
+    List children in MOH area that are currently assigned to a midwife with
+    MAM or SAM risk and NOT yet escalated to MOH. MOH can pull these children.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    children = (
+        db.session.query(Child)
+        .filter(
+            Child.moh_area_id.in_(moh_area_ids),
+            Child.status == "ACTIVE",
+            Child.current_assigned_role == UserRole.MIDWIFE.value,
+            Child.current_risk_level.in_([RiskLevel.MAM.value, RiskLevel.SAM.value]),
+            Child.escalation_status == EscalationStatus.NONE.value,
+        )
+        .order_by(Child.current_risk_level.desc(), Child.last_risk_update.desc())
+        .all()
+    )
+
+    out = []
+    for c in children:
+        d = c.to_dict()
+        last_m = (
+            db.session.query(Measurement)
+            .filter(Measurement.child_id == c.id)
+            .order_by(Measurement.measurement_date.desc())
+            .first()
+        )
+        d["last_measurement_date"] = last_m.measurement_date.isoformat() if last_m else None
+        phm_area = db.session.get(Area, c.phm_area_id) if c.phm_area_id else None
+        d["phm_area_name"] = phm_area.name if phm_area else None
+        midwife = db.session.get(User, c.current_assigned_user_id) if c.current_assigned_user_id else None
+        d["midwife_name"] = getattr(midwife, 'full_name', None) or midwife.username if midwife else None
+        out.append(d)
+
+    return jsonify({
+        "status": "success",
+        "children": out,
+        "count": len(out),
+    }), 200
+
+
+@bp.route("/pull-to-moh/<int:child_id>", methods=["POST"])
+@moh_required
+def pull_child_to_moh(child_id: int):
+    """
+    MOH pulls a MAM/SAM child from midwife care to MOH. Creates an escalation
+    record (from_role=midwife → to_role=moh) and marks the child as escalated.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    child = db.session.get(Child, child_id)
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+
+    if not _child_in_moh_area(child, moh_area_ids):
+        return jsonify({"status": "error", "message": "Child is not in your MOH area"}), 403
+
+    if child.current_assigned_role != UserRole.MIDWIFE.value:
+        return jsonify({"status": "error", "message": "Child is not currently under midwife care"}), 400
+
+    risk = (child.current_risk_level or "").upper()
+    if risk not in (RiskLevel.MAM.value, RiskLevel.SAM.value):
+        return jsonify({"status": "error", "message": "Child must have MAM or SAM risk to be transferred to MOH"}), 400
+
+    if child.escalation_status == EscalationStatus.ESCALATED_TO_MOH.value:
+        return jsonify({"status": "error", "message": "Child is already escalated to MOH"}), 400
+
+    data = request.get_json() or {}
+    reason = data.get("reason") or f"MOH initiated transfer – child risk level: {risk}"
+
+    escalation = ChildEscalation(
+        child_id=child.id,
+        escalated_by_user_id=user.id,
+        from_role="midwife",
+        to_role="moh",
+        moh_id=child.moh_area_id,
+        reason=reason,
+        previous_risk_level=child.current_risk_level,
+        new_risk_level=child.current_risk_level,
+        status=EscalationRecordStatus.PENDING.value,
+    )
+    db.session.add(escalation)
+    child.escalation_status = EscalationStatus.ESCALATED_TO_MOH.value
+    child.current_assigned_role = UserRole.MOH.value
+
+    db.session.flush()
+    log_audit(
+        action="CREATE",
+        entity_type="escalation",
+        entity_id=escalation.id,
+        new_values=escalation.to_dict(),
+        user_id=user.id,
+        description=f"MOH pulled child {child.child_unique_id} ({risk}) from midwife to MOH care",
+    )
+    db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "message": "Child transferred to MOH care",
+        "escalation": escalation.to_dict(),
+        "child": child.to_dict(),
+    }), 201
+
+
+# ---------------------------------------------------------------------------
+# Reassign any MOH-care child directly to a PHM area (no nutritionist record needed)
+# ---------------------------------------------------------------------------
+@bp.route("/reassign-to-phm/<int:child_id>", methods=["POST"])
+@moh_required
+def reassign_child_to_phm(child_id: int):
+    """
+    Reassign a child currently under MOH care to a PHM area (midwife monitoring).
+    Does NOT require a nutritionist escalation record — works for any MOH-assigned child.
+    Body: { phm_area_id: int, notes: str (optional) }
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    child = db.session.get(Child, child_id)
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+    if not _child_in_moh_area(child, moh_area_ids):
+        return jsonify({"status": "error", "message": "Child is not in your MOH area"}), 403
+    if child.current_assigned_role not in [UserRole.MOH.value, UserRole.AMOH.value]:
+        return jsonify({"status": "error", "message": "Child is not currently under MOH care"}), 400
+
+    data = request.get_json() or {}
+    phm_area_id = data.get("phm_area_id")
+    if not phm_area_id:
+        return jsonify({"status": "error", "message": "phm_area_id is required"}), 400
+
+    phm_area = db.session.get(Area, phm_area_id)
+    if not phm_area or phm_area.level != AreaLevel.PHM.value:
+        return jsonify({"status": "error", "message": "Invalid PHM area"}), 404
+
+    # Find the midwife covering this PHM area
+    midwife_mapping = (
+        db.session.query(WorkerAreaMapping)
+        .join(User, User.id == WorkerAreaMapping.user_id)
+        .filter(
+            WorkerAreaMapping.area_id == phm_area_id,
+            WorkerAreaMapping.is_active == True,
+            User.role == UserRole.MIDWIFE.value,
+            User.is_active == True,
+        )
+        .first()
+    )
+
+    child.phm_area_id = phm_area_id
+    child.current_assigned_role = UserRole.MIDWIFE.value
+    child.current_assigned_area_id = phm_area_id
+    if midwife_mapping:
+        child.current_assigned_user_id = midwife_mapping.user_id
+    child.escalation_status = EscalationStatus.NONE.value
+
+    db.session.flush()
+    log_audit(
+        action="UPDATE",
+        entity_type="child",
+        entity_id=child.id,
+        new_values={"current_assigned_role": UserRole.MIDWIFE.value, "phm_area_id": phm_area_id},
+        user_id=user.id,
+        description=f"MOH reassigned child {child.child_unique_id} to PHM area {phm_area.name}",
+    )
+    db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "message": f"Child reassigned to PHM area {phm_area.name}",
+        "child": child.to_dict(),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
 # MOH areas and PHM areas (for assign dropdown)
 # ---------------------------------------------------------------------------
+@bp.route("/accept-escalation/<int:escalation_id>", methods=["POST"])
+@moh_required
+def accept_escalation(escalation_id: int):
+    """
+    MOH accepts an incoming midwife escalation.
+    Marks the existing ChildEscalation record as REVIEWED (Approved) and
+    moves the child to MOH care. Does NOT create a duplicate escalation record.
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    escalation = db.session.get(ChildEscalation, escalation_id)
+    if not escalation:
+        return jsonify({"status": "error", "message": "Escalation not found"}), 404
+    if escalation.to_role != "moh" or escalation.moh_id not in moh_area_ids:
+        return jsonify({"status": "error", "message": "Access denied"}), 403
+    if escalation.status != EscalationRecordStatus.PENDING.value:
+        return jsonify({"status": "error", "message": f"Escalation is already {escalation.status}"}), 400
+
+    child = db.session.get(Child, escalation.child_id)
+    if not child:
+        return jsonify({"status": "error", "message": "Child not found"}), 404
+
+    # Mark escalation approved
+    escalation.status = EscalationRecordStatus.REVIEWED.value
+    escalation.reviewed_by_user_id = user.id
+    escalation.reviewed_at = datetime.utcnow()
+
+    # Move child to MOH care
+    child.current_assigned_role = UserRole.MOH.value
+    child.current_assigned_user_id = user.id
+    child.escalation_status = EscalationStatus.ESCALATED_TO_MOH.value
+
+    log_audit(
+        action="UPDATE",
+        entity_type="escalation",
+        entity_id=escalation.id,
+        new_values=escalation.to_dict(),
+        user_id=user.id,
+        description=f"MOH accepted escalation {escalation_id} — child {child.child_unique_id} moved to MOH care",
+    )
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "message": "Child accepted under MOH care",
+        "child": child.to_dict(),
+    }), 200
+
+
+@bp.route("/all-transfers", methods=["GET"])
+@moh_required
+def get_all_transfers():
+    """
+    Return all incoming escalations (any status) and outgoing referrals to nutritionist.
+    Used by the 5-tab Incoming Transfers page (All / Pending / Approved / Rejected / Sent).
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    escalations = (
+        db.session.query(ChildEscalation)
+        .filter(
+            ChildEscalation.to_role == "moh",
+            ChildEscalation.moh_id.in_(moh_area_ids),
+        )
+        .order_by(ChildEscalation.created_at.desc())
+        .all()
+    )
+    incoming = []
+    for e in escalations:
+        rec = e.to_dict()
+        rec["child"] = e.child.to_dict() if e.child else None
+        incoming.append(rec)
+
+    referrals = (
+        db.session.query(ChildReferral)
+        .filter(
+            ChildReferral.referred_by_user_id == user.id,
+            ChildReferral.referred_to_role == "nutritionist",
+        )
+        .order_by(ChildReferral.created_at.desc())
+        .all()
+    )
+    sent = []
+    for r in referrals:
+        rec = r.to_dict()
+        child = db.session.get(Child, r.child_id)
+        rec["child"] = child.to_dict() if child else None
+        sent.append(rec)
+
+    return jsonify({
+        "status": "success",
+        "incoming": incoming,
+        "sent": sent,
+    }), 200
+
+
+@bp.route("/reject-escalation/<int:escalation_id>", methods=["POST"])
+@moh_required
+def reject_escalation(escalation_id: int):
+    """
+    MOH rejects an incoming escalation.
+    - from midwife: child stays with midwife, escalation_status=NONE, escalation REJECTED
+    - from nutritionist: child stays with nutritionist, escalation REJECTED
+    """
+    user, moh_area_ids, err = _moh_area_ids_or_403()
+    if err:
+        return err
+
+    escalation = db.session.get(ChildEscalation, escalation_id)
+    if not escalation:
+        return jsonify({"status": "error", "message": "Escalation not found"}), 404
+    if escalation.to_role != "moh" or escalation.moh_id not in moh_area_ids:
+        return jsonify({"status": "error", "message": "Access denied"}), 403
+    if escalation.status != EscalationRecordStatus.PENDING.value:
+        return jsonify({"status": "error", "message": f"Escalation is already {escalation.status}"}), 400
+
+    data = request.get_json() or {}
+    child = db.session.get(Child, escalation.child_id)
+
+    escalation.status = EscalationRecordStatus.REJECTED.value
+    escalation.reviewed_by_user_id = user.id
+    escalation.reviewed_at = datetime.utcnow()
+    escalation.review_notes = data.get("notes", "")
+
+    if child and escalation.from_role == "midwife":
+        child.escalation_status = EscalationStatus.NONE.value
+
+    log_audit(
+        action="UPDATE",
+        entity_type="escalation",
+        entity_id=escalation.id,
+        new_values=escalation.to_dict(),
+        user_id=user.id,
+        description=f"MOH rejected escalation {escalation_id} from {escalation.from_role}",
+    )
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "message": "Escalation rejected",
+    }), 200
+
+
 @bp.route("/areas", methods=["GET"])
 @moh_required
 def get_moh_areas():

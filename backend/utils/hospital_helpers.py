@@ -86,33 +86,31 @@ def calculate_birth_risk_level(
     """
     if not birth_weight_kg:
         return BirthRiskLevel.NORMAL.value, "Insufficient data"
-    
-    # Low birth weight threshold (< 2.5 kg is considered low birth weight)
-    if birth_weight_kg < 2.5:
-        return BirthRiskLevel.SAM.value, "Low birth weight (< 2.5 kg)"
-    
-    # MUAC-based detection (most reliable for SAM)
+
+    # Weight-based classification aligned with WHO WFA z-score thresholds:
+    #   < 2.0 kg  → z < -3  → SAM
+    #   2.0–2.6 kg → z ≈ -3 to -2 → MAM
+    #   ≥ 2.6 kg  → Normal
+    if birth_weight_kg < 2.0:
+        risk = BirthRiskLevel.SAM.value
+        reason = f"Very low birth weight ({birth_weight_kg} kg)"
+    elif birth_weight_kg < 2.6:
+        risk = BirthRiskLevel.MAM.value
+        reason = f"Low birth weight ({birth_weight_kg} kg)"
+    else:
+        risk = BirthRiskLevel.NORMAL.value
+        reason = "Normal birth weight"
+
+    # MUAC override: if MUAC indicates a more severe level, upgrade risk
     if birth_muac_cm:
         if birth_muac_cm < 11.5:
-            return BirthRiskLevel.SAM.value, f"MUAC < 11.5 cm ({birth_muac_cm} cm)"
-        elif birth_muac_cm < 12.5:
-            return BirthRiskLevel.MAM.value, f"MUAC 11.5-12.5 cm ({birth_muac_cm} cm)"
-    
-    # Weight-for-age assessment (simplified for newborns)
-    # For 0-6 months, approximate Z-score calculation
-    # Normal birth weight range: 2.5-4.5 kg
-    if birth_weight_kg < 2.0:
-        return BirthRiskLevel.SAM.value, f"Very low birth weight ({birth_weight_kg} kg)"
-    elif birth_weight_kg < 2.5:
-        return BirthRiskLevel.MAM.value, f"Low birth weight ({birth_weight_kg} kg)"
-    elif birth_weight_kg >= 2.5 and birth_weight_kg <= 4.5:
-        return BirthRiskLevel.NORMAL.value, "Normal birth weight"
-    else:
-        # Very high birth weight might indicate other issues, but not malnutrition
-        return BirthRiskLevel.NORMAL.value, "Normal birth weight"
-    
-    # Default to normal if no criteria match
-    return BirthRiskLevel.NORMAL.value, "Normal"
+            risk = BirthRiskLevel.SAM.value
+            reason = f"MUAC < 11.5 cm ({birth_muac_cm} cm)"
+        elif birth_muac_cm < 12.5 and risk == BirthRiskLevel.NORMAL.value:
+            risk = BirthRiskLevel.MAM.value
+            reason = f"MUAC 11.5–12.5 cm ({birth_muac_cm} cm)"
+
+    return risk, reason
 
 
 def is_sam_case(birth_risk_level: Optional[str]) -> bool:

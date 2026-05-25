@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { nutritionistAPI } from '../../services/api';
 import { User, PlusCircle, ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { formatDate } from '../../utils/formatDate';
+import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
 
 interface ReferredItem {
   child: any;
@@ -23,6 +24,7 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
   const [error, setError] = useState('');
   const [returningId, setReturningId] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [dialog, setDialog] = useState<ConfirmDialogState | null>(null);
 
   const containerStyle: React.CSSProperties = {
     display: 'flex',
@@ -191,16 +193,25 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
     return () => clearInterval(id);
   }, [load]);
 
-  const handleReturnToMoh = async (childId: number) => {
-    setReturningId(childId);
-    try {
-      await nutritionistAPI.returnToMoh(childId);
-      load();
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Return to MOH failed');
-    } finally {
-      setReturningId(null);
-    }
+  const handleReturnToMoh = (child: any) => {
+    setDialog({
+      title: 'Return to MOH',
+      message: `Send ${child.name || child.child_unique_id} back to MOH supervision? The MOH will review and reassign the child to a PHM area. You will still be able to view this child's history.`,
+      variant: 'info',
+      confirmLabel: 'Yes, Return to MOH',
+      onConfirm: async () => {
+        setReturningId(child.id);
+        try {
+          await nutritionistAPI.returnToMoh(child.id);
+          load(true);
+        } catch (err: any) {
+          // show error inline — dialog is already closed by ConfirmDialog
+          setError(err.response?.data?.message || 'Return to MOH failed');
+        } finally {
+          setReturningId(null);
+        }
+      },
+    });
   };
 
   if (loading) return <div style={{ color: '#4b5563', fontSize: '14px' }}>Loading referred children...</div>;
@@ -214,6 +225,7 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
 
   return (
     <div style={containerStyle}>
+      <ConfirmDialog state={dialog} onClose={() => setDialog(null)} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
         <div>
           <h2 style={headerTitleStyle}>Referred Children</h2>
@@ -362,7 +374,7 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
                         opacity: returningId === child.id ? 0.7 : 1,
                         cursor: returningId === child.id ? 'wait' : 'pointer',
                       }}
-                      onClick={() => handleReturnToMoh(child.id)}
+                      onClick={() => handleReturnToMoh(child)}
                       disabled={returningId === child.id}
                       onMouseEnter={(e) => { if (returningId !== child.id) e.currentTarget.style.background = '#047857'; }}
                       onMouseLeave={(e) => (e.currentTarget.style.background = '#059669')}

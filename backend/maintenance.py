@@ -139,9 +139,9 @@ def recompute_all_measurements(batch_size: int = 200) -> dict:
                     continue
 
                 z = current["z_scores"]
-                z_wfa = max(-6.0, min(6.0, float(z["WFA_Z"])))
-                z_hfa = max(-6.0, min(6.0, float(z["HFA_Z"])))
-                z_wfh = max(-6.0, min(6.0, float(z["WFH_Z"])))
+                z_wfa = max(-5.0, min(5.0, float(z["WFA_Z"])))
+                z_hfa = max(-5.0, min(5.0, float(z["HFA_Z"])))
+                z_wfh = max(-5.0, min(5.0, float(z["WFH_Z"])))
 
                 m.z_score_wfa = z_wfa
                 m.z_score_hfa = z_hfa

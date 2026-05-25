@@ -92,6 +92,17 @@ function mapToMeasurements(items: any[], dob: string | null) {
     const heightForAge = clampZ(rawHfa != null ? Number(rawHfa) : (hCm > 0 && ageMonths >= 0 ? approxHFA(hCm, ageMonths, male) : undefined));
     const weightForHeight = clampZ(rawWfh != null ? Number(rawWfh) : (wKg > 0 && hCm > 0 ? (wKg - hCm * 0.13) / 1.5 : undefined));
 
+    const roleLabel = (role: string) => {
+      const r = (role || '').toLowerCase();
+      if (r === 'moh' || r === 'amoh') return 'MOH';
+      if (r === 'midwife') return 'Midwife';
+      if (r === 'nutritionist') return 'Nutritionist';
+      if (r === 'hospital') return 'Hospital';
+      return role;
+    };
+    const mb = v.measured_by;
+    const measuredBy = mb ? `${mb.name || ''}${mb.role ? ` (${roleLabel(mb.role)})` : ''}`.trim() : null;
+
     return {
       id: v.id || String(visitDate.getTime()),
       date: dateStr || visitDate.toISOString().slice(0, 10),
@@ -104,6 +115,7 @@ function mapToMeasurements(items: any[], dob: string | null) {
       weightForHeight,
       riskLevel: r as RiskLevel,
       notes: v.notes,
+      measuredBy,
     };
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
@@ -265,12 +277,11 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
           : birthRisk === 'MAM' || birthRisk === 'MODERATE' || birthRisk === 'HIGH'
             ? 'mam'
             : 'normal';
-      if (isHospital && apiChild.birth_risk_level) {
-        return birthLevel;
-      }
       const cur = (apiChild.current_risk_level || 'NORMAL').toLowerCase();
       if (cur === 'sam' || cur === 'critical') return 'sam' as RiskLevel;
       if (cur === 'mam' || cur === 'moderate' || cur === 'high') return 'mam' as RiskLevel;
+      // If current_risk_level is still Normal but birth risk is SAM/MAM, use birth risk
+      if (cur === 'normal' && birthLevel !== 'normal') return birthLevel;
       return 'normal' as RiskLevel;
     })(),
     measurements: (() => {
@@ -406,13 +417,17 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
   const isMoh = user?.role === 'moh' || user?.role === 'amoh';
   const isHospitalRole = user?.role === 'hospital';
   const isNutritionist = user?.role === 'nutritionist';
+  const isMidwife = user?.role === 'midwife';
+  const childEscalated = apiChild?.escalation_status && apiChild.escalation_status !== 'NONE';
   const canAddMeasurement = isHospitalRole
     ? false
     : isMoh
       ? apiChild?.can_moh_add_measurement === true
       : isNutritionist
         ? apiChild?.can_nutritionist_add_measurement === true
-        : true;
+        : isMidwife
+          ? !childEscalated
+          : true;
 
   let canEditDelete = false;
   if (apiChild && user?.role) {
@@ -442,7 +457,6 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
     return isNaN(n) ? null : n;
   })();
 
-  const isMidwife = user?.role === 'midwife';
   const escalationStatus = apiChild?.escalation_status;
   const alreadyEscalated = escalationStatus === 'ESCALATED_TO_MOH';
   const riskLevel = (child.riskLevel || '').toLowerCase();
@@ -461,7 +475,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
       if (res.data?.status === 'success') {
         setShowEscalateDialog(false);
         setEscalateReason('');
-        refetchChild(); // refresh so escalation_status updates
+        onBack(); // child is no longer under midwife — go back to list
       } else {
         setEscalateError(res.data?.message || 'Escalation failed');
       }
@@ -1063,6 +1077,78 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
           {/* WHO Growth Charts */}
           <WHOGrowthCharts measurements={child.measurements} childGender={child.gender} />
 
+          {/* Care Journey Timeline */}
+          {(() => {
+            const escalations: any[] = apiChild?.escalations || [];
+            const referrals: any[] = apiChild?.referrals || [];
+            if (escalations.length === 0 && referrals.length === 0) return null;
+
+            type JourneyEvent = {
+              date: string;
+              type: 'escalation' | 'referral';
+              label: string;
+              sub: string;
+              color: string;
+              dot: string;
+            };
+
+            const events: JourneyEvent[] = [
+              ...escalations.map((e: any) => {
+                const from = (e.from_role || '').toUpperCase();
+                const to = (e.to_role || '').toUpperCase();
+                const label =
+                  from === 'MIDWIFE' && to === 'MOH'
+                    ? 'Escalated to MOH'
+                    : from === 'MOH' && to === 'NUTRITIONIST'
+                    ? 'Escalated to Nutritionist'
+                    : from === 'NUTRITIONIST' && to === 'MOH'
+                    ? 'Returned to MOH'
+                    : `${from} → ${to}`;
+                const statusText = e.status === 'PENDING' ? 'Pending MOH review' : e.status === 'REVIEWED' ? 'Reviewed' : e.status || '';
+                return {
+                  date: e.created_at || '',
+                  type: 'escalation' as const,
+                  label,
+                  sub: [e.reason, statusText].filter(Boolean).join(' · '),
+                  color: to === 'MOH' && from === 'MIDWIFE' ? 'border-amber-400 bg-amber-50'
+                    : to === 'NUTRITIONIST' ? 'border-red-400 bg-red-50'
+                    : 'border-teal-400 bg-teal-50',
+                  dot: to === 'MOH' && from === 'MIDWIFE' ? 'bg-amber-400'
+                    : to === 'NUTRITIONIST' ? 'bg-red-400'
+                    : 'bg-teal-400',
+                };
+              }),
+              ...referrals.map((r: any) => ({
+                date: r.created_at || '',
+                type: 'referral' as const,
+                label: 'Referred to Nutritionist',
+                sub: [r.referral_reason, r.status].filter(Boolean).join(' · '),
+                color: 'border-purple-400 bg-purple-50',
+                dot: 'bg-purple-400',
+              })),
+            ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+            return (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Care Journey</h3>
+                <div className="space-y-3">
+                  {events.map((ev, i) => (
+                    <div key={i} className={`flex gap-3 p-3 rounded-lg border-l-4 ${ev.color}`}>
+                      <div className={`mt-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${ev.dot}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{ev.label}</p>
+                        {ev.sub && <p className="text-xs text-gray-600 mt-0.5 truncate">{ev.sub}</p>}
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {ev.date ? new Date(ev.date).toLocaleString() : '—'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Measurement History */}
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Measurement History</h3>
@@ -1076,6 +1162,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                     <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Height</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">MUAC</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Status</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Recorded by</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Notes</th>
                   </tr>
                 </thead>
@@ -1104,6 +1191,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                           {getRiskLabel(measurement.riskLevel).split(' ')[0]}
                         </span>
                       </td>
+                      <td className="py-3 px-4 text-sm text-gray-600">{(measurement as any).measuredBy || '—'}</td>
                       <td className="py-3 px-4 text-sm text-gray-600">{measurement.notes || '-'}</td>
                     </tr>
                   ))}
@@ -1433,6 +1521,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
           </div>
         </div>
       )}
+
     </div>
   );
 }

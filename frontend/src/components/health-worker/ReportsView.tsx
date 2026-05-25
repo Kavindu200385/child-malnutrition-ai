@@ -1,18 +1,9 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback, type ReactNode, type CSSProperties } from 'react';
 import { getRiskColor, getRiskLabel, getDisplayRiskLevel, getDisplayRiskLevelTyped, type RiskLevel } from '../../types';
-import { FileText, Download, Printer, Calendar, Filter, Send, BarChart3, User as UserIcon, FileCheck, TrendingUp, Loader2 } from 'lucide-react';
+import { FileText, Download, Printer, Calendar, Filter, Send, BarChart3, User as UserIcon, FileCheck, TrendingUp, Loader2, History, CheckCircle, XCircle } from 'lucide-react';
 import { childrenAPI, midwifeAPI, nutritionistAPI } from '../../services/api';
 import { HiddenPdfCharts, generateProfessionalPdf } from './PdfReportGenerator';
 import type { Measurement } from '../../types';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogFooter,
-  AlertDialogAction,
-} from '../ui/alert-dialog';
 
 // Get user from localStorage (temporary solution)
 const getUser = () => {
@@ -124,10 +115,15 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
     escalated: 0,
   });
 
-  const [messageDialogOpen, setMessageDialogOpen] = useState(false);
-  const [messageDialogTitle, setMessageDialogTitle] = useState('');
-  const [messageDialogContent, setMessageDialogContent] = useState<ReactNode>('');
-  const [messageDialogVariant, setMessageDialogVariant] = useState<'info' | 'success' | 'error'>('info');
+  const [noticeDialog, setNoticeDialog] = useState<{
+    open: boolean;
+    title: string;
+    content: ReactNode;
+    variant: 'info' | 'success' | 'error';
+  }>({ open: false, title: '', content: '', variant: 'info' });
+
+  const [clinicReports, setClinicReports] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const [pdfChildData, setPdfChildData] = useState<{ childData: any; measurements: Measurement[] } | null>(null);
   const [pdfGeneratingChildId, setPdfGeneratingChildId] = useState<number | null>(null);
@@ -140,17 +136,28 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
   };
 
   const showMessage = (title: string, content: ReactNode, variant: 'info' | 'success' | 'error' = 'info') => {
-    setMessageDialogTitle(title);
-    setMessageDialogContent(content);
-    setMessageDialogVariant(variant);
-    setMessageDialogOpen(true);
+    setNoticeDialog({ open: true, title, content, variant });
   };
-  const closeMessage = () => setMessageDialogOpen(false);
+  const closeMessage = () => setNoticeDialog((prev) => ({ ...prev, open: false }));
+
+  const loadClinicReports = useCallback(async () => {
+    if (!isMidwife) return;
+    setHistoryLoading(true);
+    try {
+      const res = await midwifeAPI.getClinicReports();
+      if (res.data?.status === 'success') setClinicReports(res.data.reports || []);
+    } catch {
+      // silently fail
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [isMidwife]);
 
   useEffect(() => {
     loadChildren();
     if (isMidwife) {
       loadDashboardStats();
+      loadClinicReports();
     }
   }, [isMidwife]);
 
@@ -423,15 +430,35 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
 
       if (response.data.status === 'success') {
         const r = response.data.report || {};
-        showMessage('Clinic report submitted successfully', (
-          <div className="space-y-2 text-left text-sm text-gray-700">
-            <p><strong>Month:</strong> {clinicReportMonth}/{clinicReportYear}</p>
-            <p><strong>Total Children:</strong> {r.total_children_seen ?? '—'}</p>
-            <p><strong>Normal:</strong> {r.normal_count ?? '—'} · <strong>MAM:</strong> {r.mam_count ?? '—'} · <strong>SAM:</strong> {r.sam_count ?? '—'}</p>
-            <p><strong>Escalated:</strong> {r.escalated_cases ?? '—'}</p>
+        const monthName = new Date(clinicReportYear, clinicReportMonth - 1).toLocaleString('default', { month: 'long' });
+        showMessage('Report Submitted to MOH', (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px', color: '#374151' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6' }}>
+              <span style={{ color: '#6B7280' }}>Period</span>
+              <span style={{ fontWeight: 600 }}>{monthName} {clinicReportYear}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6' }}>
+              <span style={{ color: '#6B7280' }}>Total Children</span>
+              <span style={{ fontWeight: 600 }}>{r.total_children_seen ?? '—'}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6' }}>
+              <span style={{ color: '#6B7280' }}>Normal / MAM / SAM</span>
+              <span style={{ fontWeight: 600 }}>
+                <span style={{ color: '#16a34a' }}>{r.normal_count ?? 0}</span>
+                {' / '}
+                <span style={{ color: '#d97706' }}>{r.mam_count ?? 0}</span>
+                {' / '}
+                <span style={{ color: '#dc2626' }}>{r.sam_count ?? 0}</span>
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+              <span style={{ color: '#6B7280' }}>Escalated Cases</span>
+              <span style={{ fontWeight: 600 }}>{r.escalated_cases ?? '—'}</span>
+            </div>
           </div>
         ), 'success');
         loadDashboardStats();
+        loadClinicReports();
       }
     } catch (err: any) {
       showMessage('Error', err.response?.data?.message || 'Failed to submit clinic report', 'error');
@@ -461,59 +488,110 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
         </p>
       </div>
 
-      {/* Midwife-specific: Clinic Report Submission - hidden when printing */}
+      {/* Midwife-specific: Clinic Report Submission + History - hidden when printing */}
       {isMidwife && (
-        <div className="no-print bg-blue-50 border border-blue-200 rounded-lg shadow p-6">
-          <div className="flex items-start gap-4">
-            <div className="bg-blue-100 rounded-lg p-3">
-              <Send className="w-6 h-6 text-blue-600" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Submit Monthly Clinic Report to MOH</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Submit your monthly clinic report to the MOH office. This report includes statistics for all children in your PHM area.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Month</label>
-                  <select
-                    value={clinicReportMonth}
-                    onChange={(e) => setClinicReportMonth(parseInt(e.target.value))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
-                      <option key={month} value={month}>
-                        {new Date(2000, month - 1).toLocaleString('default', { month: 'long' })}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Year</label>
-                  <input
-                    type="number"
-                    value={clinicReportYear}
-                    onChange={(e) => setClinicReportYear(parseInt(e.target.value))}
-                    min="2020"
-                    max={new Date().getFullYear() + 1}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <button
-                    onClick={handleSubmitClinicReport}
-                    disabled={submittingClinicReport}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors"
-                  >
-                    <Send className="w-4 h-4" />
-                    {submittingClinicReport ? 'Submitting...' : 'Submit to MOH'}
-                  </button>
-                </div>
+        <div className="no-print space-y-4">
+          {/* Submit card */}
+          <div style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0', padding: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+              <div style={{ background: '#f0fdf4', borderRadius: '10px', padding: '12px', flexShrink: 0 }}>
+                <Send style={{ width: '22px', height: '22px', color: '#16a34a' }} />
               </div>
-              <div className="text-xs text-gray-500">
-                <strong>Note:</strong> Once submitted, the report cannot be edited. Please review all data before submission.
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '17px', fontWeight: 700, color: '#111827', margin: '0 0 4px 0' }}>Submit Monthly Clinic Report to MOH</h3>
+                <p style={{ fontSize: '13px', color: '#6B7280', margin: '0 0 20px 0' }}>
+                  Submit your monthly clinic report to the MOH office. This includes statistics for all children in your PHM area.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#374151', marginBottom: '6px' }}>Month</label>
+                    <select
+                      value={clinicReportMonth}
+                      onChange={(e) => setClinicReportMonth(parseInt(e.target.value))}
+                      style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', color: '#111827', background: '#fff', outline: 'none' }}
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                        <option key={month} value={month}>
+                          {new Date(2000, month - 1).toLocaleString('default', { month: 'long' })}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#374151', marginBottom: '6px' }}>Year</label>
+                    <input
+                      type="number"
+                      value={clinicReportYear}
+                      onChange={(e) => setClinicReportYear(parseInt(e.target.value))}
+                      min="2020"
+                      max={new Date().getFullYear() + 1}
+                      style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', color: '#111827', background: '#fff', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                    <button
+                      onClick={handleSubmitClinicReport}
+                      disabled={submittingClinicReport}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 20px', background: submittingClinicReport ? '#86efac' : '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: 600, cursor: submittingClinicReport ? 'not-allowed' : 'pointer', transition: 'background 0.15s' }}
+                    >
+                      {submittingClinicReport ? <Loader2 style={{ width: '16px', height: '16px', animation: 'spin 1s linear infinite' }} /> : <Send style={{ width: '16px', height: '16px' }} />}
+                      {submittingClinicReport ? 'Submitting…' : 'Submit to MOH'}
+                    </button>
+                  </div>
+                </div>
+                <p style={{ fontSize: '12px', color: '#9ca3af', margin: 0 }}>
+                  <strong>Note:</strong> Once submitted, the report cannot be edited. Please review all data before submission.
+                </p>
               </div>
             </div>
+          </div>
+
+          {/* Submitted report history */}
+          <div style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '18px 24px', borderBottom: '1px solid #f3f4f6' }}>
+              <History style={{ width: '18px', height: '18px', color: '#6B7280' }} />
+              <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#111827', margin: 0 }}>Submitted Reports History</h3>
+            </div>
+            {historyLoading ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' }}>Loading reports…</div>
+            ) : clinicReports.length === 0 ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' }}>No reports submitted yet.</div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc' }}>
+                      {['Period', 'Total', 'Normal', 'MAM', 'SAM', 'Escalated', 'Submitted At', 'Status'].map((h) => (
+                        <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clinicReports.map((r, idx) => {
+                      const monthName = new Date(r.report_year, r.report_month - 1).toLocaleString('default', { month: 'short' });
+                      const submittedAt = r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+                      return (
+                        <tr key={r.id} style={{ borderTop: idx === 0 ? 'none' : '1px solid #f3f4f6', background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                          <td style={{ padding: '12px 16px', fontWeight: 600, color: '#111827', whiteSpace: 'nowrap' }}>{monthName} {r.report_year}</td>
+                          <td style={{ padding: '12px 16px', color: '#374151' }}>{r.total_children_seen}</td>
+                          <td style={{ padding: '12px 16px', color: '#16a34a', fontWeight: 600 }}>{r.normal_count}</td>
+                          <td style={{ padding: '12px 16px', color: '#d97706', fontWeight: 600 }}>{r.mam_count}</td>
+                          <td style={{ padding: '12px 16px', color: '#dc2626', fontWeight: 600 }}>{r.sam_count}</td>
+                          <td style={{ padding: '12px 16px', color: '#374151' }}>{r.escalated_cases}</td>
+                          <td style={{ padding: '12px 16px', color: '#6B7280', whiteSpace: 'nowrap' }}>{submittedAt}</td>
+                          <td style={{ padding: '12px 16px' }}>
+                            {r.submitted_to_moh
+                              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', background: '#f0fdf4', color: '#16a34a', borderRadius: '9999px', fontSize: '12px', fontWeight: 600 }}><CheckCircle style={{ width: '12px', height: '12px' }} /> Sent</span>
+                              : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', background: '#f9fafb', color: '#9ca3af', borderRadius: '9999px', fontSize: '12px', fontWeight: 600 }}><XCircle style={{ width: '12px', height: '12px' }} /> Draft</span>
+                            }
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -815,6 +893,7 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
 
       {/* Print Styles: only .print-report-content is visible when printing */}
       <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @media print {
           body * {
             visibility: hidden;
@@ -851,50 +930,61 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
         </div>
       )}
 
-      {/* Message dialog – matches system AlertDialog design (card + pill button) */}
-      <AlertDialog open={messageDialogOpen} onOpenChange={setMessageDialogOpen}>
-        <AlertDialogContent
-          className="border-2"
-          style={{
-            backgroundColor: messageDialogVariant === 'error' ? '#fef2f2' : messageDialogVariant === 'success' ? '#f0fdf4' : '#ffffff',
-            borderColor: messageDialogVariant === 'error' ? '#fecaca' : messageDialogVariant === 'success' ? '#bbf7d0' : '#cbd5e1',
-            borderRadius: '16px',
-            boxShadow: '0 10px 32px rgba(15,23,42,0.12)',
-            padding: '24px',
-            maxWidth: '28rem',
-          }}
-        >
-          <AlertDialogHeader style={{ gap: '8px', textAlign: 'left' }}>
-            <AlertDialogTitle style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
-              {messageDialogTitle}
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div style={{ color: '#475569', fontSize: '14px', lineHeight: 1.5, marginTop: '4px' }}>
-                {typeof messageDialogContent === 'string' ? <p>{messageDialogContent}</p> : messageDialogContent}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter style={{ marginTop: '20px', justifyContent: 'flex-end' }}>
-            <AlertDialogAction
-              onClick={closeMessage}
-              style={{
-                background: '#1e293b',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '9999px',
-                padding: '10px 20px',
-                fontSize: '14px',
-                fontWeight: 600,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
-                cursor: 'pointer',
-              }}
-              className="hover:opacity-90"
+      {/* Notice dialog — system style matching ConfirmDialog */}
+      {noticeDialog.open && (() => {
+        const variantMap = {
+          success: { iconBg: '#D1FAE5', iconColor: '#059669', icon: '✓', borderColor: '#bbf7d0' },
+          error:   { iconBg: '#FEE2E2', iconColor: '#DC2626', icon: '✕', borderColor: '#fecaca' },
+          info:    { iconBg: '#DBEAFE', iconColor: '#2563EB', icon: 'ℹ', borderColor: '#bfdbfe' },
+        };
+        const v = variantMap[noticeDialog.variant];
+        return (
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' } as CSSProperties}
+            onClick={closeMessage}
+          >
+            <style>{`@keyframes ndScaleIn { from { opacity:0; transform:scale(0.92) translateY(10px); } to { opacity:1; transform:scale(1) translateY(0); } }`}</style>
+            <div
+              role="dialog"
+              aria-modal="true"
+              style={{ position: 'relative', background: '#fff', borderRadius: '1rem', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', width: '100%', maxWidth: '440px', padding: '1.5rem', animation: 'ndScaleIn 0.18s ease-out', border: `1px solid ${v.borderColor}` } as CSSProperties}
+              onClick={(e) => e.stopPropagation()}
             >
-              OK
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              {/* Close × */}
+              <button
+                onClick={closeMessage}
+                style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: '1.1rem', width: '1.75rem', height: '1.75rem', borderRadius: '9999px', display: 'flex', alignItems: 'center', justifyContent: 'center' } as CSSProperties}
+              >✕</button>
+
+              {/* Body row */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.25rem' }}>
+                <div style={{ flexShrink: 0, width: '3rem', height: '3rem', borderRadius: '9999px', background: v.iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', color: v.iconColor, fontWeight: 700 }}>
+                  {v.icon}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, paddingTop: '0.125rem' }}>
+                  <p style={{ margin: '0 0 0.5rem 0', fontSize: '1.0625rem', fontWeight: 700, color: '#111827', paddingRight: '1.5rem' }}>{noticeDialog.title}</p>
+                  <div style={{ fontSize: '0.875rem', color: '#6B7280', lineHeight: 1.6 }}>
+                    {typeof noticeDialog.content === 'string' ? <p style={{ margin: 0 }}>{noticeDialog.content}</p> : noticeDialog.content}
+                  </div>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div style={{ borderTop: '1px solid #F3F4F6', margin: '1.25rem 0' }} />
+
+              {/* OK button */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={closeMessage}
+                  style={{ padding: '0.625rem 1.5rem', borderRadius: '0.625rem', border: 'none', background: '#1e293b', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' } as CSSProperties}
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

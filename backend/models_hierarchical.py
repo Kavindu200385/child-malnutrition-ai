@@ -74,6 +74,7 @@ class EscalationRecordStatus(str, Enum):
     """Escalation record status"""
     PENDING = "PENDING"
     REVIEWED = "REVIEWED"
+    REJECTED = "REJECTED"
 
 
 class ReferralStatus(str, Enum):
@@ -469,7 +470,7 @@ class Child(db.Model):
     escalations = relationship("ChildEscalation", back_populates="child", lazy=True, order_by="ChildEscalation.created_at.desc()")
     measurements = relationship("Measurement", back_populates="child", lazy=True, order_by="Measurement.measurement_date.desc()")
 
-    def to_dict(self, include_visits: bool = False, include_transfers: bool = False, include_referrals: bool = False) -> dict:
+    def to_dict(self, include_visits: bool = False, include_transfers: bool = False, include_referrals: bool = False, include_escalations: bool = False) -> dict:
         data = {
             "id": self.id,
             "child_unique_id": self.child_unique_id or self.child_id,  # Use new field, fallback to legacy
@@ -519,6 +520,8 @@ class Child(db.Model):
             data["transfers"] = [t.to_dict() for t in self.transfers]
         if include_referrals:
             data["referrals"] = [r.to_dict() for r in self.referrals]
+        if include_escalations:
+            data["escalations"] = [e.to_dict() for e in self.escalations]
         return data
 
 

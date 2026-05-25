@@ -70,7 +70,7 @@ export function HospitalChildrenListView({ user, onViewChild }: HospitalChildren
   const handleTransferToNutritionist = async (childId: number) => {
     setDialog({
       title: 'Transfer to Nutritionist',
-      message: 'Transfer this SAM case to the Hospital Nutritionist? This action cannot be undone.',
+      message: 'Transfer this child to the Hospital Nutritionist? This action cannot be undone.',
       variant: 'warning',
       confirmLabel: 'Yes, Transfer',
       onConfirm: async () => {
@@ -284,16 +284,18 @@ export function HospitalChildrenListView({ user, onViewChild }: HospitalChildren
                       </div>
                     )}
 
-                    {/* SAM Alert */}
-                    {child.birth_risk_level === 'SAM' && !child.is_transferred && (
-                      <div className="mt-3 p-3 bg-red-50 border-2 border-red-300 rounded-lg">
+                    {/* MAM / SAM Alert */}
+                    {(child.birth_risk_level === 'SAM' || child.birth_risk_level === 'MAM') && !child.is_transferred && (
+                      <div className={`mt-3 p-3 rounded-lg border-2 ${child.birth_risk_level === 'SAM' ? 'bg-red-50 border-red-300' : 'bg-yellow-50 border-yellow-300'}`}>
                         <div className="flex items-center gap-2 mb-2">
-                          <AlertTriangle className="w-5 h-5 text-red-600" />
-                          <p className="text-sm font-bold text-red-900">SAM Case - Transfer to Nutritionist Required</p>
+                          <AlertTriangle className={`w-5 h-5 ${child.birth_risk_level === 'SAM' ? 'text-red-600' : 'text-yellow-600'}`} />
+                          <p className={`text-sm font-bold ${child.birth_risk_level === 'SAM' ? 'text-red-900' : 'text-yellow-900'}`}>
+                            {child.birth_risk_level === 'SAM' ? 'SAM Case - Transfer to Nutritionist Required' : 'MAM Case - Consider Nutritionist Referral'}
+                          </p>
                         </div>
                         <button
                           onClick={() => handleTransferToNutritionist(child.id)}
-                          className="mt-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors flex items-center gap-2"
+                          className={`mt-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${child.birth_risk_level === 'SAM' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-500 hover:bg-orange-600'}`}
                         >
                           <ArrowRight className="w-4 h-4" />
                           Transfer to Hospital Nutritionist

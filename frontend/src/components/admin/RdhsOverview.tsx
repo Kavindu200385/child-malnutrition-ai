@@ -43,13 +43,9 @@ export function RdhsOverview() {
 
   useEffect(() => {
     loadDashboard(false);
-  }, [loadDashboard]);
-
-  useEffect(() => {
-    if (!data) return;
     const interval = setInterval(() => loadDashboard(true), REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [data, loadDashboard]);
+  }, [loadDashboard]);
 
   if (loading) {
     return (

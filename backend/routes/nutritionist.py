@@ -209,9 +209,20 @@ def get_child(child_id: int):
         .all()
     )
 
+    is_escalated = (child.escalation_status or "") == EscalationStatus.ESCALATED_TO_NUTRITIONIST.value
+    pending_return = db.session.query(ChildEscalation).filter(
+        ChildEscalation.child_id == child.id,
+        ChildEscalation.from_role == "nutritionist",
+        ChildEscalation.to_role == "moh",
+        ChildEscalation.status == "PENDING",
+    ).first() is not None
+    is_active = is_escalated and not pending_return
+
     return jsonify({
         "status": "success",
         "child": child.to_dict(),
+        "is_active": is_active,
+        "pending_moh_return": pending_return,
         "measurements": [m.to_dict() for m in measurements],
         "referrals": [r.to_dict() for r in referrals],
         "escalations": [e.to_dict() for e in escalations],

@@ -33,6 +33,8 @@ from backend.models_hierarchical import (
     Child,
     ChildReferral,
     ChildEscalation,
+    EscalationStatus,
+    EscalationRecordStatus,
     Hospital,
     Measurement,
     ReferralStatus,
@@ -337,6 +339,166 @@ def seed_phm_children(hierarchy: dict[str, Area], midwife: User) -> int:
     return count
 
 
+def seed_transfer_demo_children(hierarchy: dict[str, Area], midwife: User) -> int:
+    """
+    Seed two demo children specifically for the transfer workflow:
+      - SAMPLE-XFER-PHM-001: SAM child under midwife → ready for MOH to pull via "High-Risk Children"
+      - SAMPLE-XFER-MOH-001: SAM child already under MOH care → ready for MOH to escalate to Nutritionist
+    """
+    phm, moh, rdhs, pdhs = hierarchy["phm"], hierarchy["moh"], hierarchy["rdhs"], hierarchy["pdhs"]
+    moh_user = User.query.filter_by(username="Hanwella").first()
+    count = 0
+
+    # ── Child 1: under MIDWIFE, SAM — for PHM → MOH transfer demo ──────────
+    uid1 = f"{CHILD_ID_PREFIX}XFER-PHM-001"
+    child1 = _child_by_uid(uid1)
+    dob1 = (datetime.now() - timedelta(days=14 * 30)).date()   # 14 months old
+    if not child1:
+        child1 = Child(
+            child_unique_id=uid1,
+            child_id=uid1,
+            name="Kasun Wickramasinghe",
+            dob=dob1,
+            gender="male",
+            guardian_name="Priya Wickramasinghe",
+            guardian_phone="0771234567",
+            address="45, Temple Road, Kosgama",
+            phm_area_id=phm.id,
+            moh_area_id=moh.id,
+            district_id=rdhs.id,
+            province_id=pdhs.id,
+            assigned_date=datetime.now() - timedelta(days=30),
+            current_assigned_role=UserRole.MIDWIFE.value,
+            current_assigned_area_id=phm.id,
+            current_assigned_user_id=midwife.id,
+            current_risk_level="SAM",
+            last_risk_update=datetime.now() - timedelta(days=3),
+            escalation_status=EscalationStatus.NONE.value,
+            status="ACTIVE",
+            is_draft=False,
+            registration_date=datetime.now() - timedelta(days=60),
+        )
+        db.session.add(child1)
+        count += 1
+    else:
+        child1.current_assigned_role = UserRole.MIDWIFE.value
+        child1.current_assigned_user_id = midwife.id
+        child1.current_risk_level = "SAM"
+        child1.escalation_status = EscalationStatus.NONE.value
+        child1.status = "ACTIVE"
+        child1.is_draft = False
+
+    db.session.flush()
+
+    # Measurements: NORMAL → MAM → SAM (showing deterioration)
+    if not Measurement.query.filter_by(child_id=child1.id).first():
+        for days_ago, weight, height, risk, z_wfa, z_hfa, muac, notes in [
+            (45, Decimal("9.8"),  Decimal("79.0"), "NORMAL", Decimal("-0.8"),  Decimal("-0.6"),  Decimal("14.2"), "Routine visit — normal growth"),
+            (21, Decimal("8.9"),  Decimal("78.5"), "MAM",    Decimal("-2.2"),  Decimal("-1.9"),  Decimal("12.4"), "Mild weight loss — monitor closely"),
+            (3,  Decimal("7.8"),  Decimal("78.0"), "SAM",    Decimal("-3.1"),  Decimal("-2.8"),  Decimal("11.2"), "Significant wasting — SAM confirmed"),
+        ]:
+            db.session.add(Measurement(
+                child_id=child1.id,
+                measurement_date=datetime.now() - timedelta(days=days_ago),
+                weight_kg=weight,
+                height_cm=height,
+                muac_cm=muac,
+                z_score_wfa=z_wfa,
+                z_score_hfa=z_hfa,
+                z_score_wfh=Decimal("-2.5") if risk == "SAM" else Decimal("-2.0") if risk == "MAM" else Decimal("-0.5"),
+                risk_level=risk,
+                model_confidence=Decimal("0.91"),
+                measured_by_user_id=midwife.id,
+                notes=notes,
+            ))
+
+    # ── Child 2: already under MOH care, SAM — for MOH → Nutritionist demo ─
+    uid2 = f"{CHILD_ID_PREFIX}XFER-MOH-001"
+    child2 = _child_by_uid(uid2)
+    dob2 = (datetime.now() - timedelta(days=18 * 30)).date()   # 18 months old
+    moh_user_id = moh_user.id if moh_user else midwife.id
+    if not child2:
+        child2 = Child(
+            child_unique_id=uid2,
+            child_id=uid2,
+            name="Nethmi Rajapakse",
+            dob=dob2,
+            gender="female",
+            guardian_name="Chamari Rajapakse",
+            guardian_phone="0779876543",
+            address="12, Lake Road, Hanwella",
+            phm_area_id=phm.id,
+            moh_area_id=moh.id,
+            district_id=rdhs.id,
+            province_id=pdhs.id,
+            assigned_date=datetime.now() - timedelta(days=14),
+            current_assigned_role=UserRole.MOH.value,
+            current_assigned_area_id=moh.id,
+            current_assigned_user_id=moh_user_id,
+            current_risk_level="SAM",
+            last_risk_update=datetime.now() - timedelta(days=2),
+            escalation_status=EscalationStatus.ESCALATED_TO_MOH.value,
+            status="ACTIVE",
+            is_draft=False,
+            registration_date=datetime.now() - timedelta(days=90),
+        )
+        db.session.add(child2)
+        count += 1
+    else:
+        child2.current_assigned_role = UserRole.MOH.value
+        child2.current_assigned_user_id = moh_user_id
+        child2.current_risk_level = "SAM"
+        child2.escalation_status = EscalationStatus.ESCALATED_TO_MOH.value
+        child2.status = "ACTIVE"
+        child2.is_draft = False
+
+    db.session.flush()
+
+    # Measurements showing deterioration from midwife to MOH level
+    if not Measurement.query.filter_by(child_id=child2.id).first():
+        for days_ago, weight, height, risk, z_wfa, muac, notes, measured_by in [
+            (60, Decimal("10.5"), Decimal("82.0"), "NORMAL", Decimal("-0.5"),  Decimal("14.5"), "Routine PHM visit — normal", midwife.id),
+            (30, Decimal("9.1"),  Decimal("81.5"), "MAM",    Decimal("-2.3"),  Decimal("12.2"), "Weight loss noted — escalated to MOH", midwife.id),
+            (14, Decimal("8.2"),  Decimal("81.0"), "SAM",    Decimal("-3.2"),  Decimal("11.0"), "MOH assessment — severe acute malnutrition", moh_user_id),
+            (2,  Decimal("8.0"),  Decimal("81.0"), "SAM",    Decimal("-3.4"),  Decimal("10.8"), "MOH follow-up — condition not improving", moh_user_id),
+        ]:
+            db.session.add(Measurement(
+                child_id=child2.id,
+                measurement_date=datetime.now() - timedelta(days=days_ago),
+                weight_kg=weight,
+                height_cm=height,
+                muac_cm=muac,
+                z_score_wfa=z_wfa,
+                z_score_hfa=Decimal("-2.1") if risk != "NORMAL" else Decimal("-0.3"),
+                z_score_wfh=Decimal("-2.6") if risk == "SAM" else Decimal("-2.0") if risk == "MAM" else Decimal("-0.4"),
+                risk_level=risk,
+                model_confidence=Decimal("0.93"),
+                measured_by_user_id=measured_by,
+                notes=notes,
+            ))
+
+    # Escalation record: midwife → MOH (REVIEWED — MOH has already accepted this child)
+    if not ChildEscalation.query.filter_by(child_id=child2.id).first():
+        db.session.add(ChildEscalation(
+            child_id=child2.id,
+            escalated_by_user_id=midwife.id,
+            from_role="midwife",
+            to_role="moh",
+            moh_id=moh.id,
+            reason="Child deteriorated from MAM to SAM — requires MOH clinical review",
+            previous_risk_level="MAM",
+            new_risk_level="SAM",
+            status=EscalationRecordStatus.REVIEWED.value,
+            reviewed_by_user_id=moh_user_id,
+            reviewed_at=datetime.now() - timedelta(days=12),
+            review_notes="Confirmed SAM — MOH monitoring. Nutritionist referral pending if no improvement.",
+        ))
+
+    db.session.commit()
+    print(f"[OK] Transfer demo children seeded: {count} new, IDs: {uid1}, {uid2}")
+    return count
+
+
 def print_summary(users: dict[str, User]):
     print("\n=== Existing users (passwords unchanged) ===\n")
     for username, user in sorted(users.items()):
@@ -389,8 +551,9 @@ def main():
 
         if midwife_user:
             seed_phm_children(hierarchy, midwife_user)
+            seed_transfer_demo_children(hierarchy, midwife_user)
         else:
-            print("[WARN] Midwife not found — skipped PHM children")
+            print("[WARN] Midwife not found — skipped PHM children and transfer demo children")
 
         print("[OK] Sample data ready for existing accounts.")
         print_summary(users)

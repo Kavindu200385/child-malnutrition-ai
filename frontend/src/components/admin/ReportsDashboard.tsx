@@ -18,6 +18,15 @@ const RISK_COLORS: Record<string, string> = {
   NORMAL: '#22c55e', MODERATE: '#f59e0b', HIGH: '#f97316', CRITICAL: '#ef4444', MAM: '#f59e0b', SAM: '#ef4444',
 };
 
+/** Collapse backend buckets (NORMAL/MODERATE/HIGH/CRITICAL/MAM/SAM) into 3 display categories */
+function collapseRisk(dist: Record<string, number>) {
+  return {
+    normal: dist.NORMAL ?? 0,
+    mam: (dist.MAM ?? 0) + (dist.MODERATE ?? 0) + (dist.HIGH ?? 0),
+    sam: (dist.SAM ?? 0) + (dist.CRITICAL ?? 0),
+  };
+}
+
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 type Tab = 'generate' | 'saved' | 'pdhs-received';
@@ -176,11 +185,15 @@ function DistrictReportView({ data }: { data: any }) {
       {Object.keys(dist).length > 0 && (
         <div>
           <h4 className="font-semibold text-gray-900 mb-3">Risk Distribution</h4>
-          <div className="grid grid-cols-4 gap-4">
-            {Object.entries(dist).map(([risk, count]: [string, any]) => (
-              <div key={risk} className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-sm text-gray-600">{risk}</p>
-                <p className="text-xl font-bold text-gray-900">{count}</p>
+          <div className="grid grid-cols-3 gap-4">
+            {(() => { const r = collapseRisk(dist); return [
+              { label: 'Normal', value: r.normal, bg: 'bg-green-50', color: 'text-green-700' },
+              { label: 'MAM', value: r.mam, bg: 'bg-yellow-50', color: 'text-yellow-700' },
+              { label: 'SAM', value: r.sam, bg: 'bg-red-50', color: 'text-red-700' },
+            ]; })().map(({ label, value, bg, color }) => (
+              <div key={label} className={`${bg} rounded-lg p-3 text-center`}>
+                <p className={`text-sm font-semibold ${color}`}>{label}</p>
+                <p className={`text-xl font-bold ${color} mt-1`}>{value}</p>
               </div>
             ))}
           </div>
@@ -225,11 +238,15 @@ function ProvincialReportView({ data }: { data: any }) {
       {summary.risk_distribution && (
         <div>
           <h4 className="font-semibold text-gray-900 mb-3">Provincial Risk Summary</h4>
-          <div className="grid grid-cols-4 gap-4">
-            {Object.entries(summary.risk_distribution).map(([risk, count]: [string, any]) => (
-              <div key={risk} className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-sm text-gray-600">{risk}</p>
-                <p className="text-xl font-bold text-gray-900">{count}</p>
+          <div className="grid grid-cols-3 gap-4">
+            {(() => { const r = collapseRisk(summary.risk_distribution); return [
+              { label: 'Normal', value: r.normal, bg: 'bg-green-50', color: 'text-green-700' },
+              { label: 'MAM', value: r.mam, bg: 'bg-yellow-50', color: 'text-yellow-700' },
+              { label: 'SAM', value: r.sam, bg: 'bg-red-50', color: 'text-red-700' },
+            ]; })().map(({ label, value, bg, color }) => (
+              <div key={label} className={`${bg} rounded-lg p-3 text-center`}>
+                <p className={`text-sm font-semibold ${color}`}>{label}</p>
+                <p className={`text-xl font-bold ${color} mt-1`}>{value}</p>
               </div>
             ))}
           </div>
@@ -244,23 +261,24 @@ function ProvincialReportView({ data }: { data: any }) {
                 <tr>
                   <th className="px-4 py-2 text-left">District</th>
                   <th className="px-4 py-2 text-right">Children</th>
-                  <th className="px-4 py-2 text-right">Normal</th>
-                  <th className="px-4 py-2 text-right">Moderate</th>
-                  <th className="px-4 py-2 text-right">High</th>
-                  <th className="px-4 py-2 text-right">Critical</th>
+                  <th className="px-4 py-2 text-right text-green-700">Normal</th>
+                  <th className="px-4 py-2 text-right text-yellow-700">MAM</th>
+                  <th className="px-4 py-2 text-right text-red-700">SAM</th>
                 </tr>
               </thead>
               <tbody>
-                {distComp.map((d: any, i: number) => (
-                  <tr key={i} className="border-b">
-                    <td className="px-4 py-2">{d.district_name}</td>
-                    <td className="px-4 py-2 text-right">{d.total_children}</td>
-                    <td className="px-4 py-2 text-right">{d.risk_distribution?.NORMAL || 0}</td>
-                    <td className="px-4 py-2 text-right">{d.risk_distribution?.MODERATE || 0}</td>
-                    <td className="px-4 py-2 text-right">{d.risk_distribution?.HIGH || 0}</td>
-                    <td className="px-4 py-2 text-right">{d.risk_distribution?.CRITICAL || 0}</td>
-                  </tr>
-                ))}
+                {distComp.map((d: any, i: number) => {
+                  const r = collapseRisk(d.risk_distribution || {});
+                  return (
+                    <tr key={i} className="border-b">
+                      <td className="px-4 py-2">{d.district_name}</td>
+                      <td className="px-4 py-2 text-right">{d.total_children}</td>
+                      <td className="px-4 py-2 text-right text-green-700">{r.normal}</td>
+                      <td className="px-4 py-2 text-right text-yellow-700 font-medium">{r.mam}</td>
+                      <td className="px-4 py-2 text-right text-red-700 font-medium">{r.sam}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -296,11 +314,15 @@ function NationalReportView({ data }: { data: any }) {
       {nat.risk_distribution && (
         <div>
           <h4 className="font-semibold text-gray-900 mb-3">National Risk Distribution</h4>
-          <div className="grid grid-cols-4 gap-4">
-            {Object.entries(nat.risk_distribution).map(([risk, count]: [string, any]) => (
-              <div key={risk} className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-sm text-gray-600">{risk}</p>
-                <p className="text-xl font-bold text-gray-900">{count}</p>
+          <div className="grid grid-cols-3 gap-4">
+            {(() => { const r = collapseRisk(nat.risk_distribution); return [
+              { label: 'Normal', value: r.normal, bg: 'bg-green-50', color: 'text-green-700' },
+              { label: 'MAM', value: r.mam, bg: 'bg-yellow-50', color: 'text-yellow-700' },
+              { label: 'SAM', value: r.sam, bg: 'bg-red-50', color: 'text-red-700' },
+            ]; })().map(({ label, value, bg, color }) => (
+              <div key={label} className={`${bg} rounded-lg p-3 text-center`}>
+                <p className={`text-sm font-semibold ${color}`}>{label}</p>
+                <p className={`text-xl font-bold ${color} mt-1`}>{value}</p>
               </div>
             ))}
           </div>
@@ -315,23 +337,24 @@ function NationalReportView({ data }: { data: any }) {
                 <tr>
                   <th className="px-4 py-2 text-left">Province</th>
                   <th className="px-4 py-2 text-right">Children</th>
-                  <th className="px-4 py-2 text-right">Normal</th>
-                  <th className="px-4 py-2 text-right">Moderate</th>
-                  <th className="px-4 py-2 text-right">High</th>
-                  <th className="px-4 py-2 text-right">Critical</th>
+                  <th className="px-4 py-2 text-right text-green-700">Normal</th>
+                  <th className="px-4 py-2 text-right text-yellow-700">MAM</th>
+                  <th className="px-4 py-2 text-right text-red-700">SAM</th>
                 </tr>
               </thead>
               <tbody>
-                {provinces.map((p: any, i: number) => (
-                  <tr key={i} className="border-b">
-                    <td className="px-4 py-2">{p.province_name}</td>
-                    <td className="px-4 py-2 text-right">{p.total_children}</td>
-                    <td className="px-4 py-2 text-right">{p.risk_distribution?.NORMAL || 0}</td>
-                    <td className="px-4 py-2 text-right">{p.risk_distribution?.MODERATE || 0}</td>
-                    <td className="px-4 py-2 text-right">{p.risk_distribution?.HIGH || 0}</td>
-                    <td className="px-4 py-2 text-right">{p.risk_distribution?.CRITICAL || 0}</td>
-                  </tr>
-                ))}
+                {provinces.map((p: any, i: number) => {
+                  const r = collapseRisk(p.risk_distribution || {});
+                  return (
+                    <tr key={i} className="border-b">
+                      <td className="px-4 py-2">{p.province_name}</td>
+                      <td className="px-4 py-2 text-right">{p.total_children}</td>
+                      <td className="px-4 py-2 text-right text-green-700">{r.normal}</td>
+                      <td className="px-4 py-2 text-right text-yellow-700 font-medium">{r.mam}</td>
+                      <td className="px-4 py-2 text-right text-red-700 font-medium">{r.sam}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -390,10 +413,15 @@ function DistrictReportViewWithCharts({ data }: { data: any }) {
         <div>
           <h4 className="text-sm font-bold text-gray-800 mb-3">Risk Distribution</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-            <div className="grid grid-cols-2 gap-2">
-              {Object.entries(dist).map(([risk, count]: [string, any]) => (
-                <div key={risk} className="rounded-lg p-3 text-center border" style={{ borderColor: RISK_COLORS[risk] + '44', background: RISK_COLORS[risk] + '12' }}>
-                  <p className="text-xs font-semibold text-gray-600">{risk}</p><p className="text-xl font-bold" style={{ color: RISK_COLORS[risk] }}>{count}</p>
+            <div className="grid grid-cols-3 gap-2">
+              {(() => { const r = collapseRisk(dist); return [
+                { label: 'Normal', value: r.normal, color: RISK_COLORS.NORMAL },
+                { label: 'MAM', value: r.mam, color: RISK_COLORS.MAM },
+                { label: 'SAM', value: r.sam, color: RISK_COLORS.SAM },
+              ]; })().map(({ label, value, color }) => (
+                <div key={label} className="rounded-lg p-3 text-center border" style={{ borderColor: color + '44', background: color + '12' }}>
+                  <p className="text-xs font-semibold text-gray-600">{label}</p>
+                  <p className="text-xl font-bold" style={{ color }}>{value}</p>
                 </div>
               ))}
             </div>
@@ -850,7 +878,9 @@ export function ReportsDashboard({ user }: ReportsDashboardProps) {
   const isHealthMinistry = user.role === 'health_ministry';
   const isPdhs = user.role === 'pdhs';
 
-  const [activeTab, setActiveTab] = useState<Tab>('generate');
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    try { return (localStorage.getItem(`admin_reports_tab_${user.role}`) as Tab) || 'generate'; } catch { return 'generate'; }
+  });
   const [reportType, setReportType] = useState<'district' | 'provincial' | 'national'>(
     isHealthMinistry ? 'national' : isPdhs ? 'provincial' : 'district'
   );
@@ -960,7 +990,7 @@ export function ReportsDashboard({ user }: ReportsDashboardProps) {
           return (
             <button
               key={t.id}
-              onClick={() => setActiveTab(t.id)}
+              onClick={() => { setActiveTab(t.id); try { localStorage.setItem(`admin_reports_tab_${user.role}`, t.id); } catch {} }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
                 activeTab === t.id ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
               }`}

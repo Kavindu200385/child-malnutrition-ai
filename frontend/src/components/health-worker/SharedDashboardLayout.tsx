@@ -54,14 +54,23 @@ export function SharedDashboardLayout({
   const [showPredictedChart, setShowPredictedChart] = useState(false);
 
   const totalChildren = stats.total_children ?? 0;
-  const samCount = stats.sam_count ?? 0;
-  const mamCount = stats.mam_count ?? 0;
-  const normalCount = stats.normal_count ?? 0;
   const predictedSam = stats.predicted_sam_count ?? 0;
   const predictedMam = stats.predicted_mam_count ?? 0;
   const predictedTotal = predictedSam + predictedMam;
 
+  // Derive risk counts from the children array using the same display logic so stat cards,
+  // pie chart, and critical-cases section all agree (backend DB may lag for new registrations).
   const getRisk = (c: any) => getDisplayRiskLevel(c);
+  const samCount = children.length > 0
+    ? children.filter(c => ['SAM', 'CRITICAL'].includes(getRisk(c))).length
+    : (stats.sam_count ?? 0);
+  const mamCount = children.length > 0
+    ? children.filter(c => ['MAM', 'MODERATE', 'HIGH'].includes(getRisk(c))).length
+    : (stats.mam_count ?? 0);
+  const normalCount = children.length > 0
+    ? children.filter(c => !['SAM', 'CRITICAL', 'MAM', 'MODERATE', 'HIGH'].includes(getRisk(c))).length
+    : (stats.normal_count ?? 0);
+
   const criticalCases = children.filter((c) => getRisk(c) === 'SAM');
 
   const riskDistribution = [
@@ -93,21 +102,24 @@ export function SharedDashboardLayout({
     else ageBuckets[idx].normal += 1;
   });
 
-  const last6Months = Array.from({ length: 6 }, (_, i) => {
+  const last6MonthSlots = Array.from({ length: 6 }, (_, i) => {
     const d = new Date();
+    d.setDate(1);
     d.setMonth(d.getMonth() - (5 - i));
-    return d.toLocaleString('en-US', { month: 'short' });
+    return { year: d.getFullYear(), month: d.getMonth(), label: d.toLocaleString('en-US', { month: 'short' }) };
   });
-  const trendData = last6Months.map((month) => {
-    const normal = children.filter((c) => {
+
+  const trendData = last6MonthSlots.map(({ year, month, label }) => {
+    const inMonth = (c: any) => {
       const ru = c.last_risk_update || c.updated_at || c.created_at;
-      if (!ru) return getRisk(c) === 'NORMAL';
-      const m = new Date(ru).toLocaleString('en-US', { month: 'short' });
-      return m === month && getRisk(c) === 'NORMAL';
-    }).length;
-    const mam = children.filter((c) => ['MAM', 'MODERATE', 'HIGH'].includes(getRisk(c))).length;
-    const sam = children.filter((c) => ['SAM', 'CRITICAL'].includes(getRisk(c))).length;
-    return { month, normal, mam, sam };
+      if (!ru) return false;
+      const d = new Date(ru);
+      return d.getFullYear() === year && d.getMonth() === month;
+    };
+    const normal = children.filter(c => inMonth(c) && !['SAM', 'CRITICAL', 'MAM', 'MODERATE', 'HIGH'].includes(getRisk(c))).length;
+    const mam = children.filter(c => inMonth(c) && ['MAM', 'MODERATE', 'HIGH'].includes(getRisk(c))).length;
+    const sam = children.filter(c => inMonth(c) && ['SAM', 'CRITICAL'].includes(getRisk(c))).length;
+    return { month: label, normal, mam, sam };
   });
 
   const recentChildren = [...children].sort((a, b) => {

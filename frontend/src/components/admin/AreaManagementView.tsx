@@ -877,8 +877,34 @@ function HospitalForm({
     district_area_id: null as number | null,
     is_active: hospital ? hospital.is_active !== false : true,
   });
+  const [selectedMohAreaIds, setSelectedMohAreaIds] = useState<number[]>([]);
 
   const rdhsAreas = getAllAreasAtLevel(hierarchy, 'rdhs', flatAreas);
+
+  // MOH areas under the selected RDHS
+  const mohAreasUnderRdhs = formData.district_area_id
+    ? flatAreas.filter((a: any) => a.level === 'moh' && a.parent_id === formData.district_area_id && a.is_active !== false)
+    : [];
+
+  const handleRdhsChange = (rdhsId: number | null) => {
+    setFormData((prev) => {
+      const rdhs = rdhsId ? flatAreas.find((a: any) => a.id === rdhsId) : null;
+      const pdhs = rdhs?.parent_id ? flatAreas.find((a: any) => a.id === rdhs.parent_id) : null;
+      return {
+        ...prev,
+        district_area_id: rdhsId,
+        district: rdhs ? rdhs.name : prev.district,
+        province: pdhs ? pdhs.name : prev.province,
+      };
+    });
+    setSelectedMohAreaIds([]);
+  };
+
+  const toggleMohArea = (id: number) => {
+    setSelectedMohAreaIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -891,6 +917,9 @@ function HospitalForm({
     };
     if (formData.district_area_id) {
       payload.district_area_id = formData.district_area_id;
+    }
+    if (selectedMohAreaIds.length > 0) {
+      payload.moh_area_ids = selectedMohAreaIds;
     }
     if (hospital) payload.is_active = formData.is_active;
     onSave(payload);
@@ -915,6 +944,7 @@ function HospitalForm({
             <p className="text-xs text-gray-500 mt-1">Hospital code will be auto-generated (e.g. HOS001, HOS002).</p>
           )}
         </div>
+
         {hospital && hospital.hospital_code && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Hospital Code (auto-generated, read-only)</label>
@@ -926,22 +956,61 @@ function HospitalForm({
             />
           </div>
         )}
+
+        {/* Step 1: Select RDHS (District) */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Link to RDHS (District) Area</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            RDHS (District) Area <span className="text-red-500">*</span>
+          </label>
           <select
             value={formData.district_area_id ?? ''}
-            onChange={(e) => setFormData({ ...formData, district_area_id: e.target.value ? Number(e.target.value) : null })}
+            onChange={(e) => handleRdhsChange(e.target.value ? Number(e.target.value) : null)}
             className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="">— Optional: set district/province from area —</option>
+            <option value="">— Select RDHS district —</option>
             {rdhsAreas.map((a) => (
               <option key={a.id} value={a.id}>{a.code ? `[${a.code}] ` : ''}{a.name}</option>
             ))}
           </select>
+          <p className="text-xs text-gray-500 mt-1">Selecting an RDHS area auto-fills District and Province fields.</p>
         </div>
+
+        {/* Step 2: Select MOH Areas under chosen RDHS */}
+        {formData.district_area_id && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              MOH Areas Served by This Hospital
+              <span className="ml-2 text-xs text-gray-400 font-normal">(select one or more — links MOH areas for escalation routing)</span>
+            </label>
+            {mohAreasUnderRdhs.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">No MOH areas found under the selected RDHS. Create MOH areas first.</p>
+            ) : (
+              <div className="border-2 border-gray-200 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto bg-gray-50">
+                {mohAreasUnderRdhs.map((area: any) => (
+                  <label key={area.id} className="flex items-center gap-3 cursor-pointer hover:bg-white rounded-lg px-2 py-1 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={selectedMohAreaIds.includes(area.id)}
+                      onChange={() => toggleMohArea(area.id)}
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-800">{area.name}</span>
+                    {area.code && <span className="text-xs text-gray-400">[{area.code}]</span>}
+                  </label>
+                ))}
+              </div>
+            )}
+            {selectedMohAreaIds.length > 0 && (
+              <p className="text-xs text-blue-700 mt-1 font-medium">
+                {selectedMohAreaIds.length} MOH area{selectedMohAreaIds.length > 1 ? 's' : ''} selected — will be linked to this hospital for escalation routing.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">District</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">District (auto-filled)</label>
             <input
               type="text"
               value={formData.district}
@@ -950,7 +1019,7 @@ function HospitalForm({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Province</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Province (auto-filled)</label>
             <input
               type="text"
               value={formData.province}
@@ -959,6 +1028,7 @@ function HospitalForm({
             />
           </div>
         </div>
+
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
           <input

@@ -153,9 +153,7 @@ def create_child():
             age_days=age_days,
         )
         child.birth_risk_level = birth_risk_level
-        # Keep child's current_risk_level in sync if it is still at the default NORMAL
-        if not child.current_risk_level or str(child.current_risk_level) == str(RiskLevel.NORMAL.value):
-            child.current_risk_level = birth_risk_level
+        child.current_risk_level = birth_risk_level
 
     db.session.add(child)
     db.session.flush()
@@ -215,7 +213,7 @@ def create_child():
                 child.is_draft = False
             except ValueError:
                 pass  # If hierarchy fails, child stays unassigned; midwife can assign later
-    
+
     log_audit(
         action="CREATE",
         entity_type="child",
@@ -371,8 +369,12 @@ def list_children():
                         )
                     )
                 else:
-                    # Default: only assigned children in midwife's area
-                    query = query.filter(Child.current_assigned_area_id.in_(accessible_area_ids))
+                    # Default: only children currently under midwife care in their area
+                    # Exclude escalated children (current_assigned_role != 'midwife')
+                    query = query.filter(
+                        Child.current_assigned_area_id.in_(accessible_area_ids),
+                        Child.current_assigned_role == ROLE_MIDWIFE,
+                    )
     else:
         return jsonify({"status": "error", "message": "Invalid role"}), 403
     
@@ -443,8 +445,14 @@ def get_child(child_id: str):
     # Include visits/transfers for measurement roles and RDHS (read-only); hospital gets visits but not transfers
     include_visits = user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS, ROLE_HOSPITAL]
     include_transfers = user.role in [ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS]
-    
-    child_data = child.to_dict(include_visits=include_visits, include_transfers=include_transfers)
+    include_care_history = user.role in [ROLE_MIDWIFE, ROLE_MOH, ROLE_AMOH, ROLE_NUTRITIONIST, ROLE_HEALTH_MINISTRY, ROLE_RDHS, ROLE_PDHS]
+
+    child_data = child.to_dict(
+        include_visits=include_visits,
+        include_transfers=include_transfers,
+        include_escalations=include_care_history,
+        include_referrals=include_care_history,
+    )
     if user.role in (ROLE_MOH, ROLE_AMOH):
         moh_area_ids = get_moh_area_ids(user)
         child_data["can_moh_add_measurement"] = child_was_escalated_to_moh(child, moh_area_ids)

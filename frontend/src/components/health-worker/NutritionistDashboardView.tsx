@@ -195,7 +195,11 @@ export function NutritionistDashboardView() {
               <XAxis dataKey="name" />
               <YAxis />
               <Tooltip />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                {improvementData.map((entry: any, i: number) => (
+                  <Cell key={i} fill={entry.fill} />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>

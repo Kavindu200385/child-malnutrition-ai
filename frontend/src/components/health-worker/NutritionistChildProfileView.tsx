@@ -6,6 +6,7 @@ import { nutritionistAPI } from '../../services/api';
 import { formatDate } from '../../utils/formatDate';
 import { getRiskColor, getRiskLabel, type RiskLevel } from '../../types';
 import { WHOGrowthCharts } from './WHOGrowthCharts';
+import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
 
 interface NutritionistChildProfileViewProps {
   childId: string;
@@ -72,6 +73,7 @@ export function NutritionistChildProfileView({ childId, onBack, onAddMeasurement
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [returning, setReturning] = useState(false);
+  const [dialog, setDialog] = useState<ConfirmDialogState | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,16 +101,25 @@ export function NutritionistChildProfileView({ childId, onBack, onAddMeasurement
     return () => clearInterval(id);
   }, [load]);
 
-  const handleReturnToMoh = async () => {
-    setReturning(true);
-    try {
-      await nutritionistAPI.returnToMoh(Number(childId));
-      load();
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Return to MOH failed');
-    } finally {
-      setReturning(false);
-    }
+  const handleReturnToMoh = () => {
+    const child = data?.child;
+    setDialog({
+      title: 'Return to MOH',
+      message: `Send ${child?.name || child?.child_unique_id || 'this child'} back to MOH supervision? The MOH will review and reassign the child to a PHM area. You will still be able to view this child's details and history.`,
+      variant: 'info',
+      confirmLabel: 'Yes, Return to MOH',
+      onConfirm: async () => {
+        setReturning(true);
+        try {
+          await nutritionistAPI.returnToMoh(Number(childId));
+          load();
+        } catch (err: any) {
+          setError(err.response?.data?.message || 'Return to MOH failed');
+        } finally {
+          setReturning(false);
+        }
+      },
+    });
   };
 
   if (loading) return <div className="text-gray-600">Loading...</div>;
@@ -123,6 +134,8 @@ export function NutritionistChildProfileView({ childId, onBack, onAddMeasurement
   if (!data?.child) return null;
 
   const child = data.child;
+  const isActive: boolean = data.is_active ?? false;
+  const pendingMohReturn: boolean = data.pending_moh_return ?? false;
   const chartMeasurements = mapToChartMeasurements(data.measurements || [], child.dob);
   const birthMeas = createBirthMeasurement(child);
   const hasClinicMeasurements = chartMeasurements.length > 0;
@@ -168,6 +181,8 @@ export function NutritionistChildProfileView({ childId, onBack, onAddMeasurement
 
   return (
     <div className="space-y-6">
+      <ConfirmDialog state={dialog} onClose={() => setDialog(null)} />
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <button onClick={onBack} className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-lg transition-colors">
@@ -178,11 +193,13 @@ export function NutritionistChildProfileView({ childId, onBack, onAddMeasurement
           <p className="text-gray-600">Child ID: {child.child_unique_id || child.child_id || childId}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => onAddMeasurement(childId)} style={btnPrimary} onMouseEnter={e => (e.currentTarget.style.background = '#0284c7')} onMouseLeave={e => (e.currentTarget.style.background = '#0369a1')}>
-            <PlusCircle className="w-5 h-5" />
-            Add Measurement
-          </button>
-          {isNormal && (
+          {isActive && (
+            <button onClick={() => onAddMeasurement(childId)} style={btnPrimary} onMouseEnter={e => (e.currentTarget.style.background = '#0284c7')} onMouseLeave={e => (e.currentTarget.style.background = '#0369a1')}>
+              <PlusCircle className="w-5 h-5" />
+              Add Measurement
+            </button>
+          )}
+          {isActive && isNormal && (
             <button onClick={handleReturnToMoh} disabled={returning} style={{ ...btnGreen, opacity: returning ? 0.7 : 1 }} onMouseEnter={e => { if (!returning) e.currentTarget.style.background = '#047857'; }} onMouseLeave={e => (e.currentTarget.style.background = '#059669')}>
               <ArrowLeft className="w-5 h-5" />
               {returning ? 'Returning…' : 'Return to MOH'}
@@ -190,6 +207,25 @@ export function NutritionistChildProfileView({ childId, onBack, onAddMeasurement
           )}
         </div>
       </div>
+
+      {/* Read-only notice when child has been returned or is pending MOH review */}
+      {(pendingMohReturn || !isActive) && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '14px 18px', background: pendingMohReturn ? '#fffbeb' : '#f0fdf4', border: `1px solid ${pendingMohReturn ? '#fcd34d' : '#bbf7d0'}`, borderRadius: '12px' }}>
+          <div style={{ flexShrink: 0, width: '36px', height: '36px', borderRadius: '50%', background: pendingMohReturn ? '#fef3c7' : '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
+            {pendingMohReturn ? '⏳' : '✓'}
+          </div>
+          <div>
+            <p style={{ margin: '0 0 2px 0', fontSize: '14px', fontWeight: 700, color: pendingMohReturn ? '#92400e' : '#166534' }}>
+              {pendingMohReturn ? 'Pending MOH Review' : 'Returned to MOH'}
+            </p>
+            <p style={{ margin: 0, fontSize: '13px', color: pendingMohReturn ? '#b45309' : '#15803d' }}>
+              {pendingMohReturn
+                ? 'A return request has been sent to MOH. You can view this child\'s history but cannot add measurements.'
+                : 'This child is no longer under your care. You can view their history below for reference.'}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Nutritional Status Overview */}
       <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-gray-200">

@@ -297,9 +297,18 @@ def compute_z_scores(*, age_months: int, sex: str, weight_kg: float, height_cm: 
     L, M, S = _interpolate_lms(int(age_months), HFA_BOYS if sex_u == "M" else HFA_GIRLS)
     hfa = _lms_zscore(float(height_cm), L, M, S)
 
-    # Weight-for-height (approx; uses height table M/S as proxy like previous code)
-    expected = M
-    wfh = (float(weight_kg) - expected) / (expected * S)
+    # Weight-for-height — the formula `(weight - M_height) / (M_height * S)` is broken
+    # for ALL ages because M from the HFA table is a height in cm (e.g. 67 cm at 6 months),
+    # not an expected weight.  For any real child this produces values like -27, which the
+    # model never saw during training.  Use the properly-computed WFA z-score as a stable
+    # proxy for WFH across all ages; both are strong malnutrition indicators and correlate
+    # highly for same-age children.
+    wfh = wfa
+
+    # Clamp to medically realistic range — no valid WHO z-score falls outside [-5, 5]
+    wfa = max(-5.0, min(5.0, wfa))
+    hfa = max(-5.0, min(5.0, hfa))
+    wfh = max(-5.0, min(5.0, wfh))
 
     return round(wfa, 3), round(hfa, 3), round(wfh, 3)
 
@@ -326,6 +335,28 @@ def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
 
         wfa, hfa, wfh = compute_z_scores(age_months=age, sex=sex, weight_kg=weight, height_cm=height)
         sex_enc = _encode_sex(sex)
+
+        # STABILIZATION: rule-based classification for newborns / first visits (age <= 1 month).
+        # The WFH calculation is unreliable this early and the ML model is unstable for birth
+        # records.  Use WHO low-birth-weight thresholds instead; keep ML intact for older children.
+        if age <= 1:
+            if weight < 2.0:
+                newborn_label = "SAM"
+            elif weight < 2.6:
+                newborn_label = "MAM"
+            else:
+                newborn_label = "Normal"
+            return {
+                "ok": True,
+                "age_months": age,
+                "sex": sex.upper(),
+                "weight_kg": weight,
+                "height_cm": height,
+                "z_scores": {"WFA_Z": wfa, "HFA_Z": hfa, "WFH_Z": wfh},
+                "model_prediction": newborn_label,
+                "confidence": 1.0,
+                "class_probabilities": None,
+            }
 
         model = current_birth_2_model if age <= 24 else current_2_5_model
         le = label_encoder_birth_to_2 if age <= 24 else label_encoder_age_2_to_5
@@ -428,10 +459,10 @@ def predict_future_risk(data: Dict[str, Any]) -> Dict[str, Any]:
             wfa, hfa, wfh = compute_z_scores(age_months=age, sex=sex, weight_kg=weight, height_cm=height)
             z_wfa, z_hfa, z_wfh = float(wfa), float(hfa), float(wfh)
 
-        # Clamp Z-scores to valid clinical range to avoid outlier values corrupting predictions
-        z_wfa = max(-6.0, min(6.0, z_wfa))
-        z_hfa = max(-6.0, min(6.0, z_hfa))
-        z_wfh = max(-6.0, min(6.0, z_wfh))
+        # Clamp Z-scores to valid clinical range — no meaningful WHO z-score falls outside [-5, 5]
+        z_wfa = max(-5.0, min(5.0, z_wfa))
+        z_hfa = max(-5.0, min(5.0, z_hfa))
+        z_wfh = max(-5.0, min(5.0, z_wfh))
 
         # current risk text: accept if provided, else derive from current model output
         current_risk_text = data.get("current_risk")

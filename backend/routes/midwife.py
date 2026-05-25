@@ -483,9 +483,11 @@ def escalate_to_moh(child_id: int):
     
     db.session.add(escalation)
     
-    # Update child escalation status
+    # Update child escalation status and move ownership to MOH so the child
+    # disappears from the midwife's list (list_children filters on current_assigned_role)
     child.escalation_status = EscalationStatus.ESCALATED_TO_MOH.value
-    
+    child.current_assigned_role = UserRole.MOH.value
+
     db.session.flush()
     
     log_audit(
@@ -544,6 +546,27 @@ def get_child_report(child_id: int):
         "measurements": [m.to_dict() for m in measurements],
         "escalations": [e.to_dict() for e in escalations],
         "report_generated_at": datetime.now().isoformat(),
+    }), 200
+
+
+@bp.route("/clinic-reports", methods=["GET"])
+@midwife_required
+def list_clinic_reports():
+    """List all clinic reports submitted by this midwife, newest first."""
+    user = get_current_user()
+    phm_area_id = _get_midwife_phm_area_id(user)
+    if phm_area_id is None:
+        return jsonify({"status": "success", "reports": []}), 200
+
+    reports = (
+        db.session.query(ClinicReport)
+        .filter(ClinicReport.phm_area_id == phm_area_id)
+        .order_by(ClinicReport.report_year.desc(), ClinicReport.report_month.desc())
+        .all()
+    )
+    return jsonify({
+        "status": "success",
+        "reports": [r.to_dict() for r in reports],
     }), 200
 
 
@@ -670,37 +693,45 @@ def _get_midwife_phm_area_id(user):
 @midwife_required
 def get_dashboard_stats():
     """
-    Get dashboard statistics for midwife's area.
+    Get dashboard statistics for this midwife's currently assigned children.
+    Filters by current_assigned_user_id so counts update immediately when
+    a child is transferred to MOH or returned.
     """
     user = get_current_user()
     phm_area_id = _get_midwife_phm_area_id(user)
 
-    # Get all children in midwife's area (or no children if no area)
-    children = (
-        db.session.query(Child).filter(Child.phm_area_id == phm_area_id).all()
-        if phm_area_id is not None
-        else []
-    )
+    # Count only children currently assigned to this midwife (matches list_children)
+    children = db.session.query(Child).filter(
+        Child.current_assigned_role == UserRole.MIDWIFE.value,
+        Child.current_assigned_user_id == user.id,
+    ).all()
 
     total = len(children)
-    normal_count = sum(1 for c in children if c.current_risk_level == RiskLevel.NORMAL.value)
-    mam_count = sum(1 for c in children if (c.current_risk_level or "").upper() in (RiskLevel.MAM.value, RiskLevel.MODERATE.value, RiskLevel.HIGH.value))
-    sam_count = sum(1 for c in children if (c.current_risk_level or "").upper() in (RiskLevel.SAM.value, RiskLevel.CRITICAL.value))
+
+    def _display_risk(c) -> str:
+        """Use birth_risk_level as fallback when no measurement has been recorded yet."""
+        if not c.last_risk_update and c.birth_risk_level:
+            return (c.birth_risk_level or "").upper()
+        return (c.current_risk_level or "NORMAL").upper()
+
+    normal_count = sum(1 for c in children if _display_risk(c) == RiskLevel.NORMAL.value)
+    mam_count = sum(1 for c in children if _display_risk(c) in (RiskLevel.MAM.value, RiskLevel.MODERATE.value, RiskLevel.HIGH.value))
+    sam_count = sum(1 for c in children if _display_risk(c) in (RiskLevel.SAM.value, RiskLevel.CRITICAL.value))
     escalated_count = sum(1 for c in children if c.escalation_status == EscalationStatus.ESCALATED_TO_MOH.value)
 
-    # Get recent measurements count (last 30 days)
+    # Recent measurements for this midwife's children only
     thirty_days_ago = datetime.now() - timedelta(days=30)
+    child_ids = [c.id for c in children]
     recent_measurements = 0
-    if phm_area_id is not None:
-        recent_measurements = db.session.query(Measurement).join(Child).filter(
-            Child.phm_area_id == phm_area_id,
+    if child_ids:
+        recent_measurements = db.session.query(Measurement).filter(
+            Measurement.child_id.in_(child_ids),
             Measurement.measurement_date >= thirty_days_ago
         ).count()
 
     # Get predicted risk counts from the latest measurement per child
     predicted_sam_count = 0
     predicted_mam_count = 0
-    child_ids = [c.id for c in children]
     if child_ids:
         latest_subq = (
             db.session.query(

@@ -120,6 +120,7 @@ export const midwifeAPI = {
   escalateToMoh: (childId, data) => api.post(`/api/midwife/escalate/${childId}`, data),
   getChildReport: (childId) => api.get(`/api/midwife/child-report/${childId}`),
   submitClinicReport: (data) => api.post('/api/midwife/clinic-report/submit', data),
+  getClinicReports: () => api.get('/api/midwife/clinic-reports'),
   getDashboardStats: () => api.get('/api/midwife/dashboard/stats'),
 };
 
@@ -157,6 +158,13 @@ export const mohAPI = {
   generateMonthlyReport: (data) => api.post('/api/moh/reports/monthly/generate', data),
   sendReportToRdhs: (reportId) => api.post(`/api/moh/send-report-to-rdhs/${reportId}`),
   getReportSummary: (params) => api.get('/api/moh/reports/summary', { params }),
+  getHighRiskMidwifeChildren: () => api.get('/api/moh/high-risk-midwife-children'),
+  pullChildToMoh: (childId, data) => api.post(`/api/moh/pull-to-moh/${childId}`, data),
+  getMyChildren: () => api.get('/api/moh/my-children'),
+  reassignToPhm: (childId, data) => api.post(`/api/moh/reassign-to-phm/${childId}`, data),
+  getAllTransfers: () => api.get('/api/moh/all-transfers'),
+  acceptEscalation: (escalationId) => api.post(`/api/moh/accept-escalation/${escalationId}`),
+  rejectEscalation: (escalationId, data) => api.post(`/api/moh/reject-escalation/${escalationId}`, data),
 };
 
 // RDHS API (District Admin only – district-filtered data)
