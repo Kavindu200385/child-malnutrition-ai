@@ -142,7 +142,7 @@ def compare_models(data: Dict[str, Any]) -> Dict[str, Any]:
     Input keys: age_months, sex, weight_kg, height_cm
     """
     # The stacking classifier may emit numeric codes — map them to labels
-    _NUMERIC_TO_LABEL = {"0": "Normal", "1": "MAM", "2": "SAM", "3": "Severe_Stunting"}
+    _NUMERIC_TO_LABEL = {"0": "MAM", "1": "Normal", "2": "SAM", "3": "Severe_Stunting", "4": "Underweight"}
 
     def _clean(label: str) -> str:
         return _NUMERIC_TO_LABEL.get(str(label).strip(), str(label).strip())
@@ -570,16 +570,14 @@ def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
 def _map_current_label_to_future_risk(current_label: str) -> str:
     """
     Convert CURRENT model labels to next-2-month risk text classes.
-    Your current model outputs one of: Normal / MAM / SAM / Severe_Stunting.
+    Current model outputs: Normal / MAM / SAM / Severe_Stunting / Underweight.
     """
     s = str(current_label).strip().lower()
     if s == "normal":
         return "Low"
-    if s == "mam":
+    if s in ("mam", "underweight"):
         return "High"
-    if s == "sam":
-        return "Severe"
-    if "severe" in s:
+    if s in ("sam", "severe_stunting") or "severe" in s:
         return "Severe"
     return "Moderate"
 

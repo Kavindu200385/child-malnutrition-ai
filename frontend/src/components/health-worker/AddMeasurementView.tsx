@@ -209,7 +209,32 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
     const weightForAge = serverMeas?.z_score_wfa ?? 0;
     const heightForAge = serverMeas?.z_score_hfa ?? 0;
     const weightForHeight = serverMeas?.z_score_wfh ?? 0;
-    const prediction: PredictionData | undefined = undefined as PredictionData | undefined;
+
+    const rawFuture: string | undefined = serverMeas?.predicted_risk_next_2_months;
+    const mapFutureRisk = (f: string): 'normal' | 'mam' | 'sam' => {
+      const s = f.toLowerCase().replace(/_/g, '');
+      if (s === 'severe') return 'sam';
+      if (s === 'high' || s === 'moderate') return 'mam';
+      return 'normal'; // Low, No_Risk
+    };
+    const prediction: PredictionData | undefined = rawFuture ? (() => {
+      const predictedRiskLevel = mapFutureRisk(rawFuture);
+      const confidence = serverMeas?.model_confidence != null
+        ? Math.round(serverMeas.model_confidence * 100)
+        : 0;
+      const currentSev = riskLevel === 'sam' ? 3 : riskLevel === 'mam' ? 2 : 1;
+      const futureSev = predictedRiskLevel === 'sam' ? 3 : predictedRiskLevel === 'mam' ? 2 : 1;
+      const trend: 'declining' | 'stable' | 'improving' =
+        futureSev > currentSev ? 'declining' : futureSev < currentSev ? 'improving' : 'stable';
+      return {
+        predictedRiskLevel,
+        confidence,
+        status: (trend === 'declining' ? 'Early Warning' : trend === 'improving' ? 'Improving' : 'Stable') as PredictionData['status'],
+        predictedZScores: { weightForAge, heightForAge, weightForHeight },
+        trend,
+        actionRequired: predictedRiskLevel === 'mam' || predictedRiskLevel === 'sam',
+      };
+    })() : undefined;
 
     // Generate AI-powered recommendations
     const recommendations: string[] = [];

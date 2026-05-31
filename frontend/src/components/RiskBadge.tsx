@@ -2,13 +2,13 @@ import React from 'react';
 import { AlertTriangle, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface RiskBadgeProps {
-  classification: 'Normal' | 'MAM' | 'SAM';
+  classification: string;
   size?: 'small' | 'medium' | 'large';
   showIcon?: boolean;
 }
 
 export function RiskBadge({ classification, size = 'medium', showIcon = true }: RiskBadgeProps) {
-  const configs = {
+  const configs: Record<string, { bg: string; text: string; border: string; icon: React.ElementType; label: string }> = {
     Normal: {
       bg: 'bg-[#2ECC71]/10',
       text: 'text-[#2ECC71]',
@@ -32,7 +32,21 @@ export function RiskBadge({ classification, size = 'medium', showIcon = true }: 
     },
   };
 
-  const config = configs[classification];
+  const normalised = (classification || '').trim().toUpperCase() === 'NORMAL'
+    ? 'Normal'
+    : (classification || '').trim().toUpperCase() === 'MAM'
+      ? 'MAM'
+      : (classification || '').trim().toUpperCase() === 'SAM'
+        ? 'SAM'
+        : null;
+
+  const config = normalised ? configs[normalised] : {
+    bg: 'bg-gray-100',
+    text: 'text-gray-600',
+    border: 'border-gray-400',
+    icon: AlertCircle,
+    label: (classification || 'UNKNOWN').toUpperCase(),
+  };
   const Icon = config.icon;
 
   const sizeClasses = {
