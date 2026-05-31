@@ -1,16 +1,20 @@
-import os
 import math
 import threading
-from typing import Any, Dict, List, Tuple, Optional
+from datetime import datetime
+from typing import Any, Dict, Tuple, Optional
 
-import joblib
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 
-from .model_loader import prediction_model, current_birth_2_model, current_2_5_model, MODELS_DIR  # type: ignore
+from .model_loader import (
+    current_label_encoder,
+    current_risk_model,
+    future_prediction_label_encoder,
+    prediction_model,
+)  # type: ignore
 
 # ---------------------------------------------------------------------------
 # LOGISTIC REGRESSION — comparison model (lazy-trained on synthetic WHO data)
@@ -18,7 +22,7 @@ from .model_loader import prediction_model, current_birth_2_model, current_2_5_m
 # The model is built once on first use using synthetic data generated from
 # WHO Z-score thresholds (the same thresholds used in clinical practice).
 # Labels:  0=Normal, 1=MAM, 2=SAM
-# This allows a direct, fair comparison with the primary XGBoost model.
+# This allows a direct, fair comparison with the primary current-risk model.
 
 _lr_lock = threading.Lock()
 _lr_pipeline: Optional[Pipeline] = None  # lazy singleton
@@ -132,7 +136,7 @@ def predict_with_logistic_regression(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def compare_models(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Run BOTH the primary XGBoost Stacking Ensemble AND the Logistic Regression model
+    Run BOTH the primary current-risk model AND the Logistic Regression model
     and return a side-by-side comparison — useful for evaluation / reporting.
 
     Input keys: age_months, sex, weight_kg, height_cm
@@ -161,7 +165,7 @@ def compare_models(data: Dict[str, Any]) -> Dict[str, Any]:
         "z_scores": primary.get("z_scores") if primary.get("ok") else lr.get("z_scores"),
         "models": {
             "primary_model": {
-                "name": "XGBoost Stacking Ensemble (primary)",
+                "name": "Current Risk Random Forest (primary)",
                 "prediction": primary_label,
                 "confidence": primary.get("confidence"),
                 "class_probabilities": primary.get("class_probabilities"),
@@ -180,38 +184,150 @@ def compare_models(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # -----------------------------------------------------------------------------
-# CURRENT RISK MODEL SCHEMA (your saved sklearn Pipeline expects these columns)
+# MODEL SCHEMAS
 # -----------------------------------------------------------------------------
-CURRENT_FEATURES = [
-    "Age_months",
-    "Sex_enc",
-    "Weight_kg",
-    "Length_cm",
-    "WFA_Z",
-    "HFA_Z",
-    "WFH_Z",
-]
+CURRENT_FEATURES = ["age_months", "Sex", "weight_kg", "height_cm"]
+PREDICTION_FEATURES = [str(col) for col in getattr(prediction_model, "feature_names_in_", [
+    "age_months",
+    "Sex",
+    "weight_kg",
+    "height_cm",
+    "prev_weight",
+    "prev_height",
+    "weight_change",
+    "height_change",
+])]
+
+FUTURE_PREDICTION_HISTORY_WARNING = (
+    "Future prediction requires at least one previous measurement or birth baseline."
+)
 
 
-# -----------------------------------------------------------------------------
-# FUTURE (NEXT 2 MONTHS) MODEL FEATURES (loaded from joblib so it always matches)
-# -----------------------------------------------------------------------------
-_PRED_FEATURES_PATH = os.path.join(MODELS_DIR, "prediction_features.joblib")
-PREDICTION_FEATURES = joblib.load(_PRED_FEATURES_PATH) if os.path.exists(_PRED_FEATURES_PATH) else None
-
-# Risk encoding used by the next-2-month model training
-RISK_MAP_TEXT_TO_INT = {"Low": 0, "Moderate": 1, "High": 2, "Severe": 3}
-RISK_MAP_INT_TO_TEXT = {v: k for k, v in RISK_MAP_TEXT_TO_INT.items()}
+def _as_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+        return datetime(value.year, value.month, value.day)
+    return datetime.utcnow()
 
 
-# -----------------------------------------------------------------------------
-# Label encoders for CURRENT models (decode 0..n-1 -> ['MAM','Normal','SAM','Severe_Stunting'])
-# -----------------------------------------------------------------------------
-_LE_BIRTH2_PATH = os.path.join(MODELS_DIR, "label_encoder_birth_to_2.joblib")
-_LE_2TO5_PATH = os.path.join(MODELS_DIR, "label_encoder_age_2_to_5.joblib")
+def _child_age_months(child: Any, reference_date: datetime) -> Optional[int]:
+    dob = getattr(child, "dob", None)
+    if not dob:
+        return None
+    return max(0, int((reference_date.date() - dob).days // 30))
 
-label_encoder_birth_to_2 = joblib.load(_LE_BIRTH2_PATH) if os.path.exists(_LE_BIRTH2_PATH) else None
-label_encoder_age_2_to_5 = joblib.load(_LE_2TO5_PATH) if os.path.exists(_LE_2TO5_PATH) else None
+
+def _child_sex(child: Any) -> str:
+    gender = str(getattr(child, "gender", "") or "").strip().lower()
+    return "M" if gender in ("m", "male") else "F"
+
+
+def _candidate_from_measurement(measurement: Any) -> Optional[Dict[str, Any]]:
+    if not measurement:
+        return None
+    if measurement.weight_kg is None or measurement.height_cm is None:
+        return None
+    return {
+        "source": "previous_measurement",
+        "date": measurement.measurement_date,
+        "prev_weight": float(measurement.weight_kg),
+        "prev_height": float(measurement.height_cm),
+    }
+
+
+def _candidate_from_visit(visit: Any) -> Optional[Dict[str, Any]]:
+    if not visit:
+        return None
+    if visit.weight_kg is None or visit.height_cm is None:
+        return None
+    return {
+        "source": "previous_visit",
+        "date": visit.visit_date,
+        "prev_weight": float(visit.weight_kg),
+        "prev_height": float(visit.height_cm),
+    }
+
+
+def build_future_prediction_payload(
+    *,
+    child: Any,
+    weight_kg: float,
+    height_cm: float,
+    measurement_date: Any = None,
+    history_source: str = "measurements",
+    exclude_measurement_id: Optional[int] = None,
+    exclude_visit_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Build the exact future-model input from child history.
+
+    Fallback order:
+    1. latest previous clinic measurement/visit before the current measurement
+    2. birth weight/height from the child profile
+    3. no prediction, with FUTURE_PREDICTION_HISTORY_WARNING
+    """
+    try:
+        from backend.models_hierarchical import Measurement, Visit
+    except Exception as exc:
+        return {"ok": False, "warning": str(exc), "payload": None}
+
+    current_dt = _as_datetime(measurement_date)
+    age_months = _child_age_months(child, current_dt)
+    if age_months is None:
+        return {"ok": False, "warning": "Future prediction requires child date of birth.", "payload": None}
+
+    child_id = getattr(child, "id", None)
+    candidates = []
+
+    if child_id is not None and history_source in ("measurements", "both"):
+        q = Measurement.query.filter(Measurement.child_id == child_id)
+        q = q.filter(Measurement.measurement_date < current_dt)
+        if exclude_measurement_id is not None:
+            q = q.filter(Measurement.id != exclude_measurement_id)
+        prev_measurement = q.order_by(Measurement.measurement_date.desc(), Measurement.id.desc()).first()
+        candidate = _candidate_from_measurement(prev_measurement)
+        if candidate:
+            candidates.append(candidate)
+
+    if child_id is not None and history_source in ("visits", "both"):
+        q = Visit.query.filter(Visit.child_id_fk == child_id)
+        q = q.filter(Visit.visit_date < current_dt)
+        if exclude_visit_id is not None:
+            q = q.filter(Visit.id != exclude_visit_id)
+        prev_visit = q.order_by(Visit.visit_date.desc(), Visit.id.desc()).first()
+        candidate = _candidate_from_visit(prev_visit)
+        if candidate:
+            candidates.append(candidate)
+
+    if candidates:
+        baseline = max(candidates, key=lambda item: item["date"] or datetime.min)
+    elif getattr(child, "birth_weight_kg", None) is not None and getattr(child, "birth_height_cm", None) is not None:
+        baseline = {
+            "source": "birth_baseline",
+            "date": getattr(child, "dob", None),
+            "prev_weight": float(child.birth_weight_kg),
+            "prev_height": float(child.birth_height_cm),
+        }
+    else:
+        return {"ok": False, "warning": FUTURE_PREDICTION_HISTORY_WARNING, "payload": None}
+
+    current_weight = float(weight_kg)
+    current_height = float(height_cm)
+    prev_weight = float(baseline["prev_weight"])
+    prev_height = float(baseline["prev_height"])
+
+    payload = {
+        "age_months": age_months,
+        "sex": _child_sex(child),
+        "weight_kg": current_weight,
+        "height_cm": current_height,
+        "prev_weight": prev_weight,
+        "prev_height": prev_height,
+        "weight_change": current_weight - prev_weight,
+        "height_change": current_height - prev_height,
+    }
+    return {"ok": True, "warning": None, "payload": payload, "history_source": baseline["source"]}
 
 
 # -----------------------------------------------------------------------------
@@ -370,7 +486,7 @@ def _encode_sex(sex: str) -> int:
 
 def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Predict CURRENT situation class using current_birth_2_model / current_2_5_model.
+    Predict CURRENT situation class using the retrained current risk model.
 
     Expected input keys:
     - age_months (int)
@@ -409,49 +525,32 @@ def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
                 "class_probabilities": None,
             }
 
-        model = current_birth_2_model if age <= 24 else current_2_5_model
-        le = label_encoder_birth_to_2 if age <= 24 else label_encoder_age_2_to_5
-
-        # Build input matching the *actual* model schema.
-        # Some models were trained with: Age_months/Sex_enc/Weight_kg/Length_cm...
-        # Others with: age_months/Sex/weight_kg/height_cm...
-        expected = list(getattr(model, "feature_names_in_", CURRENT_FEATURES))
+        expected = list(getattr(current_risk_model, "feature_names_in_", CURRENT_FEATURES))
 
         value_map = {
-            "Age_months": age,
             "age_months": age,
-            "Sex_enc": sex_enc,
-            "sex_enc": sex_enc,
             "Sex": sex_enc,  # some models name the encoded sex column as "Sex"
             "sex": sex_enc,
-            "Weight_kg": weight,
             "weight_kg": weight,
-            "Length_cm": height,
             "height_cm": height,
-            "Height_cm": height,
-            "WFA_Z": wfa,
-            "HFA_Z": hfa,
-            "WFH_Z": wfh,
         }
 
-        row = {col: value_map[col] for col in expected if col in value_map}
-        # Ensure all expected columns exist (fill missing with 0 to avoid crash)
-        for col in expected:
-            if col not in row:
-                row[col] = 0
+        missing = [col for col in expected if col not in value_map]
+        if missing:
+            return {"ok": False, "error": f"Unsupported current model feature(s): {', '.join(missing)}"}
 
+        row = {col: value_map[col] for col in expected}
         X = pd.DataFrame([row], columns=expected)
 
-        pred_encoded = int(model.predict(X)[0])
-        proba = model.predict_proba(X)[0] if hasattr(model, "predict_proba") else None
+        pred_encoded = int(current_risk_model.predict(X)[0])
+        proba = current_risk_model.predict_proba(X)[0] if hasattr(current_risk_model, "predict_proba") else None
         conf = float(np.max(proba)) if proba is not None else None
 
-        if le is not None:
-            pred_label = str(le.inverse_transform([pred_encoded])[0])
-            class_probabilities = {str(cls): round(float(proba[i]), 3) for i, cls in enumerate(le.classes_)} if proba is not None else None
-        else:
-            pred_label = str(pred_encoded)
-            class_probabilities = None
+        pred_label = str(current_label_encoder.inverse_transform([pred_encoded])[0])
+        class_probabilities = (
+            {str(cls): round(float(proba[i]), 3) for i, cls in enumerate(current_label_encoder.classes_)}
+            if proba is not None else None
+        )
 
         return {
             "ok": True,
@@ -491,9 +590,7 @@ def predict_future_risk(data: Dict[str, Any]) -> Dict[str, Any]:
 
     Expected input keys:
     - age_months, sex, weight_kg, height_cm
-    and either:
-      - z_wfa/z_hfa/z_wfh + current_risk (Low/Moderate/High/Severe)
-      OR we will compute z-scores and derive current_risk from current model prediction.
+    - prev_weight, prev_height, weight_change, height_change
     """
     try:
         age = int(data["age_months"])
@@ -501,85 +598,42 @@ def predict_future_risk(data: Dict[str, Any]) -> Dict[str, Any]:
         weight = float(data["weight_kg"])
         height = float(data["height_cm"])
 
-        # z-scores: accept if provided, else compute
-        z_wfa = float(data.get("z_wfa")) if data.get("z_wfa") is not None else None
-        z_hfa = float(data.get("z_hfa")) if data.get("z_hfa") is not None else None
-        z_wfh = float(data.get("z_wfh")) if data.get("z_wfh") is not None else None
+        prev_weight = data.get("prev_weight", data.get("previous_weight_kg", weight))
+        prev_height = data.get("prev_height", data.get("previous_height_cm", height))
+        prev_weight = float(weight if prev_weight is None else prev_weight)
+        prev_height = float(height if prev_height is None else prev_height)
 
-        if z_wfa is None or z_hfa is None or z_wfh is None:
-            wfa, hfa, wfh = compute_z_scores(age_months=age, sex=sex, weight_kg=weight, height_cm=height)
-            z_wfa, z_hfa, z_wfh = float(wfa), float(hfa), float(wfh)
-
-        # Clamp Z-scores to valid clinical range — no meaningful WHO z-score falls outside [-5, 5]
-        z_wfa = max(-5.0, min(5.0, z_wfa))
-        z_hfa = max(-5.0, min(5.0, z_hfa))
-        z_wfh = max(-5.0, min(5.0, z_wfh))
-
-        # current risk text: accept if provided, else derive from current model output
-        current_risk_text = data.get("current_risk")
-        if not current_risk_text:
-            cur = predict_current_risk({
-                "age_months": age,
-                "sex": sex,
-                "weight_kg": weight,
-                "height_cm": height,
-            })
-            if not cur.get("ok"):
-                current_risk_text = "Moderate"
-            else:
-                current_risk_text = _map_current_label_to_future_risk(cur.get("model_prediction"))
-
-        # Encode current risk
-        current_risk_enc = RISK_MAP_TEXT_TO_INT.get(str(current_risk_text), 1)
-
-        # Feature engineering for future model
-        min_z = float(np.min([z_wfa, z_hfa, z_wfh]))
-        mean_z = float(np.mean([z_wfa, z_hfa, z_wfh]))
-        dist_from_moderate = min_z - (-2)
-        dist_from_severe = min_z - (-3)
-        is_high_or_severe = 1 if current_risk_enc >= 2 else 0
-        z_range = float(np.max([z_wfa, z_hfa, z_wfh])) - min_z
-        z_product = float(z_wfa * z_hfa * z_wfh)
-        z_std = float(np.std([z_wfa, z_hfa, z_wfh]))
-        weight_height_ratio = float(weight / ((height / 100.0) ** 2)) if height > 0 else 0.0
-        age_weight_interaction = float(age * weight)
+        weight_change = data.get("weight_change")
+        height_change = data.get("height_change")
+        weight_change = float(weight - prev_weight if weight_change is None else weight_change)
+        height_change = float(height - prev_height if height_change is None else height_change)
 
         row = {
             "age_months": age,
+            "Sex": _encode_sex(sex),
             "weight_kg": weight,
             "height_cm": height,
-            "z_wfa": z_wfa,
-            "z_hfa": z_hfa,
-            "z_wfh": z_wfh,
-            "min_z": min_z,
-            "mean_z": mean_z,
-            "dist_from_moderate": dist_from_moderate,
-            "dist_from_severe": dist_from_severe,
-            "z_range": z_range,
-            "z_product": z_product,
-            "z_std": z_std,
-            "weight_height_ratio": weight_height_ratio,
-            "age_weight_interaction": age_weight_interaction,
-            "current_risk_enc": int(current_risk_enc),
-            "is_high_or_severe": int(is_high_or_severe),
+            "prev_weight": prev_weight,
+            "prev_height": prev_height,
+            "weight_change": weight_change,
+            "height_change": height_change,
         }
 
-        X = pd.DataFrame([row])
-        if PREDICTION_FEATURES:
-            for f in PREDICTION_FEATURES:
-                if f not in X.columns:
-                    X[f] = 0
-            X = X[PREDICTION_FEATURES]
+        missing = [col for col in PREDICTION_FEATURES if col not in row]
+        if missing:
+            return {"ok": False, "error": f"Unsupported future model feature(s): {', '.join(missing)}"}
+
+        X = pd.DataFrame([{col: row[col] for col in PREDICTION_FEATURES}], columns=PREDICTION_FEATURES)
 
         pred = int(prediction_model.predict(X)[0])
         proba = prediction_model.predict_proba(X)[0] if hasattr(prediction_model, "predict_proba") else None
         conf = float(np.max(proba)) if proba is not None else None
+        pred_label = str(future_prediction_label_encoder.inverse_transform([pred])[0])
 
         return {
             "ok": True,
-            "predicted_risk_next_2_months": RISK_MAP_INT_TO_TEXT.get(pred, str(pred)),
+            "predicted_risk_next_2_months": pred_label,
             "confidence": round(conf, 3) if conf is not None else None,
         }
     except Exception as e:
         return {"ok": False, "error": str(e)}
-

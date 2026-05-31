@@ -29,7 +29,7 @@ from backend.models_hierarchical import (
     EscalationStatus,
     ReferralStatus,
 )
-from backend.ai.predictor import predict_current_risk, predict_future_risk, compute_z_scores
+from backend.ai.predictor import build_future_prediction_payload, predict_current_risk, predict_future_risk, compute_z_scores
 from backend.utils.audit import log_audit
 
 bp = Blueprint("nutritionist", __name__, url_prefix="/api/nutritionist")
@@ -86,7 +86,7 @@ def _map_ai_risk(pred: str) -> str:
     s = (pred or "").strip().upper()
     if s in ("NORMAL", "NORM"):
         return RiskLevel.NORMAL.value
-    if s == "MAM":
+    if s in ("MAM", "UNDERWEIGHT"):
         return RiskLevel.MAM.value
     if s in ("SAM", "SEVERE_STUNTING", "SEVERE"):
         return RiskLevel.SAM.value
@@ -326,6 +326,27 @@ def add_measurement():
         except Exception:
             pass
 
+    prediction_warning = None
+    prediction_history_source = None
+    try:
+        future_payload = build_future_prediction_payload(
+            child=child,
+            weight_kg=weight_kg,
+            height_cm=height_cm,
+            measurement_date=m_date,
+            history_source="measurements",
+        )
+        prediction_warning = future_payload.get("warning")
+        prediction_history_source = future_payload.get("history_source")
+        if future_payload.get("ok"):
+            future_result = predict_future_risk(future_payload["payload"])
+            predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
+        else:
+            predicted_risk = None
+    except Exception:
+        prediction_warning = "Future prediction could not be generated from child history."
+        predicted_risk = None
+
     measurement = Measurement(
         child_id=child.id,
         measurement_date=m_date,
@@ -336,7 +357,7 @@ def add_measurement():
         z_score_hfa=Decimal(str(z_hfa)) if z_hfa is not None else None,
         z_score_wfh=Decimal(str(z_wfh)) if z_wfh is not None else None,
         risk_level=current_risk,
-        predicted_risk_next_2_months=ai_result.get("model_prediction"),
+        predicted_risk_next_2_months=predicted_risk,
         model_confidence=Decimal(str(confidence)),
         measured_by_user_id=user.id,
         notes=specialist_notes,
@@ -348,17 +369,6 @@ def add_measurement():
     child.last_risk_update = datetime.now()
 
     # ── Create Visit record so visit history is populated ──────────────────
-    try:
-        future_result = predict_future_risk({
-            "age_months": age_months,
-            "sex": sex,
-            "weight_kg": weight_kg,
-            "height_cm": height_cm,
-        })
-        predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
-    except Exception:
-        predicted_risk = None
-
     visit = Visit(
         child_id_fk=child.id,
         visit_date=m_date,
@@ -395,6 +405,8 @@ def add_measurement():
         "child": child.to_dict(),
         "new_risk": current_risk,
         "confidence": confidence,
+        "future_prediction_warning": prediction_warning,
+        "future_prediction_history_source": prediction_history_source,
     }), 201
 
 

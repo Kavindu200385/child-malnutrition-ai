@@ -7,7 +7,7 @@ from backend.extensions import db
 from backend.models import Visit
 from backend.models_hierarchical import Child, Measurement
 
-from backend.ai.predictor import predict_current_risk, predict_future_risk
+from backend.ai.predictor import build_future_prediction_payload, predict_current_risk, predict_future_risk
 
 
 def _map_current_risk_for_next_model(current_level: str) -> str:
@@ -64,25 +64,29 @@ def recompute_all_visits(batch_size: int = 500) -> dict:
                 current_level = {
                     "normal": "LOW",
                     "mam": "HIGH",
+                    "underweight": "HIGH",
                     "sam": "CRITICAL",
                     "severe_stunting": "CRITICAL",
                 }.get(current_label.strip().lower(), "MODERATE")
                 v.current_risk = current_level
 
-                future = predict_future_risk(
-                    {
-                        "age_months": int(v.age_months),
-                        "sex": str(v.sex),
-                        "weight_kg": float(v.weight_kg),
-                        "height_cm": float(v.height_cm),
-                        "z_wfa": float(v.z_wfa),
-                        "z_hfa": float(v.z_hfa),
-                        "z_wfh": float(v.z_wfh),
-                    }
+                child = db.session.get(Child, v.child_id_fk)
+                future_payload = build_future_prediction_payload(
+                    child=child,
+                    weight_kg=float(v.weight_kg),
+                    height_cm=float(v.height_cm),
+                    measurement_date=v.visit_date,
+                    history_source="both",
+                    exclude_visit_id=v.id,
                 )
-                if future.get("ok"):
-                    v.predicted_risk_next_2_months = str(future.get("predicted_risk_next_2_months"))
-                    v.model_confidence = float(future.get("confidence")) if future.get("confidence") is not None else None
+                if future_payload.get("ok"):
+                    future = predict_future_risk(future_payload["payload"])
+                    if future.get("ok"):
+                        v.predicted_risk_next_2_months = str(future.get("predicted_risk_next_2_months"))
+                        v.model_confidence = float(future.get("confidence")) if future.get("confidence") is not None else None
+                else:
+                    v.predicted_risk_next_2_months = None
+                    v.model_confidence = None
 
             updated += 1
 
@@ -147,19 +151,23 @@ def recompute_all_measurements(batch_size: int = 200) -> dict:
                 m.z_score_hfa = z_hfa
                 m.z_score_wfh = z_wfh
 
-                future = predict_future_risk({
-                    "age_months": age_months,
-                    "sex": sex,
-                    "weight_kg": float(m.weight_kg),
-                    "height_cm": float(m.height_cm),
-                    "z_wfa": z_wfa,
-                    "z_hfa": z_hfa,
-                    "z_wfh": z_wfh,
-                })
-                if future.get("ok"):
-                    m.predicted_risk_next_2_months = str(future.get("predicted_risk_next_2_months"))
-                    conf = future.get("confidence")
-                    m.model_confidence = float(conf) if conf is not None else None
+                future_payload = build_future_prediction_payload(
+                    child=child,
+                    weight_kg=float(m.weight_kg),
+                    height_cm=float(m.height_cm),
+                    measurement_date=mdate,
+                    history_source="measurements",
+                    exclude_measurement_id=m.id,
+                )
+                if future_payload.get("ok"):
+                    future = predict_future_risk(future_payload["payload"])
+                    if future.get("ok"):
+                        m.predicted_risk_next_2_months = str(future.get("predicted_risk_next_2_months"))
+                        conf = future.get("confidence")
+                        m.model_confidence = float(conf) if conf is not None else None
+                else:
+                    m.predicted_risk_next_2_months = None
+                    m.model_confidence = None
 
                 updated += 1
             except Exception:
@@ -169,4 +177,3 @@ def recompute_all_measurements(batch_size: int = 200) -> dict:
         db.session.commit()
 
     return {"total": int(total), "updated": int(updated), "errors": int(errors)}
-

@@ -27,7 +27,12 @@ from backend.utils.midwife_helpers import (
     can_midwife_access_child
 )
 from backend.utils.audit import log_audit
-from backend.ai.predictor import predict_current_risk, predict_future_risk, compute_z_scores as ai_compute_z_scores
+from backend.ai.predictor import (
+    build_future_prediction_payload,
+    predict_current_risk,
+    predict_future_risk,
+    compute_z_scores as ai_compute_z_scores,
+)
 
 bp = Blueprint("midwife", __name__, url_prefix="/api/midwife")
 
@@ -40,7 +45,7 @@ def _normalize_ai_risk(label: str) -> str:
     s = str(label).strip().lower()
     if s == 'normal':
         return RiskLevel.NORMAL.value
-    if s == 'mam':
+    if s in ('mam', 'underweight'):
         return RiskLevel.MAM.value
     if s in ('sam', 'severe_stunting', 'severe stunting'):
         return RiskLevel.SAM.value
@@ -349,14 +354,25 @@ def add_measurement():
             "message": f"AI analysis error: {str(e)}"
         }), 500
 
-    # Run future-risk prediction
+    prediction_warning = None
+    prediction_history_source = None
     try:
-        future_result = predict_future_risk({
-            "age_months": age_months, "sex": sex,
-            "weight_kg": float(weight_kg), "height_cm": float(height_cm),
-        })
-        predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
+        future_payload = build_future_prediction_payload(
+            child=child,
+            weight_kg=float(weight_kg),
+            height_cm=float(height_cm),
+            measurement_date=datetime.now(),
+            history_source="measurements",
+        )
+        prediction_warning = future_payload.get("warning")
+        prediction_history_source = future_payload.get("history_source")
+        if future_payload.get("ok"):
+            future_result = predict_future_risk(future_payload["payload"])
+            predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
+        else:
+            predicted_risk = None
     except Exception:
+        prediction_warning = "Future prediction could not be generated from child history."
         predicted_risk = None
 
     # Get previous risk level for escalation check
@@ -428,6 +444,8 @@ def add_measurement():
         "escalation_needed": escalation_needed,
         "previous_risk": previous_risk,
         "new_risk": current_risk,
+        "future_prediction_warning": prediction_warning,
+        "future_prediction_history_source": prediction_history_source,
     }), 201
 
 

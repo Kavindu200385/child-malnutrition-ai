@@ -1,11 +1,12 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity
+from datetime import datetime
 
 from backend.auth_utils import visit_required
 from backend.extensions import db
 from backend.models import Child, Visit
 
-from backend.ai.predictor import predict_current_risk, predict_future_risk, compare_models
+from backend.ai.predictor import build_future_prediction_payload, predict_current_risk, predict_future_risk, compare_models
 
 bp = Blueprint("analysis_jwt", __name__, url_prefix="/api/analysis")
 
@@ -14,7 +15,7 @@ bp = Blueprint("analysis_jwt", __name__, url_prefix="/api/analysis")
 @visit_required
 def compare_model_results():
     """
-    Compare XGBoost vs Logistic Regression predictions side-by-side.
+    Compare the primary current-risk model vs Logistic Regression predictions side-by-side.
     Useful for model evaluation and report generation.
 
     Expected JSON: age, sex, weight, height
@@ -104,24 +105,36 @@ def analyze():
     overall_risk_level = {
         "normal": "LOW",
         "mam": "HIGH",
+        "underweight": "HIGH",
         "sam": "CRITICAL",
         "severe_stunting": "CRITICAL",
     }.get(current_label.strip().lower(), "MODERATE")
 
-    # Future 2-month prediction model
-    future = predict_future_risk(
-        {
-            "age_months": age,
-            "sex": sex,
-            "weight_kg": weight,
-            "height_cm": height,
-            "z_wfa": float(z["WFA_Z"]),
-            "z_hfa": float(z["HFA_Z"]),
-            "z_wfh": float(z["WFH_Z"]),
-        }
-    )
-    if not future.get("ok"):
-        return jsonify({"status": "error", "message": future.get("error", "Future risk prediction failed")}), 500
+    child_id = data.get("child_id")
+    child = None
+    future = {"ok": False, "predicted_risk_next_2_months": None, "confidence": None}
+    prediction_warning = "Future prediction requires an existing child profile and measurement history."
+    prediction_history_source = None
+
+    if child_id:
+        child = (
+            Child.query.filter_by(child_id=str(child_id)).first()
+            or Child.query.filter_by(child_unique_id=str(child_id)).first()
+        )
+        if child:
+            future_payload = build_future_prediction_payload(
+                child=child,
+                weight_kg=weight,
+                height_cm=height,
+                measurement_date=datetime.utcnow(),
+                history_source="both",
+            )
+            prediction_warning = future_payload.get("warning")
+            prediction_history_source = future_payload.get("history_source")
+            if future_payload.get("ok"):
+                future = predict_future_risk(future_payload["payload"])
+                if not future.get("ok"):
+                    prediction_warning = future.get("error", "Future risk prediction failed")
 
     # Response shape compatible with frontend
     result = {
@@ -144,13 +157,13 @@ def analyze():
         "prediction_next_2_months": {
             "predicted_risk_next_2_months": future.get("predicted_risk_next_2_months"),
             "confidence": future.get("confidence"),
+            "warning": prediction_warning,
+            "history_source": prediction_history_source,
         },
     }
 
     # Optional persistence
-    child_id = data.get("child_id")
     if child_id:
-        child = Child.query.filter_by(child_id=str(child_id)).first()
         if not child:
             child = Child(child_id=str(child_id))
             db.session.add(child)
@@ -167,7 +180,10 @@ def analyze():
             z_hfa=float(z["HFA_Z"]),
             z_wfh=float(z["WFH_Z"]),
             current_risk=str(overall_risk_level),
-            predicted_risk_next_2_months=str(future.get("predicted_risk_next_2_months")),
+            predicted_risk_next_2_months=(
+                str(future.get("predicted_risk_next_2_months"))
+                if future.get("predicted_risk_next_2_months") is not None else None
+            ),
             model_confidence=float(future.get("confidence")) if future.get("confidence") is not None else None,
             created_by_user_id=int(user_id) if user_id is not None else None,
         )
@@ -175,4 +191,3 @@ def analyze():
         db.session.commit()
 
     return jsonify({"status": "success", "data": result}), 200
-
