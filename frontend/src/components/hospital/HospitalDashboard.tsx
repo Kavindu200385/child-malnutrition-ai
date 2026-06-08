@@ -9,6 +9,7 @@ import { ChildProfileView } from '../health-worker/ChildProfileView';
 import { HospitalChildrenListView } from './HospitalChildrenListView';
 import { HospitalStatsView } from './HospitalStatsView';
 import { HospitalStatisticsView } from './HospitalStatisticsView';
+import { NotificationBell } from '../notifications/NotificationBell';
 import { 
   LayoutDashboard, 
   UserPlus,
@@ -49,6 +50,13 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
     { id: 'stats' as HospitalView, label: 'Statistics', icon: BarChart3 },
   ];
 
+  const handleOpenNotification = (notification: { related_child_id?: number | null }) => {
+    if (notification.related_child_id) {
+      setSelectedChildId(String(notification.related_child_id));
+      setCurrentView('profile');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header – solid dark bar so top bar is clearly visible */}
@@ -70,6 +78,7 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
                 <p className="text-sm font-medium text-white">{user.name}</p>
                 <p className="text-xs text-white font-medium opacity-95">Pediatric Unit</p>
               </div>
+              <NotificationBell onOpenRelated={handleOpenNotification} />
               <UserCircle className="w-8 h-8 text-white" aria-hidden />
               <button
                 onClick={onLogout}

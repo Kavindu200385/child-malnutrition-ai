@@ -14,6 +14,7 @@ from backend.models_hierarchical import (  # noqa: F401
     AuditLog,
     Child,
     ChildTransfer,
+    Notification,
     PdhsReport,
     RdhsPeriodReport,
     RdhsReport,
@@ -28,4 +29,3 @@ from backend.models_hierarchical import (  # noqa: F401
     Visit,
     WorkerAreaMapping,
 )
-

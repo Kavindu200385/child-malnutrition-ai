@@ -31,6 +31,13 @@ from backend.models_hierarchical import (
 )
 from backend.ai.predictor import build_future_prediction_payload, predict_current_risk, predict_future_risk, compute_z_scores
 from backend.utils.audit import log_audit
+from backend.services.notification_service import (
+    PRIORITY_HIGH,
+    PRIORITY_NORMAL,
+    notify_hospital_users,
+    notify_moh_area,
+    notify_user,
+)
 
 bp = Blueprint("nutritionist", __name__, url_prefix="/api/nutritionist")
 
@@ -478,6 +485,16 @@ def return_to_moh(child_id: int):
         )
         db.session.add(escalation)
         db.session.flush()
+        notify_moh_area(
+            moh_area_id,
+            title="Nutritionist return request",
+            message=f"{child.child_unique_id or child.child_id} recovered and is ready for MOH review.",
+            type="child_recovery",
+            priority=PRIORITY_NORMAL,
+            actor_user_id=user.id,
+            related_child_id=child.id,
+            related_escalation_id=escalation.id,
+        )
         log_audit(
             action="CREATE",
             entity_type="escalation",
@@ -757,6 +774,27 @@ def accept_transfer_request(referral_id: int):
             if rdhs_area.parent and not child.province_id:
                 child.province_id = rdhs_area.parent.id
 
+    notify_user(
+        referral.referred_by_user_id,
+        title="Referral accepted",
+        message=f"Nutritionist accepted referral for child {child.child_unique_id if child else referral.child_id}.",
+        type="referral_accepted",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_child_id=referral.child_id,
+        related_referral_id=referral.id,
+    )
+    notify_hospital_users(
+        referral.hospital_id,
+        title="Referral accepted",
+        message=f"A nutritionist accepted referral #{referral.id}.",
+        type="referral_accepted",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_child_id=referral.child_id,
+        related_referral_id=referral.id,
+    )
+
     db.session.commit()
 
     log_audit(
@@ -818,6 +856,27 @@ def reject_transfer_request(referral_id: int):
         from backend.models_hierarchical import TransferStatus
         child.transfer_status = TransferStatus.NONE.value
         child.escalation_status = EscalationStatus.NONE.value
+
+    notify_user(
+        referral.referred_by_user_id,
+        title="Referral rejected",
+        message=f"Nutritionist rejected referral #{referral.id}.",
+        type="referral_rejected",
+        priority=PRIORITY_HIGH,
+        actor_user_id=user.id,
+        related_child_id=referral.child_id,
+        related_referral_id=referral.id,
+    )
+    notify_hospital_users(
+        referral.hospital_id,
+        title="Referral rejected",
+        message=f"A nutritionist rejected referral #{referral.id}.",
+        type="referral_rejected",
+        priority=PRIORITY_HIGH,
+        actor_user_id=user.id,
+        related_child_id=referral.child_id,
+        related_referral_id=referral.id,
+    )
 
     db.session.commit()
 

@@ -230,7 +230,7 @@ def _candidate_from_measurement(measurement: Any) -> Optional[Dict[str, Any]]:
         return None
     return {
         "source": "previous_measurement",
-        "date": measurement.measurement_date,
+        "date": _as_datetime(measurement.measurement_date),
         "prev_weight": float(measurement.weight_kg),
         "prev_height": float(measurement.height_cm),
     }
@@ -243,7 +243,7 @@ def _candidate_from_visit(visit: Any) -> Optional[Dict[str, Any]]:
         return None
     return {
         "source": "previous_visit",
-        "date": visit.visit_date,
+        "date": _as_datetime(visit.visit_date),
         "prev_weight": float(visit.weight_kg),
         "prev_height": float(visit.height_cm),
     }
@@ -522,6 +522,7 @@ def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
                 "z_scores": {"WFA_Z": wfa, "HFA_Z": hfa, "WFH_Z": wfh},
                 "model_prediction": newborn_label,
                 "confidence": 1.0,
+                "low_confidence": False,
                 "class_probabilities": None,
             }
 
@@ -552,6 +553,7 @@ def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
             if proba is not None else None
         )
 
+        confidence_val = round(conf, 3) if conf is not None else None
         return {
             "ok": True,
             "age_months": age,
@@ -560,7 +562,8 @@ def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
             "height_cm": height,
             "z_scores": {"WFA_Z": wfa, "HFA_Z": hfa, "WFH_Z": wfh},
             "model_prediction": pred_label,
-            "confidence": round(conf, 3) if conf is not None else None,
+            "confidence": confidence_val,
+            "low_confidence": (confidence_val is not None and confidence_val < 0.60),
             "class_probabilities": class_probabilities,
         }
     except Exception as e:
@@ -628,10 +631,12 @@ def predict_future_risk(data: Dict[str, Any]) -> Dict[str, Any]:
         conf = float(np.max(proba)) if proba is not None else None
         pred_label = str(future_prediction_label_encoder.inverse_transform([pred])[0])
 
+        confidence_val = round(conf, 3) if conf is not None else None
         return {
             "ok": True,
             "predicted_risk_next_2_months": pred_label,
-            "confidence": round(conf, 3) if conf is not None else None,
+            "confidence": confidence_val,
+            "low_confidence": (confidence_val is not None and confidence_val < 0.60),
         }
     except Exception as e:
         return {"ok": False, "error": str(e)}

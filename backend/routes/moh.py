@@ -38,6 +38,15 @@ from backend.models_hierarchical import (
 )
 from backend.utils.audit import log_audit
 from backend.utils.midwife_helpers import calculate_z_scores, should_escalate_to_moh
+from backend.services.notification_service import (
+    PRIORITY_CRITICAL,
+    PRIORITY_HIGH,
+    PRIORITY_NORMAL,
+    notify_hospital_nutritionists,
+    notify_phm_area,
+    notify_rdhs_for_area,
+    notify_user,
+)
 from backend.ai.predictor import (
     build_future_prediction_payload,
     predict_current_risk,
@@ -485,6 +494,16 @@ def review_escalation(child_id: int):
     escalation.reviewed_at = datetime.utcnow()
 
     db.session.flush()
+    notify_user(
+        escalation.escalated_by_user_id,
+        title="Escalation reviewed",
+        message=f"MOH reviewed the escalation for {child.child_unique_id or child.child_id}.",
+        type="escalation_reviewed",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_child_id=child.id,
+        related_escalation_id=escalation.id,
+    )
     log_audit(
         action="UPDATE",
         entity_type="escalation",
@@ -547,6 +566,16 @@ def escalate_to_nutritionist(child_id: int):
     child.escalation_status = EscalationStatus.ESCALATED_TO_NUTRITIONIST.value
 
     db.session.flush()
+    notify_hospital_nutritionists(
+        hospital.id,
+        title="New nutrition referral",
+        message=f"{child.child_unique_id or child.child_id} was referred for nutritionist review.",
+        type="referral_created",
+        priority=PRIORITY_CRITICAL if child.current_risk_level == RiskLevel.SAM.value else PRIORITY_HIGH,
+        actor_user_id=user.id,
+        related_child_id=child.id,
+        related_referral_id=referral.id,
+    )
     log_audit(
         action="CREATE",
         entity_type="referral",
@@ -650,6 +679,26 @@ def assign_returned_child(child_id: int):
     escalation.review_notes = data.get("notes", "")
 
     db.session.flush()
+    notify_user(
+        escalation.escalated_by_user_id,
+        title="Return request accepted",
+        message=f"MOH accepted the recovered child return for {child.child_unique_id or child.child_id}.",
+        type="child_returned",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_child_id=child.id,
+        related_escalation_id=escalation.id,
+    )
+    if phm_area_id:
+        notify_phm_area(
+            phm_area_id,
+            title="Child assigned to PHM area",
+            message=f"{child.child_unique_id or child.child_id} was assigned for PHM follow-up.",
+            type="child_assigned",
+            priority=PRIORITY_NORMAL,
+            actor_user_id=user.id,
+            related_child_id=child.id,
+        )
     log_audit(
         action="UPDATE",
         entity_type="child",
@@ -706,6 +755,15 @@ def return_to_midwife(child_id: int):
             child.current_assigned_area_id = child.phm_area_id
 
     db.session.flush()
+    notify_phm_area(
+        child.phm_area_id,
+        title="MOH returned child",
+        message=f"{child.child_unique_id or child.child_id} was returned to midwife care.",
+        type="child_returned",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_child_id=child.id,
+    )
     log_audit(
         action="UPDATE",
         entity_type="child",
@@ -1132,6 +1190,16 @@ def send_report_to_rdhs(report_id: int):
         return jsonify({"status": "error", "message": "Report not in your area"}), 403
     report.sent_to_rdhs = True
     report.sent_at = datetime.utcnow()
+    notify_rdhs_for_area(
+        report.moh_area_id,
+        title="MOH report submitted",
+        message=f"MOH monthly report for {report.month}/{report.report_year} was submitted to RDHS.",
+        type="report_submitted",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_report_id=report.id,
+        metadata={"report_kind": "moh", "moh_area_id": report.moh_area_id},
+    )
     db.session.commit()
     return jsonify({"status": "success", "report": report.to_dict()}), 200
 
@@ -1280,6 +1348,16 @@ def pull_child_to_moh(child_id: int):
     child.current_assigned_role = UserRole.MOH.value
 
     db.session.flush()
+    notify_phm_area(
+        child.phm_area_id,
+        title="Child transferred to MOH care",
+        message=f"{child.child_unique_id or child.child_id} was pulled to MOH care for {risk} risk.",
+        type="child_transferred",
+        priority=PRIORITY_CRITICAL if risk == RiskLevel.SAM.value else PRIORITY_HIGH,
+        actor_user_id=user.id,
+        related_child_id=child.id,
+        related_escalation_id=escalation.id,
+    )
     log_audit(
         action="CREATE",
         entity_type="escalation",
@@ -1405,6 +1483,17 @@ def accept_escalation(escalation_id: int):
     child.current_assigned_user_id = user.id
     child.escalation_status = EscalationStatus.ESCALATED_TO_MOH.value
 
+    notify_user(
+        escalation.escalated_by_user_id,
+        title="Escalation accepted",
+        message=f"MOH accepted escalation for {child.child_unique_id or child.child_id}.",
+        type="escalation_accepted",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_child_id=child.id,
+        related_escalation_id=escalation.id,
+    )
+
     log_audit(
         action="UPDATE",
         entity_type="escalation",
@@ -1500,6 +1589,17 @@ def reject_escalation(escalation_id: int):
 
     if child and escalation.from_role == "midwife":
         child.escalation_status = EscalationStatus.NONE.value
+
+    notify_user(
+        escalation.escalated_by_user_id,
+        title="Escalation rejected",
+        message=f"MOH rejected escalation for child {getattr(child, 'child_unique_id', None) or getattr(child, 'child_id', escalation.child_id)}.",
+        type="escalation_rejected",
+        priority=PRIORITY_HIGH,
+        actor_user_id=user.id,
+        related_child_id=child.id if child else escalation.child_id,
+        related_escalation_id=escalation.id,
+    )
 
     log_audit(
         action="UPDATE",

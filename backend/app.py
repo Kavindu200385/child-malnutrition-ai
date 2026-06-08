@@ -22,7 +22,7 @@ from flask_cors import CORS
 from sqlalchemy import inspect, text
 
 from backend.config import Config
-from backend.extensions import db, jwt, migrate
+from backend.extensions import db, jwt, migrate, limiter
 from backend.models import User
 # Dummy data seeding removed - system starts clean
 
@@ -157,6 +157,7 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
+
             else:
                 conn.execute(text("""
                     CREATE TABLE child_escalations (
@@ -174,6 +175,53 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                         reviewed_at DATETIME,
                         review_notes TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+
+        # notifications table
+        if "notifications" not in tables:
+            if is_mysql:
+                conn.execute(text("""
+                    CREATE TABLE notifications (
+                        id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                        title VARCHAR(200) NOT NULL,
+                        message TEXT NOT NULL,
+                        type VARCHAR(50) NOT NULL,
+                        priority VARCHAR(20) NOT NULL DEFAULT 'normal',
+                        user_id INTEGER NOT NULL,
+                        role VARCHAR(32),
+                        actor_user_id INTEGER,
+                        related_child_id INTEGER,
+                        related_referral_id INTEGER,
+                        related_escalation_id INTEGER,
+                        related_transfer_id INTEGER,
+                        related_report_id INTEGER,
+                        metadata JSON,
+                        is_read TINYINT(1) NOT NULL DEFAULT 0,
+                        read_at DATETIME,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE notifications (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        title TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        priority TEXT NOT NULL DEFAULT 'normal',
+                        user_id INTEGER NOT NULL,
+                        role TEXT,
+                        actor_user_id INTEGER,
+                        related_child_id INTEGER,
+                        related_referral_id INTEGER,
+                        related_escalation_id INTEGER,
+                        related_transfer_id INTEGER,
+                        related_report_id INTEGER,
+                        metadata JSON,
+                        is_read INTEGER NOT NULL DEFAULT 0,
+                        read_at DATETIME,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
         
@@ -310,16 +358,22 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
 def seed_superadmin() -> None:
     """
     Seed system developer (superadmin) user.
-    This user is protected and cannot be deleted.
-    Username: superadmin
-    Password: 200385
+    Password is read from the SUPERADMIN_PASSWORD environment variable.
+    The account is protected and cannot be deleted.
     """
-    superadmin_username = "superadmin"
-    superadmin_password = "200385"
-    
+    superadmin_username = os.environ.get("SUPERADMIN_USERNAME", "superadmin")
+    superadmin_password = os.environ.get("SUPERADMIN_PASSWORD", "")
+
+    if not superadmin_password:
+        print(
+            "[WARNING] SUPERADMIN_PASSWORD env var is not set. "
+            "Superadmin account will not be created or updated. "
+            "Set SUPERADMIN_PASSWORD in backend/.env to enable."
+        )
+        return
+
     existing = User.query.filter_by(username=superadmin_username).first()
     if existing:
-        # Update password if changed, ensure protected flag and display name
         if not existing.is_protected:
             existing.is_protected = True
         if not existing.check_password(superadmin_password):
@@ -329,14 +383,13 @@ def seed_superadmin() -> None:
         existing.role = "health_ministry"
         db.session.commit()
         return
-    
-    # Create new system developer (superadmin)
+
     superadmin = User(
         username=superadmin_username,
         name="System Developer",
         role="health_ministry",
         is_active=True,
-        is_protected=True,  # Protected from deletion
+        is_protected=True,
     )
     superadmin.set_password(superadmin_password)
     db.session.add(superadmin)
@@ -358,6 +411,7 @@ def create_app() -> Flask:
     db.init_app(app)
     jwt.init_app(app)
     migrate.init_app(app, db)
+    limiter.init_app(app)
 
     # Blueprints - Legacy (for backward compatibility)
     from backend.routes.auth_jwt import bp as auth_bp
@@ -375,6 +429,7 @@ def create_app() -> Flask:
     from backend.routes.hospital import bp as hospital_bp  # Hospital role routes
     from backend.routes.moh import bp as moh_bp  # MOH role routes (area supervisor)
     from backend.routes.midwife import bp as midwife_bp  # Midwife role routes (reports, children, dashboard)
+    from backend.routes.notifications import bp as notifications_bp
     from backend.routes.nutritionist import bp as nutritionist_bp  # Nutritionist specialist role
     from backend.routes.rdhs import bp as rdhs_bp  # RDHS District Admin
     from backend.routes.pdhs import bp as pdhs_bp  # PDHS Province Admin
@@ -395,6 +450,7 @@ def create_app() -> Flask:
     app.register_blueprint(moh_bp)  # MOH role routes
     app.register_blueprint(midwife_bp)  # Midwife role routes
     app.register_blueprint(nutritionist_bp)  # Nutritionist role routes
+    app.register_blueprint(notifications_bp)
     app.register_blueprint(rdhs_bp)  # RDHS District Admin routes
     app.register_blueprint(pdhs_bp)  # PDHS Province Admin routes
     app.register_blueprint(admin_routes_bp)  # Admin dashboard, messaging, settings

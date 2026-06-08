@@ -18,6 +18,7 @@ import { NutritionistDashboardView } from './health-worker/NutritionistDashboard
 import { NutritionistReferredView } from './health-worker/NutritionistReferredView';
 import { NutritionistChildProfileView } from './health-worker/NutritionistChildProfileView';
 import { NutritionistTransferRequestsView } from './health-worker/NutritionistTransferRequestsView';
+import { NotificationBell } from './notifications/NotificationBell';
 import { nutritionistAPI, mohAPI } from '../services/api';
 import {
   LayoutDashboard,
@@ -188,6 +189,12 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
     setCurrentView('profile');
   };
 
+  const handleOpenNotification = (notification: { related_child_id?: number | null }) => {
+    if (notification.related_child_id) {
+      handleViewChild(String(notification.related_child_id));
+    }
+  };
+
   const handleAddMeasurement = (childId: string) => {
     setSelectedChildId(childId);
     setCurrentView('add-measurement');
@@ -262,6 +269,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
                   <p className="text-sm font-medium text-white">{user.name}</p>
                   <p className={`text-xs ${subtitleClass}`}>{roleLabel}</p>
                 </div>
+                <NotificationBell onOpenRelated={handleOpenNotification} />
                 <UserCircle className="w-8 h-8 text-white" />
                 <button
                   onClick={onLogout}

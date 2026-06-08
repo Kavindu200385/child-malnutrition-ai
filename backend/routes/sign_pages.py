@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request, send_from_directory
+from flask_jwt_extended import verify_jwt_in_request
 from werkzeug.utils import secure_filename
 
 from backend.auth_utils_hierarchical import get_current_user, health_ministry_required
@@ -150,5 +151,9 @@ def delete_sign_page(record_id: int):
 
 @bp.route("/files/<path:filename>", methods=["GET"])
 def get_sign_page_file(filename: str):
+    try:
+        verify_jwt_in_request()
+    except Exception:
+        return jsonify({"status": "error", "message": "Authentication required"}), 401
     return send_from_directory(UPLOAD_DIR, filename)
 

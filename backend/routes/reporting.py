@@ -655,21 +655,7 @@ def list_reports():
     }), 200
 
 
-def _risk_sam(r):
-    """Count as SAM: SAM or CRITICAL"""
-    v = (r or "").upper()
-    return v in ("SAM", "CRITICAL")
-
-
-def _risk_mam(r):
-    """Count as MAM: MAM, MODERATE, HIGH"""
-    v = (r or "").upper()
-    return v in ("MAM", "MODERATE", "HIGH")
-
-
-def _risk_normal(r):
-    """Count as Normal: NORMAL"""
-    return (r or "").upper() == "NORMAL"
+from backend.utils.risk_utils import is_sam as _risk_sam, is_mam as _risk_mam, is_normal as _risk_normal
 
 
 @bp.route("/overview-stats", methods=["GET"])

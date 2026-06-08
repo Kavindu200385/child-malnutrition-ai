@@ -28,6 +28,13 @@ from backend.models_hierarchical import (
     UserRole,
 )
 from backend.utils.audit import log_audit
+from backend.services.notification_service import (
+    PRIORITY_HIGH,
+    PRIORITY_NORMAL,
+    notify_user,
+    notify_users,
+    users_for_area,
+)
 
 bp = Blueprint("child_transfers", __name__, url_prefix="/api/transfers")
 
@@ -46,6 +53,13 @@ def _midwife_for_phm(phm_area_id: int) -> "User | None":
         .first()
     )
     return db.session.get(User, mapping.user_id) if mapping else None
+
+
+def _transfer_target_users(transfer: ChildTransfer) -> list[User]:
+    if transfer.to_user_id:
+        user = db.session.get(User, transfer.to_user_id)
+        return [user] if user else []
+    return users_for_area(transfer.to_area_id, [transfer.to_role])
 
 
 def _apply_child_assignment(child: Child, transfer: "ChildTransfer", approving_user: User) -> None:
@@ -216,6 +230,29 @@ def request_transfer(child_id: str):
     if moh_direct:
         _apply_child_assignment(child, transfer, approving_user=user)
 
+    if moh_direct:
+        notify_users(
+            _transfer_target_users(transfer),
+            title="Child transferred to your area",
+            message=f"{child.child_id or child.child_unique_id} was assigned to your PHM area.",
+            type="child_transferred",
+            priority=PRIORITY_NORMAL,
+            actor_user_id=user.id,
+            related_child_id=child.id,
+            related_transfer_id=transfer.id,
+        )
+    else:
+        notify_users(
+            _transfer_target_users(transfer),
+            title="Child transfer requires action",
+            message=f"Transfer request for {child.child_id or child.child_unique_id} needs review.",
+            type="transfer_requested",
+            priority=PRIORITY_HIGH,
+            actor_user_id=user.id,
+            related_child_id=child.id,
+            related_transfer_id=transfer.id,
+        )
+
     log_audit(
         action="TRANSFER_REQUEST",
         entity_type="child_transfer",
@@ -340,6 +377,17 @@ def approve_transfer(transfer_id: int):
     transfer.transfer_date = datetime.utcnow()
     
     db.session.flush()
+
+    notify_user(
+        transfer.requested_by_user_id,
+        title="Child transfer approved",
+        message=f"Transfer for {child.child_id or child.child_unique_id} was approved.",
+        type="transfer_approved",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_child_id=child.id,
+        related_transfer_id=transfer.id,
+    )
     
     log_audit(
         action="TRANSFER_APPROVE",
@@ -406,6 +454,17 @@ def reject_transfer(transfer_id: int):
     transfer.rejection_reason = rejection_reason
     
     db.session.flush()
+
+    notify_user(
+        transfer.requested_by_user_id,
+        title="Child transfer rejected",
+        message=f"Transfer request was rejected: {rejection_reason}",
+        type="transfer_rejected",
+        priority=PRIORITY_HIGH,
+        actor_user_id=user.id,
+        related_child_id=transfer.child_id,
+        related_transfer_id=transfer.id,
+    )
     
     log_audit(
         action="TRANSFER_REJECT",

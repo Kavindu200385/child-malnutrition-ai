@@ -5,6 +5,7 @@ Strict hospital-only functionality:
 - View hospital's children
 - Transfer SAM cases to nutritionist
 """
+from functools import wraps
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from datetime import datetime
@@ -22,27 +23,34 @@ from backend.utils.hospital_helpers import (
     is_sam_case
 )
 from backend.utils.audit import log_audit
+from backend.services.notification_service import (
+    PRIORITY_CRITICAL,
+    PRIORITY_HIGH,
+    notify_hospital_nutritionists,
+    notify_hospital_users,
+)
 
 bp = Blueprint("hospital", __name__, url_prefix="/api/hospital")
 
 
 def hospital_required(f):
-    """Decorator to ensure user has HOSPITAL role"""
+    """Decorator: hospital role (or health_ministry) + hospital_id must be set."""
+    @wraps(f)
     @jwt_required()
     def decorated_function(*args, **kwargs):
         user = get_current_user()
-        if user.role != UserRole.HOSPITAL.value:
+        allowed = (UserRole.HOSPITAL.value, "health_ministry")
+        if user.role not in allowed:
             return jsonify({
                 "status": "error",
                 "message": "Access denied. Hospital role required."
             }), 403
-        if not user.hospital_id:
+        if user.role == UserRole.HOSPITAL.value and not user.hospital_id:
             return jsonify({
                 "status": "error",
                 "message": "User not assigned to a hospital"
             }), 400
         return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
     return decorated_function
 
 
@@ -138,6 +146,28 @@ def register_child():
     
     db.session.add(child)
     db.session.flush()
+
+    if is_sam_case(birth_risk_level):
+        notify_hospital_users(
+            user.hospital_id,
+            title="Birth registration issue",
+            message=f"{child.child_unique_id} was registered as SAM at birth.",
+            type="birth_registration_issue",
+            priority=PRIORITY_CRITICAL,
+            actor_user_id=user.id,
+            related_child_id=child.id,
+            metadata={"birth_risk_level": birth_risk_level},
+        )
+        notify_hospital_nutritionists(
+            user.hospital_id,
+            title="SAM child requiring review",
+            message=f"{child.child_unique_id} was registered as SAM at birth.",
+            type="sam_child_review",
+            priority=PRIORITY_CRITICAL,
+            actor_user_id=user.id,
+            related_child_id=child.id,
+            metadata={"birth_risk_level": birth_risk_level},
+        )
     
     # Log audit
     log_audit(
@@ -305,6 +335,17 @@ def transfer_to_nutritionist(child_id: int):
     
     db.session.add(referral)
     db.session.flush()
+
+    notify_hospital_nutritionists(
+        user.hospital_id,
+        title="New referral request",
+        message=f"Hospital transferred SAM child {child.child_unique_id or child.child_id} for nutritionist review.",
+        type="referral_created",
+        priority=PRIORITY_HIGH,
+        actor_user_id=user.id,
+        related_child_id=child.id,
+        related_referral_id=referral.id,
+    )
     
     # Log audit
     log_audit(
@@ -400,4 +441,3 @@ def list_hospitals():
         "status": "success",
         "hospitals": [{"id": h.id, "name": h.hospital_name, "code": h.hospital_code} for h in hospitals],
     }), 200
-

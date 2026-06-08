@@ -30,6 +30,7 @@ from backend.models_hierarchical import (
     MohReport,
     RiskLevel,
 )
+from backend.services.notification_service import PRIORITY_NORMAL, notify_pdhs_for_area
 
 bp = Blueprint("rdhs", __name__, url_prefix="/api/rdhs")
 
@@ -46,27 +47,7 @@ def _rdhs_context():
     return user, (district_ids, child_area_ids), None
 
 
-def _risk_sam(r):
-    v = (r or "").upper()
-    return v in ("SAM", "CRITICAL")
-
-
-def _risk_mam(r):
-    v = (r or "").upper()
-    return v in ("MAM", "MODERATE", "HIGH")
-
-
-def _risk_normal(r):
-    return (r or "").upper() == "NORMAL"
-
-
-def _display_risk_level(child: Child) -> str:
-    """Same as list/profile: use birth risk when no clinic measurement yet, else current risk."""
-    birth = (child.birth_risk_level or "").upper()
-    current = (child.current_risk_level or "").upper()
-    if not child.last_risk_update and birth:
-        return birth
-    return current or birth or "NORMAL"
+from backend.utils.risk_utils import is_sam as _risk_sam, is_mam as _risk_mam, is_normal as _risk_normal, display_risk_level as _display_risk_level
 
 
 # =============================================================================
@@ -644,6 +625,17 @@ def send_period_report_to_pdhs():
         sent_at=datetime.utcnow(),
     )
     db.session.add(period_report)
+    db.session.flush()
+    notify_pdhs_for_area(
+        period_report.district_id,
+        title="RDHS report submitted",
+        message=f"RDHS {period_report.period_type} report {period_report.period_label} was submitted to PDHS.",
+        type="report_submitted",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_report_id=period_report.id,
+        metadata={"report_kind": "rdhs_period", "district_id": period_report.district_id},
+    )
     db.session.commit()
     return jsonify({
         "status": "success",
@@ -821,6 +813,17 @@ def send_report_to_pdhs(report_id: int):
         sent_at=datetime.utcnow(),
     )
     db.session.add(period_report)
+    db.session.flush()
+    notify_pdhs_for_area(
+        report.district_id,
+        title="RDHS report submitted",
+        message=f"RDHS monthly report for {report.month}/{report.report_year} was submitted to PDHS.",
+        type="report_submitted",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_report_id=period_report.id,
+        metadata={"report_kind": "rdhs", "district_id": report.district_id},
+    )
     db.session.commit()
     return jsonify({"status": "success", "report": report.to_dict()}), 200
 

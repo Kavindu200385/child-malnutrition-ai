@@ -72,6 +72,15 @@ export const transfersAPI = {
   reject: (transferId, data) => api.post(`/api/transfers/${transferId}/reject`, data),
 };
 
+// Notifications API
+export const notificationsAPI = {
+  list: (params) => api.get('/api/notifications', { params }),
+  unreadCount: () => api.get('/api/notifications/unread-count'),
+  markRead: (notificationId) => api.post(`/api/notifications/${notificationId}/read`),
+  markAllRead: () => api.post('/api/notifications/mark-all-read'),
+  delete: (notificationId) => api.delete(`/api/notifications/${notificationId}`),
+};
+
 // Worker Management API (Health Ministry only)
 export const workersAPI = {
   list: (params) => api.get('/api/workers', { params }),

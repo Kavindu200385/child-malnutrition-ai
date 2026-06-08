@@ -17,6 +17,7 @@ import { PdhsChildrenView } from './admin/PdhsChildrenView';
 import { PdhsAreaView } from './admin/PdhsAreaView';
 import { MinistryChildrenView } from './admin/MinistryChildrenView';
 import { SignPageUploadView } from './admin/SignPageUploadView';
+import { NotificationBell } from './notifications/NotificationBell';
 import {
   LayoutDashboard,
   Users,
@@ -120,9 +121,10 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                         ? 'RDHS (District Admin)'
                         : user.role === 'pdhs'
                           ? 'PDHS (Province Admin)'
-                          : 'Administrator'}
+                  : 'Administrator'}
                 </p>
               </div>
+              <NotificationBell />
               <button
                 onClick={onLogout}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 rounded-lg transition-colors"

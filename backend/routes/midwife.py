@@ -8,6 +8,7 @@ Strict midwife-only functionality:
 - Escalate to MOH
 - Generate reports
 """
+from functools import wraps
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 from datetime import datetime, timedelta
@@ -27,6 +28,13 @@ from backend.utils.midwife_helpers import (
     can_midwife_access_child
 )
 from backend.utils.audit import log_audit
+from backend.services.notification_service import (
+    PRIORITY_CRITICAL,
+    PRIORITY_HIGH,
+    PRIORITY_NORMAL,
+    notify_moh_area,
+    notify_phm_area,
+)
 from backend.ai.predictor import (
     build_future_prediction_payload,
     predict_current_risk,
@@ -53,7 +61,8 @@ def _normalize_ai_risk(label: str) -> str:
 
 
 def midwife_required(f):
-    """Decorator to ensure user has MIDWIFE role"""
+    """Decorator: midwife role + active PHM area assignment required."""
+    @wraps(f)
     @jwt_required()
     def decorated_function(*args, **kwargs):
         user = get_current_user()
@@ -62,21 +71,18 @@ def midwife_required(f):
                 "status": "error",
                 "message": "Access denied. Midwife role required."
             }), 403
-        # Check if user has PHM area assignment (via worker area mapping)
         from backend.models_hierarchical import WorkerAreaMapping, AreaLevel
         phm_mapping = db.session.query(WorkerAreaMapping).join(Area).filter(
             WorkerAreaMapping.user_id == user.id,
             WorkerAreaMapping.is_active == True,
             Area.level == AreaLevel.PHM.value
         ).first()
-        
         if not phm_mapping:
             return jsonify({
                 "status": "error",
                 "message": "User not assigned to a PHM area"
             }), 400
         return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
     return decorated_function
 
 
@@ -193,6 +199,16 @@ def assign_child(child_id: int):
     child.is_draft = False
 
     db.session.flush()
+
+    notify_phm_area(
+        child.phm_area_id,
+        title="Child assigned to PHM area",
+        message=f"{child.child_unique_id or child.child_id} was assigned to your PHM area.",
+        type="child_assigned",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_child_id=child.id,
+    )
 
     log_audit(
         action="UPDATE",
@@ -397,6 +413,18 @@ def add_measurement():
 
     db.session.add(measurement)
     db.session.flush()
+
+    if current_risk in (RiskLevel.MAM.value, RiskLevel.SAM.value):
+        notify_phm_area(
+            child.phm_area_id,
+            title="High-risk child follow-up",
+            message=f"{child.child_unique_id or child.child_id} is now classified as {current_risk}.",
+            type="ai_high_risk",
+            priority=PRIORITY_CRITICAL if current_risk == RiskLevel.SAM.value else PRIORITY_HIGH,
+            actor_user_id=user.id,
+            related_child_id=child.id,
+            metadata={"risk_level": current_risk, "measurement_id": measurement.id},
+        )
 
     # ── Create Visit record so visit history is populated ──────────────────
     visit = Visit(
@@ -675,6 +703,18 @@ def submit_clinic_report():
     report.submitted_at = datetime.now()
     
     db.session.flush()
+
+    phm_area = db.session.get(Area, phm_area_id)
+    notify_moh_area(
+        phm_area.parent_id if phm_area else None,
+        title="Clinic report submitted",
+        message=f"PHM clinic report for {report_month}/{report_year} is ready for MOH review.",
+        type="report_submitted",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_report_id=report.id,
+        metadata={"report_kind": "clinic", "phm_area_id": phm_area_id},
+    )
     
     log_audit(
         action="CREATE" if not existing else "UPDATE",

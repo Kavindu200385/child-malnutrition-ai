@@ -1,6 +1,12 @@
 # Flask Backend Dependencies
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
 flask>=2.3.0
 flask-cors>=4.0.0
+flask-limiter>=3.0.0
 python-dotenv>=1.0.0
 Flask-SQLAlchemy>=3.1.1
 Flask-JWT-Extended>=4.6.0
@@ -10,6 +16,9 @@ PyMySQL>=1.1.0
 # AI/ML Dependencies
 pandas>=1.5.0
 numpy>=1.23.0
-scikit-learn>=1.2.0
+# Pinned to match training environment — models were trained on 1.6.1.
+# Do NOT upgrade without retraining both models (current_risk_model.joblib,
+# future_prediction_model.joblib) on the new version.
+scikit-learn==1.6.1
 joblib>=1.2.0
-xgboost>=1.7.0
+xgboost>=2.0.0

@@ -30,6 +30,7 @@ from backend.models_hierarchical import (
     RiskLevel,
 )
 from backend.utils.audit import log_audit
+from backend.services.notification_service import PRIORITY_NORMAL, notify_ministry
 
 bp = Blueprint("pdhs", __name__, url_prefix="/api/pdhs")
 
@@ -59,27 +60,7 @@ def _pdhs_context():
     return user, (province_ids, child_area_ids), None
 
 
-def _risk_sam(r):
-    v = (r or "").upper()
-    return v in ("SAM", "CRITICAL")
-
-
-def _risk_mam(r):
-    v = (r or "").upper()
-    return v in ("MAM", "MODERATE", "HIGH")
-
-
-def _risk_normal(r):
-    return (r or "").upper() == "NORMAL"
-
-
-def _display_risk_level(child):
-    """Use birth risk when no clinic measurement yet, else current risk."""
-    birth = (child.birth_risk_level or "").upper()
-    current = (child.current_risk_level or "").upper()
-    if not child.last_risk_update and birth:
-        return birth
-    return current or birth or "NORMAL"
+from backend.utils.risk_utils import is_sam as _risk_sam, is_mam as _risk_mam, is_normal as _risk_normal, display_risk_level as _display_risk_level
 
 
 def _province_children(province_ids, child_area_ids):
@@ -1062,5 +1043,14 @@ def send_report_to_ministry(report_id: int):
 
     report.sent_to_ministry = True
     report.sent_at = datetime.utcnow()
+    notify_ministry(
+        title="PDHS report submitted",
+        message=f"PDHS monthly report for {report.month}/{report.report_year} was submitted to Health Ministry.",
+        type="report_submitted",
+        priority=PRIORITY_NORMAL,
+        actor_user_id=user.id,
+        related_report_id=report.id,
+        metadata={"report_kind": "pdhs", "province_id": report.province_id},
+    )
     db.session.commit()
     return jsonify({"status": "success", "report": report.to_dict()}), 200

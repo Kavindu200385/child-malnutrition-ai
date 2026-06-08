@@ -1,13 +1,14 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token
 
-from backend.extensions import db
+from backend.extensions import db, limiter
 from backend.models import User
 
 bp = Blueprint("auth_jwt", __name__, url_prefix="/api/auth")
 
 
 @bp.route("/login", methods=["POST"])
+@limiter.limit("10 per minute; 50 per hour")
 def login():
     data = request.get_json() or {}
     username = data.get("username")

@@ -61,3 +61,8 @@ build/
 New models/
 backend/models/
 models_backup/
+
+# Credential and secret files — never commit these
+ROLE_CREDENTIALS.md
+*credentials*.md
+*secrets*.md

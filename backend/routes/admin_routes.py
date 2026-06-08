@@ -21,22 +21,9 @@ from backend.models_hierarchical import (
     PdhsReport,
 )
 from backend.utils.audit import log_audit
+from backend.utils.risk_utils import is_sam as _risk_sam, is_mam as _risk_mam, is_normal as _risk_normal
 
 bp = Blueprint("admin", __name__, url_prefix="/api/admin")
-
-
-def _risk_sam(r):
-    v = (r or "").upper()
-    return v in ("SAM", "CRITICAL")
-
-
-def _risk_mam(r):
-    v = (r or "").upper()
-    return v in ("MAM", "MODERATE", "HIGH")
-
-
-def _risk_normal(r):
-    return (r or "").upper() == "NORMAL"
 
 
 def _get_child_area_ids(area_id: int) -> list:

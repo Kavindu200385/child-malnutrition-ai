@@ -1,131 +1,59 @@
-# CMRAS - Role-Based Access Control & Demo Credentials
+# CMRAS — Role System Overview
+
+> ⚠️ **SECURITY NOTE:** This file previously contained plaintext demo passwords and has been sanitized.
+> Actual credentials are managed via the database and environment variables.
+> Do NOT commit real passwords to this file or any tracked file.
+> Demo/test account passwords must be set by an administrator after deployment.
+
+---
 
 ## Role System Overview
 
-The system now supports **4 roles** with different access levels:
+The system supports **8 roles** with different access levels:
 
-### 1. **Admin** (Full System Access)
-- **Access**: All features including:
-  - Overview & Dashboard
-  - User Management
-  - System Analytics
-  - Settings & Configuration
-  - Report Generation
-  - Child Monitoring (full CRUD)
-  - Data Management Tools
-
-### 2. **Midwife** (Child Monitoring)
-- **Access**: Child monitoring features:
-  - View children list
-  - Create/Update child records
-  - Add measurements
-  - View growth charts
-  - Generate health reports
-  - Risk assessment & analysis
-
-### 3. **MOH Doctor** (Child Monitoring)
-- **Access**: Same as Midwife - Child monitoring features:
-  - View children list
-  - Create/Update child records
-  - Add measurements
-  - View growth charts
-  - Generate health reports
-  - Risk assessment & analysis
-
-### 4. **Nutritionist** (Child Monitoring)
-- **Access**: Same as Midwife and MOH Doctor - Child monitoring features:
-  - View children list
-  - Create/Update child records
-  - Add measurements
-  - View growth charts
-  - Generate health reports
-  - Risk assessment & analysis
+| Role | Description |
+|---|---|
+| `health_ministry` | National admin — full system access |
+| `pdhs` | Province-level oversight (PDHS officer) |
+| `rdhs` | District-level oversight (RDHS officer) |
+| `moh` / `amoh` | MOH area supervisor — manages midwives, reviews escalations |
+| `midwife` | PHM field worker — records measurements, escalates cases |
+| `nutritionist` | Hospital specialist — accepts SAM referrals |
+| `hospital` | Hospital staff — birth registration |
 
 ---
 
-## Demo Credentials
+## Superadmin Account
 
-### Admin Users
+The superadmin account (`health_ministry` role, `is_protected=True`) is seeded at startup.
 
-| Username | Password | Name | Clinic | District |
-|---------|----------|------|--------|----------|
-| `admin` | `admin123` | System Administrator | - | - |
-| `admin2` | `admin123` | Dr. Priyanka Wickramasinghe | National Health Office | Colombo |
+**Username** and **password** are read from environment variables:
+```
+SUPERADMIN_USERNAME=superadmin    # default if not set: superadmin
+SUPERADMIN_PASSWORD=<your-secure-password>   # REQUIRED — no default
+```
 
-### Midwife Users
-
-| Username | Password | Name | Clinic | District |
-|---------|----------|------|--------|----------|
-| `midwife1` | `midwife123` | Kamani Perera | Colombo PHM Clinic | Colombo |
-| `midwife2` | `midwife123` | Nadeesha Silva | Gampaha MOH Office | Gampaha |
-| `midwife3` | `midwife123` | Sanduni Fernando | Kandy Health Center | Kandy |
-
-### MOH Doctor Users
-
-| Username | Password | Name | Clinic | District |
-|---------|----------|------|--------|----------|
-| `moh.doctor1` | `moh123` | Dr. Nimal Perera | Colombo PHM Clinic | Colombo |
-| `moh.doctor2` | `moh123` | Dr. Kasun Fernando | Gampaha MOH Office | Gampaha |
-| `moh.doctor3` | `moh123` | Dr. Malini Rajapakse | Kandy Health Center | Kandy |
-
-### Nutritionist Users
-
-| Username | Password | Name | Clinic | District |
-|---------|----------|------|--------|----------|
-| `nutritionist1` | `nutrition123` | Tharushi Jayasuriya | Colombo PHM Clinic | Colombo |
-| `nutritionist2` | `nutrition123` | Dilini Perera | Gampaha MOH Office | Gampaha |
-| `nutritionist3` | `nutrition123` | Chamari Silva | Kandy Health Center | Kandy |
+Set these in `backend/.env` (never commit that file).
 
 ---
 
-## Quick Login Examples
+## Creating Demo Users
 
-### Admin Access
-```
-Username: admin
-Password: admin123
-```
-
-### Midwife Access
-```
-Username: midwife1
-Password: midwife123
-```
-
-### MOH Doctor Access
-```
-Username: moh.doctor1
-Password: moh123
-```
-
-### Nutritionist Access
-```
-Username: nutritionist1
-Password: nutrition123
-```
+Use the admin dashboard (Health Ministry role) to create users for each role and assign them to areas.
+Alternatively, run the seed scripts in `backend/scripts/` for local development.
 
 ---
 
-## API Endpoint Access
+## API Endpoints by Role
 
-### Admin-Only Endpoints
-- `POST /api/admin/reset-dummy-data` - Reset dummy data
-- `POST /api/admin/recompute-visits` - Recompute all visits
-- `DELETE /api/children/<child_id>` - Delete child record
+### Admin-Only
+- `POST /api/admin/reset-dummy-data`
+- `POST /api/admin/recompute-visits`
+- `POST /api/admin/recompute-measurements`
 
-### Child Monitoring Endpoints (Admin, Midwife, MOH Doctor, Nutritionist)
-- `GET /api/children` - List all children
-- `POST /api/children` - Create new child
-- `GET /api/children/<child_id>` - Get child details
-- `PUT /api/children/<child_id>` - Update child
-- `GET /api/children/<child_id>/visits` - Get child visits
-- `POST /api/analysis/analyze` - Analyze child risk
-
----
-
-## Notes
-
-- All demo users are automatically created when the backend starts
-- Passwords are hashed using Werkzeug's password hashing
-- Roles are case-sensitive: `admin`, `midwife`, `moh_doctor`, `nutritionist`
-- Old `health_worker` role has been removed and replaced with the new role system
+### Child Monitoring (midwife, moh, amoh, nutritionist, health_ministry)
+- `GET /api/children` — list children (role-scoped)
+- `POST /api/children` — register child
+- `POST /api/midwife/measurement/add` — add measurement (midwife)
+- `POST /api/moh/measurement/add` — add measurement (MOH)
+- `POST /api/analysis/analyze` — AI risk analysis

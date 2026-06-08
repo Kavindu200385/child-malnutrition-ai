@@ -126,9 +126,7 @@ def recompute_all_measurements(batch_size: int = 200) -> dict:
                     continue
 
                 mdate = m.measurement_date or datetime.utcnow()
-                age_months = int(
-                    (mdate.date() - child.dob).days / 30.44
-                )
+                age_months = (mdate.date() - child.dob).days // 30
                 sex = child.gender or "male"
 
                 current = predict_current_risk({

@@ -1236,6 +1236,68 @@ class AreaChangeRequest(db.Model):
 
 
 # ============================================================================
+# NOTIFICATION MODEL
+# ============================================================================
+
+class Notification(db.Model):
+    """
+    Per-user notifications for workflow events.
+    Role is stored as a recipient-role snapshot so read/unread stays per user.
+    """
+    __tablename__ = "notifications"
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    type = db.Column(db.String(50), nullable=False, index=True)
+    priority = db.Column(db.String(20), nullable=False, default="normal", index=True)
+
+    user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
+    role = db.Column(db.String(32), nullable=True, index=True)
+    actor_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    related_child_id = db.Column(db.Integer, ForeignKey("children.id"), nullable=True, index=True)
+    related_referral_id = db.Column(db.Integer, ForeignKey("child_referrals.id"), nullable=True, index=True)
+    related_escalation_id = db.Column(db.Integer, ForeignKey("child_escalations.id"), nullable=True, index=True)
+    related_transfer_id = db.Column(db.Integer, ForeignKey("child_transfers.id"), nullable=True, index=True)
+    related_report_id = db.Column(db.Integer, nullable=True, index=True)
+
+    metadata_json = db.Column("metadata", db.JSON, nullable=True)
+    is_read = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    read_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    actor = relationship("User", foreign_keys=[actor_user_id])
+    related_child = relationship("Child", foreign_keys=[related_child_id])
+    related_referral = relationship("ChildReferral", foreign_keys=[related_referral_id])
+    related_escalation = relationship("ChildEscalation", foreign_keys=[related_escalation_id])
+    related_transfer = relationship("ChildTransfer", foreign_keys=[related_transfer_id])
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "message": self.message,
+            "type": self.type,
+            "priority": self.priority,
+            "user_id": self.user_id,
+            "role": self.role,
+            "actor_user_id": self.actor_user_id,
+            "actor": self.actor.to_dict() if self.actor else None,
+            "related_child_id": self.related_child_id,
+            "related_referral_id": self.related_referral_id,
+            "related_escalation_id": self.related_escalation_id,
+            "related_transfer_id": self.related_transfer_id,
+            "related_report_id": self.related_report_id,
+            "metadata": self.metadata_json,
+            "is_read": self.is_read,
+            "read_at": self.read_at.isoformat() if self.read_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ============================================================================
 # AUDIT LOG MODEL
 # ============================================================================
 

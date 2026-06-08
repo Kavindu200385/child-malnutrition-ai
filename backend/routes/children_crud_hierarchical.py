@@ -6,6 +6,8 @@ from datetime import datetime
 from decimal import Decimal
 from flask import Blueprint, jsonify, request
 
+from flask_jwt_extended import jwt_required
+
 from backend.auth_utils_hierarchical import (
     get_current_user,
     user_can_access_child,
@@ -228,6 +230,7 @@ def create_child():
 
 
 @bp.route("", methods=["GET"])
+@jwt_required()
 def list_children():
     """
     List children based on role and area hierarchy:
