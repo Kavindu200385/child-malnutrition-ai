@@ -1,30 +1,153 @@
-import React, { useState } from 'react';
-import { Save, Database, Bell, Shield, Globe, Download, Upload, Brain } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { Bell, Brain, Database, Download, Globe, Save, Shield, Upload } from 'lucide-react';
 import { adminAPI } from '../../services/api';
 
+type RecomputeStatus = 'idle' | 'running' | 'done' | 'error';
+
+interface SettingsState {
+  system_language: string;
+  timezone: string;
+  date_format: string;
+  two_factor_auth_required: boolean;
+  session_timeout_minutes: number;
+  password_policy: string;
+  email_notifications: boolean;
+  sms_alerts: boolean;
+  alert_recipients: string;
+  automatic_daily_backup: boolean;
+}
+
+const defaults: SettingsState = {
+  system_language: 'en',
+  timezone: 'asia/colombo',
+  date_format: 'yyyy-mm-dd',
+  two_factor_auth_required: true,
+  session_timeout_minutes: 30,
+  password_policy: 'standard',
+  email_notifications: true,
+  sms_alerts: false,
+  alert_recipients: '',
+  automatic_daily_backup: false,
+};
+
+const buttonBaseClass = 'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const inputClass = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent';
+
+const toBool = (value: unknown, fallback = false) => {
+  if (value === true || value === 'true' || value === '1' || value === 1) return true;
+  if (value === false || value === 'false' || value === '0' || value === 0) return false;
+  return fallback;
+};
+
+const SettingSwitch = ({
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) => (
+  <label className={`relative inline-flex items-center ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+    <input
+      type="checkbox"
+      checked={checked}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.checked)}
+      className="sr-only peer"
+    />
+    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
+  </label>
+);
+
 export function SystemSettings() {
-  const [autoBackup, setAutoBackup] = useState(true);
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [smsAlerts, setSmsAlerts] = useState(false);
-  const [twoFactorAuth, setTwoFactorAuth] = useState(true);
-  const [language, setLanguage] = useState('en');
-  const [recomputeStatus, setRecomputeStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [settings, setSettings] = useState<SettingsState>(defaults);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [recomputeStatus, setRecomputeStatus] = useState<RecomputeStatus>('idle');
   const [recomputeResult, setRecomputeResult] = useState<{ updated?: number; total?: number; errors?: number } | null>(null);
 
-  const handleSaveSettings = () => {
-    alert('Settings saved successfully!');
+  const settingsPayload = useMemo(
+    () => [
+      { key: 'system_language', value: settings.system_language },
+      { key: 'timezone', value: settings.timezone },
+      { key: 'date_format', value: settings.date_format },
+      { key: 'two_factor_auth_required', value: String(settings.two_factor_auth_required) },
+      { key: 'session_timeout_minutes', value: String(settings.session_timeout_minutes) },
+      { key: 'password_policy', value: settings.password_policy },
+      { key: 'email_notifications', value: String(settings.email_notifications) },
+      { key: 'sms_alerts', value: String(settings.sms_alerts) },
+      { key: 'alert_recipients', value: settings.alert_recipients },
+      { key: 'automatic_daily_backup', value: String(settings.automatic_daily_backup) },
+    ],
+    [settings],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSettings = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await adminAPI.getSettings();
+        const loaded = { ...defaults };
+        const rows = res.data?.settings || [];
+        rows.forEach((row: { key: keyof SettingsState; value: string }) => {
+          if (!(row.key in loaded)) return;
+          if (['two_factor_auth_required', 'email_notifications', 'sms_alerts', 'automatic_daily_backup'].includes(row.key)) {
+            (loaded as any)[row.key] = toBool(row.value, (defaults as any)[row.key]);
+          } else if (row.key === 'session_timeout_minutes') {
+            loaded.session_timeout_minutes = Number(row.value) || defaults.session_timeout_minutes;
+          } else {
+            (loaded as any)[row.key] = row.value ?? (defaults as any)[row.key];
+          }
+        });
+        if (!cancelled) setSettings(loaded);
+      } catch (err: any) {
+        if (!cancelled) setError(err.response?.data?.message || 'Failed to load system settings');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    loadSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updateSetting = <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => {
+    setSettings((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleBackupNow = () => {
-    alert('Database backup initiated...\n\nThis would create a full system backup including:\n• User data\n• Child records\n• Measurements\n• Reports\n• System configuration');
+  const handleSaveSettings = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      await adminAPI.updateSettings({ settings: settingsPayload });
+      setLastSavedAt(new Date().toLocaleString());
+      toast.success('System settings saved');
+    } catch (err: any) {
+      const message = err.response?.data?.message || 'Failed to save system settings';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleExportData = () => {
-    alert('Data export initiated...\n\nGenerating CSV export with all system data.');
-  };
-
-  const handleImportData = () => {
-    alert('This would open a file picker to import data from CSV/Excel files.');
+  const handleExportSettings = () => {
+    const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cmras-system-settings-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleRecomputePredictions = async () => {
@@ -34,273 +157,223 @@ export function SystemSettings() {
       const res = await adminAPI.recomputeMeasurements();
       setRecomputeResult(res.data?.result ?? res.data);
       setRecomputeStatus('done');
-    } catch {
+      toast.success('AI predictions recomputed');
+    } catch (err: any) {
       setRecomputeStatus('error');
+      toast.error(err.response?.data?.message || 'Failed to recompute predictions');
     }
   };
 
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-900">System Settings</h2>
+        <div className="bg-white rounded-lg shadow p-12 text-center">
+          <p className="text-gray-500">Loading settings...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">System Settings</h2>
-        <p className="text-gray-600 mt-1">Configure system preferences and security</p>
-      </div>
-
-      {/* General Settings */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center gap-2">
-            <Globe className="w-5 h-5 text-purple-600" />
-            <h3 className="text-lg font-bold text-gray-900">General Settings</h3>
-          </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">System Settings</h2>
+          <p className="text-gray-600 mt-1">Configure system preferences, notifications, security, and maintenance.</p>
+          {lastSavedAt && <p className="text-xs text-gray-500 mt-1">Last saved: {lastSavedAt}</p>}
         </div>
-        <div className="p-6 space-y-4">
-          <div>
-            <label htmlFor="language" className="block text-sm font-medium text-gray-700 mb-2">
-              System Language
-            </label>
-            <select
-              id="language"
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className="w-full max-w-xs px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="en">English</option>
-              <option value="si">Sinhala (සිංහල)</option>
-              <option value="ta">Tamil (தமிழ்)</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="timezone" className="block text-sm font-medium text-gray-700 mb-2">
-              Timezone
-            </label>
-            <select
-              id="timezone"
-              className="w-full max-w-xs px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="asia/colombo">Asia/Colombo (UTC+5:30)</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="date-format" className="block text-sm font-medium text-gray-700 mb-2">
-              Date Format
-            </label>
-            <select
-              id="date-format"
-              className="w-full max-w-xs px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="yyyy-mm-dd">YYYY-MM-DD</option>
-              <option value="dd-mm-yyyy">DD-MM-YYYY</option>
-              <option value="mm-dd-yyyy">MM-DD-YYYY</option>
-            </select>
-          </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={handleExportSettings} className={`${buttonBaseClass} bg-gray-100 text-gray-700 hover:bg-gray-200`}>
+            <Download className="w-4 h-4" />
+            Export Settings
+          </button>
+          <button onClick={handleSaveSettings} disabled={saving} className={`${buttonBaseClass} bg-blue-600 text-white hover:bg-blue-700`}>
+            <Save className="w-4 h-4" />
+            {saving ? 'Saving...' : 'Save Settings'}
+          </button>
         </div>
       </div>
 
-      {/* Security Settings */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-purple-600" />
-            <h3 className="text-lg font-bold text-gray-900">Security Settings</h3>
-          </div>
+      {error && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4">
+          <p className="text-sm font-medium text-red-700">{error}</p>
         </div>
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium text-gray-900">Two-Factor Authentication</p>
-              <p className="text-sm text-gray-600">Require 2FA for all admin accounts</p>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <Globe className="w-5 h-5 text-blue-600" />
+              <h3 className="text-lg font-bold text-gray-900">General Settings</h3>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={twoFactorAuth}
-                onChange={(e) => setTwoFactorAuth(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+          </div>
+          <div className="p-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <label className="block text-sm font-medium text-gray-700">
+              System Language
+              <select value={settings.system_language} onChange={(e) => updateSetting('system_language', e.target.value)} className={`${inputClass} mt-2`}>
+                <option value="en">English</option>
+                <option value="si">Sinhala</option>
+                <option value="ta">Tamil</option>
+              </select>
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Timezone
+              <select value={settings.timezone} onChange={(e) => updateSetting('timezone', e.target.value)} className={`${inputClass} mt-2`}>
+                <option value="asia/colombo">Asia/Colombo (UTC+5:30)</option>
+              </select>
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Date Format
+              <select value={settings.date_format} onChange={(e) => updateSetting('date_format', e.target.value)} className={`${inputClass} mt-2`}>
+                <option value="yyyy-mm-dd">YYYY-MM-DD</option>
+                <option value="dd-mm-yyyy">DD-MM-YYYY</option>
+                <option value="mm-dd-yyyy">MM-DD-YYYY</option>
+              </select>
             </label>
           </div>
+        </div>
 
-          <div>
-            <label htmlFor="session-timeout" className="block text-sm font-medium text-gray-700 mb-2">
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-blue-600" />
+              <h3 className="text-lg font-bold text-gray-900">Security Settings</h3>
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-medium text-gray-900">Two-Factor Authentication</p>
+                <p className="text-sm text-gray-600">Store the policy flag for admin account enforcement.</p>
+              </div>
+              <SettingSwitch checked={settings.two_factor_auth_required} onChange={(value) => updateSetting('two_factor_auth_required', value)} />
+            </div>
+            <label className="block text-sm font-medium text-gray-700">
               Session Timeout (minutes)
+              <input
+                type="number"
+                min={5}
+                max={240}
+                value={settings.session_timeout_minutes}
+                onChange={(e) => updateSetting('session_timeout_minutes', Number(e.target.value))}
+                className={`${inputClass} mt-2 max-w-xs`}
+              />
             </label>
-            <input
-              id="session-timeout"
-              type="number"
-              defaultValue={30}
-              className="w-full max-w-xs px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="password-policy" className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700">
               Password Policy
+              <select value={settings.password_policy} onChange={(e) => updateSetting('password_policy', e.target.value)} className={`${inputClass} mt-2 max-w-xs`}>
+                <option value="standard">Standard (8+ characters)</option>
+                <option value="strong">Strong (12+ characters, mixed case, numbers, symbols)</option>
+                <option value="very-strong">Very Strong (16+ characters, all requirements)</option>
+              </select>
             </label>
-            <select
-              id="password-policy"
-              className="w-full max-w-xs px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="standard">Standard (8+ characters)</option>
-              <option value="strong">Strong (12+ characters, mixed case, numbers, symbols)</option>
-              <option value="very-strong">Very Strong (16+ characters, all requirements)</option>
-            </select>
           </div>
         </div>
       </div>
 
-      {/* Notification Settings */}
       <div className="bg-white rounded-lg shadow">
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center gap-2">
-            <Bell className="w-5 h-5 text-purple-600" />
+            <Bell className="w-5 h-5 text-blue-600" />
             <h3 className="text-lg font-bold text-gray-900">Notification Settings</h3>
           </div>
         </div>
         <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium text-gray-900">Email Notifications</p>
-              <p className="text-sm text-gray-600">Send email alerts for critical events</p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4">
+              <div>
+                <p className="font-medium text-gray-900">Email Notifications</p>
+                <p className="text-sm text-gray-600">Policy flag for critical event emails.</p>
+              </div>
+              <SettingSwitch checked={settings.email_notifications} onChange={(value) => updateSetting('email_notifications', value)} />
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={emailNotifications}
-                onChange={(e) => setEmailNotifications(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-            </label>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium text-gray-900">SMS Alerts</p>
-              <p className="text-sm text-gray-600">Send SMS for SAM case alerts</p>
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4">
+              <div>
+                <p className="font-medium text-gray-900">SMS Alerts</p>
+                <p className="text-sm text-gray-600">Policy flag for SAM case SMS alerts.</p>
+              </div>
+              <SettingSwitch checked={settings.sms_alerts} onChange={(value) => updateSetting('sms_alerts', value)} />
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={smsAlerts}
-                onChange={(e) => setSmsAlerts(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-            </label>
           </div>
-
-          <div>
-            <label htmlFor="alert-recipients" className="block text-sm font-medium text-gray-700 mb-2">
-              Alert Recipients (email addresses, comma-separated)
-            </label>
+          <label className="block text-sm font-medium text-gray-700">
+            Alert Recipients
             <textarea
-              id="alert-recipients"
               rows={3}
-              defaultValue="admin@health.gov.lk, director@health.gov.lk"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+              value={settings.alert_recipients}
+              onChange={(e) => updateSetting('alert_recipients', e.target.value)}
+              placeholder="admin@health.gov.lk, director@health.gov.lk"
+              className={`${inputClass} mt-2 resize-none`}
             />
-          </div>
+          </label>
         </div>
       </div>
 
-      {/* Database & Backup */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center gap-2">
-            <Database className="w-5 h-5 text-purple-600" />
-            <h3 className="text-lg font-bold text-gray-900">Database & Backup</h3>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-blue-600" />
+              <h3 className="text-lg font-bold text-gray-900">Database & Backup</h3>
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-200 p-4">
+              <div>
+                <p className="font-medium text-gray-900">Automatic Daily Backup</p>
+                <p className="text-sm text-gray-600">Stores the backup preference. A backup worker must be configured on the server.</p>
+              </div>
+              <SettingSwitch checked={settings.automatic_daily_backup} onChange={(value) => updateSetting('automatic_daily_backup', value)} />
+            </div>
+            <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700">
+              <p><strong>Backup Service:</strong> Not configured in this deployment</p>
+              <p><strong>Last Backup:</strong> Not available</p>
+              <p><strong>Backup Location:</strong> Configure on server</p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button disabled className={`${buttonBaseClass} bg-gray-100 text-gray-500`}>
+                <Database className="w-4 h-4" />
+                Backup Now
+              </button>
+              <button disabled className={`${buttonBaseClass} bg-gray-100 text-gray-500`}>
+                <Upload className="w-4 h-4" />
+                Import Data
+              </button>
+            </div>
           </div>
         </div>
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium text-gray-900">Automatic Daily Backup</p>
-              <p className="text-sm text-gray-600">Create daily backups at 2:00 AM</p>
+
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <Brain className="w-5 h-5 text-blue-600" />
+              <h3 className="text-lg font-bold text-gray-900">AI Prediction Maintenance</h3>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoBackup}
-                onChange={(e) => setAutoBackup(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-            </label>
           </div>
-
-          <div>
-            <p className="text-sm text-gray-700 mb-3">
-              <strong>Last Backup:</strong> January 13, 2025 at 2:00 AM
+          <div className="p-6 space-y-4">
+            <p className="text-sm text-gray-600">
+              Recompute Z-scores and 2-month risk predictions for all clinic measurements if dashboard prediction counts look stale.
             </p>
-            <p className="text-sm text-gray-700 mb-3">
-              <strong>Backup Size:</strong> 1.8 GB
-            </p>
-            <p className="text-sm text-gray-700 mb-3">
-              <strong>Backup Location:</strong> /backups/cmras/
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={handleBackupNow}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
-            >
-              <Database className="w-4 h-4" />
-              Backup Now
-            </button>
-            <button
-              onClick={handleExportData}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Export Data
-            </button>
-            <button
-              onClick={handleImportData}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              Import Data
-            </button>
-          </div>
-
-          {/* AI Prediction Recompute */}
-          <div className="mt-4 border-t border-gray-200 pt-4">
-            <div className="flex items-center gap-2 mb-1">
-              <Brain className="w-4 h-4 text-purple-600" />
-              <p className="font-medium text-gray-900">Re-run AI Predictions</p>
-            </div>
-            <p className="text-sm text-gray-600 mb-3">
-              Recomputes Z-scores and 2-month risk predictions for all clinic measurements.
-              Run this if dashboard predicted-case counts look incorrect.
-            </p>
-            <button
-              onClick={handleRecomputePredictions}
-              disabled={recomputeStatus === 'running'}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white rounded-lg font-medium transition-colors"
-            >
+            <button onClick={handleRecomputePredictions} disabled={recomputeStatus === 'running'} className={`${buttonBaseClass} bg-blue-600 text-white hover:bg-blue-700`}>
               <Brain className="w-4 h-4" />
-              {recomputeStatus === 'running' ? 'Running…' : 'Re-run Now'}
+              {recomputeStatus === 'running' ? 'Running...' : 'Re-run Predictions'}
             </button>
             {recomputeStatus === 'done' && recomputeResult && (
-              <p className="mt-2 text-sm text-green-700">
-                Done — updated {recomputeResult.updated} / {recomputeResult.total} measurements
+              <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+                Done. Updated {recomputeResult.updated ?? 0} / {recomputeResult.total ?? 0} measurements
                 {recomputeResult.errors ? ` (${recomputeResult.errors} errors)` : ''}.
-              </p>
+              </div>
             )}
             {recomputeStatus === 'error' && (
-              <p className="mt-2 text-sm text-red-600">Failed. Check server logs.</p>
+              <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                Failed to recompute predictions. Check server logs.
+              </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* WHO Standards Configuration */}
       <div className="bg-white rounded-lg shadow">
         <div className="p-6 border-b border-gray-200">
           <h3 className="text-lg font-bold text-gray-900">WHO Standards Configuration</h3>
@@ -314,36 +387,21 @@ export function SystemSettings() {
               Z-score calculations are based on WHO reference tables for weight-for-age, height-for-age, and weight-for-height.
             </p>
           </div>
-
-          <div>
-            <h4 className="font-medium text-gray-900 mb-2">Classification Thresholds</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="border border-gray-200 rounded-lg p-3">
-                <p className="text-sm font-medium text-green-700">Normal</p>
-                <p className="text-xs text-gray-600 mt-1">Z-score ≥ -2</p>
-              </div>
-              <div className="border border-gray-200 rounded-lg p-3">
-                <p className="text-sm font-medium text-yellow-700">MAM</p>
-                <p className="text-xs text-gray-600 mt-1">-3 ≤ Z-score &lt; -2</p>
-              </div>
-              <div className="border border-gray-200 rounded-lg p-3">
-                <p className="text-sm font-medium text-red-700">SAM</p>
-                <p className="text-xs text-gray-600 mt-1">Z-score &lt; -3</p>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="border border-gray-200 rounded-lg p-3">
+              <p className="text-sm font-medium text-green-700">Normal</p>
+              <p className="text-xs text-gray-600 mt-1">Z-score &gt;= -2</p>
+            </div>
+            <div className="border border-gray-200 rounded-lg p-3">
+              <p className="text-sm font-medium text-yellow-700">MAM</p>
+              <p className="text-xs text-gray-600 mt-1">-3 &lt;= Z-score &lt; -2</p>
+            </div>
+            <div className="border border-gray-200 rounded-lg p-3">
+              <p className="text-sm font-medium text-red-700">SAM</p>
+              <p className="text-xs text-gray-600 mt-1">Z-score &lt; -3</p>
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Save Button */}
-      <div className="flex justify-end">
-        <button
-          onClick={handleSaveSettings}
-          className="flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors"
-        >
-          <Save className="w-4 h-4" />
-          Save All Settings
-        </button>
       </div>
     </div>
   );

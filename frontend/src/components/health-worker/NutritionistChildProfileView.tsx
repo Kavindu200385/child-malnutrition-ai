@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  ArrowLeft, User, PlusCircle, AlertTriangle, Activity, Calendar, Phone, MapPin, TrendingUp,
+  ArrowLeft, User, PlusCircle, AlertTriangle, Activity, Calendar, Phone, MapPin, TrendingUp, Mail,
 } from 'lucide-react';
 import { nutritionistAPI } from '../../services/api';
 import { formatDate } from '../../utils/formatDate';
@@ -299,6 +299,13 @@ export function NutritionistChildProfileView({ childId, onBack, onAddMeasurement
             <div>
               <p className="text-sm text-gray-600">Guardian Phone</p>
               <p className="font-medium text-gray-900">{child.guardian_phone || '—'}</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <Mail className="w-5 h-5 text-gray-400 mt-1" />
+            <div>
+              <p className="text-sm text-gray-600">Guardian Email</p>
+              <p className="font-medium text-gray-900">{child.guardian_email || '—'}</p>
             </div>
           </div>
           <div className="flex items-start gap-3 md:col-span-2">

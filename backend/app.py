@@ -52,6 +52,17 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                 suffix = f" {ddl_suffix}" if ddl_suffix else ""
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {col_type}{suffix}"))
 
+        def create_missing_index(table: str, index_name: str, columns: list[str]) -> None:
+            if table not in tables:
+                return
+            existing = {idx["name"] for idx in inspector.get_indexes(table)}
+            if index_name in existing:
+                return
+            try:
+                conn.execute(text(f"CREATE INDEX {index_name} ON {table}({', '.join(columns)})"))
+            except Exception as exc:
+                print(f"[WARN] Could not create index {index_name} on {table}: {exc}")
+
         # users table additions (avoid UNIQUE constraints in ALTER TABLE for portability)
         add_missing_columns(
             "users",
@@ -91,6 +102,109 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                 ),
             ],
         )
+
+        add_missing_columns(
+            "audit_logs",
+            [
+                ("timestamp", "DATETIME", "NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+                ("created_at", "DATETIME", "NULL DEFAULT CURRENT_TIMESTAMP"),
+                ("user_id", "INTEGER", None),
+                ("username", "VARCHAR(80)" if is_mysql else "TEXT", None),
+                ("role", "VARCHAR(32)" if is_mysql else "TEXT", None),
+                ("action", "VARCHAR(50)" if is_mysql else "TEXT", None),
+                ("action_type", "VARCHAR(50)" if is_mysql else "TEXT", "NOT NULL DEFAULT 'UNKNOWN'"),
+                ("action_category", "VARCHAR(50)" if is_mysql else "TEXT", "NOT NULL DEFAULT 'SYSTEM'"),
+                ("description", "TEXT", None),
+                ("entity_type", "VARCHAR(50)" if is_mysql else "TEXT", None),
+                ("entity_id", "INTEGER", None),
+                ("ip_address", "VARCHAR(45)" if is_mysql else "TEXT", None),
+                ("user_agent", "VARCHAR(255)" if is_mysql else "TEXT", None),
+                ("status", "VARCHAR(20)" if is_mysql else "TEXT", "NOT NULL DEFAULT 'SUCCESS'"),
+                ("old_values", "JSON" if is_mysql else "TEXT", None),
+                ("new_values", "JSON" if is_mysql else "TEXT", None),
+                ("metadata", "JSON" if is_mysql else "TEXT", None),
+            ],
+        )
+        for index_name, columns in {
+            "idx_audit_logs_timestamp": ["timestamp"],
+            "idx_audit_logs_user_id": ["user_id"],
+            "idx_audit_logs_role": ["role"],
+            "idx_audit_logs_action_type": ["action_type"],
+            "idx_audit_logs_action_category": ["action_category"],
+            "idx_audit_logs_entity_type": ["entity_type"],
+            "idx_audit_logs_entity_id": ["entity_id"],
+        }.items():
+            create_missing_index("audit_logs", index_name, columns)
+
+        if "audit_logs" in tables:
+            try:
+                conn.execute(text("""
+                    UPDATE audit_logs
+                    SET action_type = action
+                    WHERE action IS NOT NULL
+                      AND action != ''
+                      AND (action_type IS NULL OR action_type = '' OR UPPER(action_type) = 'UNKNOWN')
+                """))
+            except Exception as exc:
+                print(f"[WARN] Could not backfill legacy audit action_type values: {exc}")
+
+        if "user_otp_codes" not in tables:
+            if is_mysql:
+                conn.execute(text("""
+                    CREATE TABLE user_otp_codes (
+                        id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                        user_id INTEGER NOT NULL,
+                        otp_hash VARCHAR(255) NOT NULL,
+                        purpose VARCHAR(40) NOT NULL,
+                        expires_at DATETIME NOT NULL,
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        used_at DATETIME NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        ip_address VARCHAR(45) NULL,
+                        user_agent VARCHAR(255) NULL,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE user_otp_codes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        otp_hash TEXT NOT NULL,
+                        purpose TEXT NOT NULL,
+                        expires_at DATETIME NOT NULL,
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        used_at DATETIME NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        ip_address TEXT NULL,
+                        user_agent TEXT NULL,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    )
+                """))
+            tables.add("user_otp_codes")
+
+        add_missing_columns(
+            "user_otp_codes",
+            [
+                ("user_id", "INTEGER", "NOT NULL DEFAULT 0"),
+                ("otp_hash", "VARCHAR(255)" if is_mysql else "TEXT", "NOT NULL DEFAULT ''"),
+                ("purpose", "VARCHAR(40)" if is_mysql else "TEXT", "NOT NULL DEFAULT 'login_2fa'"),
+                ("expires_at", "DATETIME", "NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+                ("attempts", "INTEGER", "NOT NULL DEFAULT 0"),
+                ("used_at", "DATETIME", None),
+                ("created_at", "DATETIME", "NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+                ("ip_address", "VARCHAR(45)" if is_mysql else "TEXT", None),
+                ("user_agent", "VARCHAR(255)" if is_mysql else "TEXT", None),
+            ],
+        )
+        for index_name, columns in {
+            "idx_user_otp_codes_user_id": ["user_id"],
+            "idx_user_otp_codes_purpose": ["purpose"],
+            "idx_user_otp_codes_expires_at": ["expires_at"],
+            "idx_user_otp_codes_used_at": ["used_at"],
+            "idx_user_otp_lookup": ["user_id", "purpose", "used_at", "expires_at"],
+        }.items():
+            create_missing_index("user_otp_codes", index_name, columns)
 
         # Create new tables for MIDWIFE role
         # measurements table
@@ -326,6 +440,7 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                 ("assigned_date", "DATETIME", None),
                 ("escalation_status", "VARCHAR(50)" if is_mysql else "TEXT", "NOT NULL DEFAULT 'NONE'"),
                 ("guardian_nic", "VARCHAR(20)" if is_mysql else "TEXT", None),
+                ("guardian_email", "VARCHAR(120)" if is_mysql else "TEXT", None),
                 ("registered_by_user_id", "INTEGER", None),
                 ("registration_date", "DATETIME", None),
                 ("current_assigned_role", "TEXT", None),
@@ -434,6 +549,7 @@ def create_app() -> Flask:
     from backend.routes.rdhs import bp as rdhs_bp  # RDHS District Admin
     from backend.routes.pdhs import bp as pdhs_bp  # PDHS Province Admin
     from backend.routes.admin_routes import bp as admin_routes_bp  # Health Ministry admin (dashboard, messaging, settings)
+    from backend.routes.audit_logs import bp as audit_logs_bp  # Audit Logs
 
     # Register all blueprints
     app.register_blueprint(auth_bp)
@@ -454,6 +570,7 @@ def create_app() -> Flask:
     app.register_blueprint(rdhs_bp)  # RDHS District Admin routes
     app.register_blueprint(pdhs_bp)  # PDHS Province Admin routes
     app.register_blueprint(admin_routes_bp)  # Admin dashboard, messaging, settings
+    app.register_blueprint(audit_logs_bp)
 
     @app.route("/health")
     def health():

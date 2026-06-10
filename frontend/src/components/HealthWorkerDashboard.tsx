@@ -19,13 +19,13 @@ import { NutritionistReferredView } from './health-worker/NutritionistReferredVi
 import { NutritionistChildProfileView } from './health-worker/NutritionistChildProfileView';
 import { NutritionistTransferRequestsView } from './health-worker/NutritionistTransferRequestsView';
 import { NotificationBell } from './notifications/NotificationBell';
+import { ProfilePopover } from './ProfilePopover';
 import { nutritionistAPI, mohAPI } from '../services/api';
 import {
   LayoutDashboard,
   Search,
   FileText,
   LogOut,
-  UserCircle,
   PlusCircle,
   UserPlus,
   ArrowRightLeft,
@@ -270,7 +270,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
                   <p className={`text-xs ${subtitleClass}`}>{roleLabel}</p>
                 </div>
                 <NotificationBell onOpenRelated={handleOpenNotification} />
-                <UserCircle className="w-8 h-8 text-white" />
+                <ProfilePopover user={user} roleLabel={roleLabel} />
                 <button
                   onClick={onLogout}
                   className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-white/20 hover:bg-white/30 rounded-lg transition-colors"

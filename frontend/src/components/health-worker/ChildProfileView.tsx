@@ -2,7 +2,7 @@ import React from 'react';
 import { useRef, useState, useEffect } from 'react';
 import { formatDate, formatDateTime } from '../../utils/formatDate';
 import { getRiskColor, getRiskLabel, calculateRiskLevel, RiskLevel } from '../../types';
-import { ArrowLeft, User, Phone, MapPin, Calendar, Activity, AlertTriangle, TrendingUp, Plus, Download, TrendingDown, FileText, CheckCircle, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, User, Phone, MapPin, Calendar, Activity, AlertTriangle, TrendingUp, Plus, Download, TrendingDown, FileText, CheckCircle, Pencil, Trash2, Mail } from 'lucide-react';
 import { WHOGrowthCharts } from './WHOGrowthCharts';
 import { HiddenPdfCharts, generateProfessionalPdf } from './PdfReportGenerator';
 import { childrenAPI, midwifeAPI } from '../../services/api';
@@ -225,6 +225,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
         guardian_name: apiChild.guardian_name ?? '',
         mother_name: apiChild.mother_name ?? '',
         guardian_phone: apiChild.guardian_phone ?? '',
+        guardian_email: apiChild.guardian_email ?? '',
         guardian_nic: apiChild.guardian_nic ?? '',
         address: apiChild.address ?? '',
         birth_weight_kg: apiChild.birth_weight_kg != null ? String(apiChild.birth_weight_kg) : '',
@@ -268,6 +269,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
     gender: apiChild.gender,
     guardianName: apiChild.guardian_name,
     guardianPhone: apiChild.guardian_phone,
+    guardianEmail: apiChild.guardian_email,
     address: apiChild.address,
     riskLevel: (() => {
       const birthRisk = (apiChild.birth_risk_level || '').toUpperCase();
@@ -495,6 +497,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
       guardian_name: editForm.guardian_name || null,
       mother_name: editForm.mother_name || null,
       guardian_phone: editForm.guardian_phone || null,
+      guardian_email: editForm.guardian_email || null,
       guardian_nic: editForm.guardian_nic || null,
       address: editForm.address || null,
       birth_risk_level: editForm.birth_risk_level || null,
@@ -944,6 +947,13 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
               <p className="font-medium text-gray-900">{child.guardianPhone}</p>
             </div>
           </div>
+          <div className="flex items-start gap-3">
+            <Mail className="w-5 h-5 text-gray-400 mt-1" />
+            <div>
+              <p className="text-sm text-gray-600">Guardian Email</p>
+              <p className="font-medium text-gray-900">{child.guardianEmail || '—'}</p>
+            </div>
+          </div>
           <div className="flex items-start gap-3 md:col-span-2">
             <MapPin className="w-5 h-5 text-gray-400 mt-1" />
             <div>
@@ -1389,6 +1399,10 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Guardian phone</label>
               <input value={editForm.guardian_phone ?? ''} onChange={(e) => setEditForm({ ...editForm, guardian_phone: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Guardian email</label>
+              <input type="email" value={editForm.guardian_email ?? ''} onChange={(e) => setEditForm({ ...editForm, guardian_email: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Guardian NIC</label>

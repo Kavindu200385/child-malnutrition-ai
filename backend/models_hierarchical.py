@@ -9,7 +9,7 @@ from typing import Optional, List
 from enum import Enum
 
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import ForeignKey, CheckConstraint, Index, Numeric
+from sqlalchemy import ForeignKey, CheckConstraint, Index, Numeric, event
 from sqlalchemy.orm import relationship
 
 from backend.extensions import db
@@ -30,6 +30,8 @@ class AreaLevel(str, Enum):
 
 class UserRole(str, Enum):
     """User roles in the system"""
+    SUPERADMIN = "superadmin"
+    ADMIN = "admin"
     HEALTH_MINISTRY = "health_ministry"  # Ministry (Admin) or System Developer (superadmin)
     PDHS = "pdhs"  # Provincial Admin
     RDHS = "rdhs"  # District Admin
@@ -97,6 +99,13 @@ class AreaChangeStatus(str, Enum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
+
+
+class OTPPurpose(str, Enum):
+    """OTP use cases."""
+    LOGIN_2FA = "login_2fa"
+    PASSWORD_RESET = "password_reset"
+    EMAIL_VERIFICATION = "email_verification"
 
 
 # ============================================================================
@@ -400,6 +409,7 @@ class Child(db.Model):
     guardian_name = db.Column(db.String(120), nullable=True)
     mother_name = db.Column(db.String(120), nullable=True)  # Added for hospital
     guardian_phone = db.Column(db.String(40), nullable=True)
+    guardian_email = db.Column(db.String(120), nullable=True, index=True)
     guardian_nic = db.Column(db.String(20), nullable=True)
     address = db.Column(db.Text, nullable=True)
     
@@ -483,6 +493,7 @@ class Child(db.Model):
             "guardian_name": self.guardian_name,
             "mother_name": self.mother_name,
             "guardian_phone": self.guardian_phone,
+            "guardian_email": self.guardian_email,
             "guardian_nic": self.guardian_nic,
             "address": self.address,
             "hospital_id": self.hospital_id,
@@ -974,6 +985,48 @@ class SystemSetting(db.Model):
 
 
 # ============================================================================
+# USER OTP MODEL
+# ============================================================================
+
+class UserOTPCode(db.Model):
+    """
+    Hashed one-time passwords for login 2FA and future account verification flows.
+    Plaintext OTP values must never be stored.
+    """
+    __tablename__ = "user_otp_codes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
+    otp_hash = db.Column(db.String(255), nullable=False)
+    purpose = db.Column(db.String(40), nullable=False, index=True)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    used_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    ip_address = db.Column(db.String(45), nullable=True)
+    user_agent = db.Column(db.String(255), nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        CheckConstraint(
+            "purpose IN ('login_2fa', 'password_reset', 'email_verification')",
+            name="check_otp_purpose",
+        ),
+        Index("idx_user_otp_lookup", "user_id", "purpose", "used_at", "expires_at"),
+    )
+
+    def set_otp(self, otp_code: str) -> None:
+        self.otp_hash = generate_password_hash(otp_code)
+
+    def check_otp(self, otp_code: str) -> bool:
+        return check_password_hash(self.otp_hash, otp_code)
+
+    def is_expired(self) -> bool:
+        return datetime.utcnow() >= self.expires_at
+
+
+# ============================================================================
 # SIGN PAGE UPLOAD MODEL
 # ============================================================================
 
@@ -1309,25 +1362,26 @@ class AuditLog(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     
-    # Action details
-    action = db.Column(db.String(50), nullable=False, index=True)  # CREATE, UPDATE, DELETE, TRANSFER, etc.
-    entity_type = db.Column(db.String(50), nullable=False, index=True)  # child, user, area, etc.
-    entity_id = db.Column(db.Integer, nullable=True, index=True)
-    
-    # Changes (JSON)
-    old_values = db.Column(db.JSON, nullable=True)
-    new_values = db.Column(db.JSON, nullable=True)
-    
-    # User and context
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=True, index=True)  # Legacy compatibility
     user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
-    ip_address = db.Column(db.String(45), nullable=True)
-    user_agent = db.Column(db.String(255), nullable=True)
+    username = db.Column(db.String(80), nullable=True)
+    role = db.Column(db.String(32), nullable=True, index=True)
     
-    # Additional context
+    action = db.Column(db.String(50), nullable=True, index=True)  # Legacy compatibility
+    action_type = db.Column(db.String(50), nullable=False, index=True)
+    action_category = db.Column(db.String(50), nullable=False, index=True)
     description = db.Column(db.Text, nullable=True)
     
-    # Timestamp
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    entity_type = db.Column(db.String(50), nullable=True, index=True)
+    entity_id = db.Column(db.Integer, nullable=True, index=True)
+    
+    ip_address = db.Column(db.String(45), nullable=True)
+    user_agent = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default="SUCCESS")
+    old_values = db.Column(db.JSON, nullable=True)  # Legacy compatibility
+    new_values = db.Column(db.JSON, nullable=True)  # Legacy compatibility
+    metadata_json = db.Column("metadata", db.JSON, nullable=True)
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
@@ -1335,17 +1389,31 @@ class AuditLog(db.Model):
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "user_id": self.user_id,
+            "username": self.username,
+            "role": self.role,
             "action": self.action,
+            "action_type": self.action_type,
+            "action_category": self.action_category,
+            "description": self.description,
             "entity_type": self.entity_type,
             "entity_id": self.entity_id,
-            "old_values": self.old_values,
-            "new_values": self.new_values,
-            "user_id": self.user_id,
-            "user": self.user.to_dict() if self.user else None,
             "ip_address": self.ip_address,
-            "description": self.description,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "user_agent": self.user_agent,
+            "status": self.status,
+            "metadata": self.metadata_json,
         }
+
+
+@event.listens_for(AuditLog, "before_update")
+def _prevent_audit_log_update(mapper, connection, target):
+    raise ValueError("Audit logs are immutable and cannot be updated")
+
+
+@event.listens_for(AuditLog, "before_delete")
+def _prevent_audit_log_delete(mapper, connection, target):
+    raise ValueError("Audit logs are immutable and cannot be deleted")
 
 
 # ============================================================================

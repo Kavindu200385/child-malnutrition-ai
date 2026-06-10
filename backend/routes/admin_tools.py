@@ -2,7 +2,7 @@ import os
 
 from flask import Blueprint, jsonify
 
-from backend.auth_utils import admin_required
+from backend.auth_utils_hierarchical import health_ministry_required
 from backend.demo_children_seed import reset_demo_children_data
 from backend.maintenance import recompute_all_visits, recompute_all_measurements
 
@@ -10,7 +10,7 @@ bp = Blueprint("admin_tools", __name__, url_prefix="/api/admin")
 
 
 @bp.route("/reset-dummy-data", methods=["POST"])
-@admin_required
+@health_ministry_required
 def reset_dummy_data():
     """
     Admin-only endpoint to wipe and recreate dummy child+visit data.
@@ -24,7 +24,7 @@ def reset_dummy_data():
 
 
 @bp.route("/recompute-visits", methods=["POST"])
-@admin_required
+@health_ministry_required
 def recompute_visits():
     """
     Admin-only endpoint to recompute all visit-derived values:
@@ -40,7 +40,7 @@ def recompute_visits():
 
 
 @bp.route("/recompute-measurements", methods=["POST"])
-@admin_required
+@health_ministry_required
 def recompute_measurements():
     """
     Recompute z-scores and predicted_risk_next_2_months for all Measurements
@@ -49,4 +49,3 @@ def recompute_measurements():
     """
     result = recompute_all_measurements()
     return jsonify({"status": "success", "result": result}), 200
-

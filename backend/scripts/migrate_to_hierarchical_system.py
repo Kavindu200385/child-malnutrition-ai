@@ -349,21 +349,24 @@ def main():
                     conn.execute(text("""
                         CREATE TABLE audit_logs (
                             id INTEGER AUTO_INCREMENT PRIMARY KEY,
-                            action VARCHAR(50) NOT NULL,
-                            entity_type VARCHAR(50) NOT NULL,
-                            entity_id INTEGER NULL,
-                            old_values JSON NULL,
-                            new_values JSON NULL,
+                            timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                             user_id INTEGER NULL,
+                            username VARCHAR(80) NULL,
+                            role VARCHAR(32) NULL,
+                            action_type VARCHAR(50) NOT NULL,
+                            action_category VARCHAR(50) NOT NULL,
+                            description TEXT NULL,
+                            entity_type VARCHAR(50) NULL,
+                            entity_id INTEGER NULL,
                             ip_address VARCHAR(45) NULL,
                             user_agent VARCHAR(255) NULL,
-                            description TEXT NULL,
-                            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                            INDEX idx_action (action),
+                            status VARCHAR(20) NOT NULL DEFAULT 'SUCCESS',
+                            metadata JSON NULL,
+                            INDEX idx_action_type (action_type),
                             INDEX idx_entity_type (entity_type),
                             INDEX idx_entity_id (entity_id),
                             INDEX idx_user_id (user_id),
-                            INDEX idx_created_at (created_at),
+                            INDEX idx_timestamp (timestamp),
                             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                     """))
@@ -371,20 +374,23 @@ def main():
                     conn.execute(text("""
                         CREATE TABLE audit_logs (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            action TEXT NOT NULL,
-                            entity_type TEXT NOT NULL,
-                            entity_id INTEGER NULL,
-                            old_values TEXT NULL,
-                            new_values TEXT NULL,
+                            timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                             user_id INTEGER NULL,
+                            username TEXT NULL,
+                            role TEXT NULL,
+                            action_type TEXT NOT NULL,
+                            action_category TEXT NOT NULL,
+                            description TEXT NULL,
+                            entity_type TEXT NULL,
+                            entity_id INTEGER NULL,
                             ip_address TEXT NULL,
                             user_agent TEXT NULL,
-                            description TEXT NULL,
-                            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            status TEXT NOT NULL DEFAULT 'SUCCESS',
+                            metadata TEXT NULL,
                             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
                         )
                     """))
-                    for idx in ['action', 'entity_type', 'entity_id', 'user_id', 'created_at']:
+                    for idx in ['action_type', 'entity_type', 'entity_id', 'user_id', 'timestamp', 'role']:
                         conn.execute(text(f"CREATE INDEX idx_{idx} ON audit_logs({idx})"))
                 print("[SUCCESS] Created audit_logs table")
             else:

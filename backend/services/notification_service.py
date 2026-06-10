@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from flask import current_app
+
 from backend.extensions import db
 from backend.models_hierarchical import Area, Notification, User, UserRole, WorkerAreaMapping
+from backend.services.email_service import send_notification_email
+from backend.utils.audit import log_audit
 
 
 PRIORITY_LOW = "low"
@@ -108,7 +112,37 @@ def notify_users(
             metadata_json=metadata,
         )
         db.session.add(notification)
+        db.session.flush()
+        log_audit(
+            action="CREATE",
+            entity_type="notification",
+            entity_id=notification.id,
+            user_id=actor_user_id,
+            description=f"Notification created for {user.username}: {title}",
+            metadata={
+                "recipient_user_id": user.id,
+                "recipient_role": user.role,
+                "type": type,
+                "priority": priority,
+                "related_child_id": related_child_id,
+                "related_referral_id": related_referral_id,
+                "related_escalation_id": related_escalation_id,
+                "related_transfer_id": related_transfer_id,
+                "related_report_id": related_report_id,
+            },
+        )
         notifications.append(notification)
+        if user.email:
+            try:
+                send_notification_email(
+                    user.email,
+                    title=title,
+                    message=message,
+                    priority=priority,
+                    action_url=current_app.config.get("FRONTEND_URL"),
+                )
+            except Exception as exc:
+                print(f"Notification email failed: {exc.__class__.__name__}")
     return notifications
 
 
@@ -154,4 +188,3 @@ def notify_pdhs_for_area(area_id: int | None, **kwargs: Any) -> list[Notificatio
 
 def notify_ministry(**kwargs: Any) -> list[Notification]:
     return notify_role(UserRole.HEALTH_MINISTRY.value, **kwargs)
-

@@ -16,6 +16,7 @@ from backend.auth_utils_hierarchical import (
 )
 from backend.extensions import db
 from backend.models_hierarchical import User, WorkerAreaMapping, Area, UserRole, Hospital
+from backend.services.email_service import send_user_created_email
 from backend.utils.audit import log_audit
 
 bp = Blueprint("worker_management", __name__, url_prefix="/api/workers")
@@ -170,10 +171,10 @@ def create_worker():
     area_ids = data.get("area_ids", [])  # List of area IDs to assign worker to
     hospital_id = data.get("hospital_id")  # For nutritionist: assign to hospital
     
-    if not username or not password or not name or not role:
+    if not username or not password or not name or not role or not email:
         return jsonify({
             "status": "error",
-            "message": "username, password, name, and role are required"
+            "message": "username, password, name, role, and email are required"
         }), 400
     
     if role not in ["health_ministry", "pdhs", "rdhs", "moh", "amoh", "midwife", "nutritionist", "hospital"]:
@@ -273,6 +274,23 @@ def create_worker():
     )
     
     db.session.commit()
+
+    if worker.email:
+        result = send_user_created_email(
+            worker.email,
+            username=worker.username,
+            role=worker.role,
+        )
+        log_audit(
+            action_type="USER_CREATED_EMAIL_SENT" if result.ok else "USER_CREATED_EMAIL_FAILED",
+            action_category="USER_MANAGEMENT",
+            entity_type="user",
+            entity_id=worker.id,
+            status="SUCCESS" if result.ok else "FAILED",
+            user_id=user.id,
+            description=f"User creation email {'sent' if result.ok else 'failed'} for {worker.username}.",
+            metadata={"recipient": worker.email, "error": None if result.ok else result.message},
+        )
     
     return jsonify({
         "status": "success",

@@ -5,6 +5,7 @@ from datetime import datetime
 from backend.auth_utils import visit_required
 from backend.extensions import db
 from backend.models import Child, Visit
+from backend.utils.audit import log_audit
 
 from backend.ai.predictor import build_future_prediction_payload, predict_current_risk, predict_future_risk, compare_models
 
@@ -100,6 +101,21 @@ def analyze():
 
     z = current["z_scores"]
     current_label = str(current.get("model_prediction", "Normal"))
+    if user_id:
+        log_audit(
+            action_type="CURRENT_RISK_PREDICTION_GENERATED",
+            action_category="AI_ML",
+            entity_type="prediction",
+            user_id=int(user_id),
+            status="SUCCESS",
+            description="Current malnutrition risk prediction generated.",
+            metadata={
+                "age_months": age,
+                "sex": sex.upper(),
+                "model_prediction": current_label,
+                "confidence": current.get("confidence"),
+            },
+        )
 
     # Map to overall risk level (for DB + UI consistency)
     overall_risk_level = {
@@ -135,6 +151,33 @@ def analyze():
                 future = predict_future_risk(future_payload["payload"])
                 if not future.get("ok"):
                     prediction_warning = future.get("error", "Future risk prediction failed")
+                elif user_id:
+                    log_audit(
+                        action_type="FUTURE_RISK_PREDICTION_GENERATED",
+                        action_category="AI_ML",
+                        entity_type="prediction",
+                        entity_id=child.id,
+                        user_id=int(user_id),
+                        status="SUCCESS",
+                        description="Future malnutrition risk prediction generated.",
+                        metadata={
+                            "child_id": child.id,
+                            "predicted_risk_next_2_months": future.get("predicted_risk_next_2_months"),
+                            "confidence": future.get("confidence"),
+                            "history_source": prediction_history_source,
+                        },
+                    )
+            if prediction_warning and user_id:
+                log_audit(
+                    action_type="MODEL_CONFIDENCE_WARNING",
+                    action_category="AI_ML",
+                    entity_type="prediction",
+                    entity_id=child.id,
+                    user_id=int(user_id),
+                    status="SUCCESS",
+                    description=prediction_warning,
+                    metadata={"child_id": child.id, "history_source": prediction_history_source},
+                )
 
     # Response shape compatible with frontend
     result = {
@@ -188,6 +231,15 @@ def analyze():
             created_by_user_id=int(user_id) if user_id is not None else None,
         )
         db.session.add(visit)
+        db.session.flush()
+        log_audit(
+            action="CREATE",
+            entity_type="visit",
+            entity_id=visit.id,
+            new_values=visit.to_dict(),
+            user_id=int(user_id) if user_id is not None else None,
+            description=f"Saved analysis measurement for child {child.child_id or child.child_unique_id or child.id}.",
+        )
         db.session.commit()
 
     return jsonify({"status": "success", "data": result}), 200

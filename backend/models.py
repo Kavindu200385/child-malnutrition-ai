@@ -23,6 +23,7 @@ from backend.models_hierarchical import (  # noqa: F401
     SystemMessage,
     SignPageRecord,
     SystemSetting,
+    UserOTPCode,
     TransferStatus,
     User,
     UserRole,

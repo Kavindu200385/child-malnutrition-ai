@@ -10,13 +10,13 @@ import { HospitalChildrenListView } from './HospitalChildrenListView';
 import { HospitalStatsView } from './HospitalStatsView';
 import { HospitalStatisticsView } from './HospitalStatisticsView';
 import { NotificationBell } from '../notifications/NotificationBell';
+import { ProfilePopover } from '../ProfilePopover';
 import { 
   LayoutDashboard, 
   UserPlus,
   Users,
   BarChart3,
   LogOut,
-  UserCircle,
   Shield
 } from 'lucide-react';
 
@@ -79,7 +79,7 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
                 <p className="text-xs text-white font-medium opacity-95">Pediatric Unit</p>
               </div>
               <NotificationBell onOpenRelated={handleOpenNotification} />
-              <UserCircle className="w-8 h-8 text-white" aria-hidden />
+              <ProfilePopover user={user} roleLabel="Pediatric Unit" />
               <button
                 onClick={onLogout}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-white/20 hover:bg-white/30 rounded-lg transition-colors border border-white/30"

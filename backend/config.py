@@ -72,3 +72,14 @@ class Config:
     # CORS
     CORS_ORIGINS = os.environ.get("CORS_ORIGINS", os.environ.get("FRONTEND_URL", "*"))
 
+    # Email / AWS SES
+    EMAIL_ENABLED = os.environ.get("EMAIL_ENABLED", "false").lower() in ("1", "true", "yes")
+    EMAIL_2FA_ENABLED = os.environ.get("EMAIL_2FA_ENABLED", "false").lower() in ("1", "true", "yes")
+    EMAIL_NOTIFICATIONS_ENABLED = os.environ.get("EMAIL_NOTIFICATIONS_ENABLED", "false").lower() in ("1", "true", "yes")
+    AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
+    AWS_SES_ACCESS_KEY_ID = os.environ.get("AWS_SES_ACCESS_KEY_ID")
+    AWS_SES_SECRET_ACCESS_KEY = os.environ.get("AWS_SES_SECRET_ACCESS_KEY")
+    AWS_SES_SENDER_EMAIL = os.environ.get("AWS_SES_SENDER_EMAIL")
+    AWS_SES_SENDER_NAME = os.environ.get("AWS_SES_SENDER_NAME", "CMRAS")
+    FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3001")
+    BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:5001")

@@ -48,6 +48,7 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
     gender: '',
     motherName: '',
     motherNic: '',
+    motherEmail: '',
     motherAge: '',
     address: '',
     totalLivingChildren: '',
@@ -104,6 +105,9 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
     if (!step1Data.gender) errors.gender = 'Gender is required';
     if (!step1Data.motherName.trim()) errors.motherName = 'Mother name is required';
     if (step1Data.motherName.trim() && !step1Data.motherNic.trim()) errors.motherNic = 'NIC is required when mother name is provided';
+    if (step1Data.motherEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(step1Data.motherEmail.trim())) {
+      errors.motherEmail = 'Please enter a valid email address';
+    }
     if (!step1Data.address.trim()) errors.address = 'Address is required';
     setStep1Errors(errors);
     return Object.keys(errors).length === 0;
@@ -173,6 +177,7 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
         guardian_name: step1Data.motherName,         // also set as guardian (mother is primary caregiver at birth)
         guardian_nic: step1Data.motherNic || null,   // mother's NIC = guardian NIC at birth
         guardian_phone: null,
+        guardian_email: step1Data.motherEmail.trim() || null,
         address: step1Data.address,
         birth_weight_kg: step2Data.birthWeight ? parseFloat(step2Data.birthWeight) : null,
         birth_height_cm: step2Data.birthLength ? parseFloat(step2Data.birthLength) : null,
@@ -182,6 +187,7 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
           // Step 1: Basic Information
           mchCardNo: step1Data.mchCardNo || null,
           registrationDate: step1Data.registrationDate,
+          motherEmail: step1Data.motherEmail.trim() || null,
           motherAge: step1Data.motherAge || null,
           totalLivingChildren: step1Data.totalLivingChildren || null,
           // Step 2: Birth Details
@@ -377,6 +383,23 @@ export function BirthRegistrationView({ onBack, onSuccess }: BirthRegistrationVi
         />
         {step1Errors.motherNic && (
           <p className="mt-1 text-sm text-red-600">{step1Errors.motherNic}</p>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-900 mb-2">
+          Mother's / Guardian Email
+        </label>
+        <input
+          type="email"
+          value={step1Data.motherEmail}
+          onChange={(e) => setStep1Data({ ...step1Data, motherEmail: e.target.value })}
+          className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${step1Errors.motherEmail ? 'border-red-300' : 'border-gray-300'
+            }`}
+          placeholder="guardian@example.com"
+        />
+        {step1Errors.motherEmail && (
+          <p className="mt-1 text-sm text-red-600">{step1Errors.motherEmail}</p>
         )}
       </div>
 

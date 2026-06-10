@@ -7,6 +7,8 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { HospitalDashboard } from './components/hospital/HospitalDashboard';
 
 export type UserRole = 
+  | 'superadmin'       // System developer / highest privilege
+  | 'admin'            // System administrator
   | 'health_ministry'  // Ministry (Admin) or System Developer (superadmin)
   | 'pdhs'            // Provincial Admin
   | 'rdhs'            // District Admin
@@ -21,6 +23,8 @@ export interface User {
   username: string;
   name: string;
   role: UserRole;
+  email?: string;
+  phone?: string;
   clinic?: string;
   district?: string;
   is_protected?: boolean;
@@ -83,12 +87,12 @@ export default function App() {
   };
 
   const getHomePath = (role: UserRole) => {
-    if (['health_ministry', 'pdhs', 'rdhs'].includes(role)) return '/admin';
+    if (['superadmin', 'admin', 'health_ministry', 'pdhs', 'rdhs'].includes(role)) return '/admin';
     if (role === 'hospital') return '/hospital';
     return '/health-worker';
   };
 
-  const isAdminRole = !!user && ['health_ministry', 'pdhs', 'rdhs'].includes(user.role);
+  const isAdminRole = !!user && ['superadmin', 'admin', 'health_ministry', 'pdhs', 'rdhs'].includes(user.role);
   const isHospitalRole = !!user && user.role === 'hospital';
   const homePath = user ? getHomePath(user.role) : '/sign-in';
 

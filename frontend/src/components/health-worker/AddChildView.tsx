@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, User, Phone, MapPin, Calendar, UserCircle, Save, AlertCircle } from 'lucide-react';
+import { ArrowLeft, User, Phone, MapPin, Calendar, UserCircle, Save, AlertCircle, Mail } from 'lucide-react';
 import api from '../../services/api';
 
 interface AddChildViewProps {
@@ -16,6 +16,7 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
     mother_name: '',
     guardian_name: '',
     guardian_phone: '',
+    guardian_email: '',
     guardian_nic: '',
     address: '',
   });
@@ -59,6 +60,10 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
       newErrors.guardian_phone = 'Please enter a valid phone number';
     }
 
+    if (formData.guardian_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.guardian_email.trim())) {
+      newErrors.guardian_email = 'Please enter a valid email address';
+    }
+
     if (!formData.address.trim()) {
       newErrors.address = 'Address is required';
     }
@@ -86,6 +91,7 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
         mother_name: guardianIsMother ? formData.guardian_name.trim() : (formData.mother_name.trim() || null),
         guardian_name: formData.guardian_name.trim(),
         guardian_phone: formData.guardian_phone.trim(),
+        guardian_email: formData.guardian_email.trim() || null,
         guardian_nic: formData.guardian_nic.trim() || null,
         address: formData.address.trim(),
       });
@@ -338,6 +344,28 @@ export function AddChildView({ onBack, onSuccess }: AddChildViewProps) {
             </div>
             {errors.guardian_phone && (
               <p className="mt-1 text-sm text-red-600">{errors.guardian_phone}</p>
+            )}
+          </div>
+
+          {/* Guardian Email */}
+          <div>
+            <label htmlFor="guardian_email" className="block text-sm font-medium text-gray-900 mb-2">
+              Guardian Email
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                id="guardian_email"
+                type="email"
+                value={formData.guardian_email}
+                onChange={(e) => handleChange('guardian_email', e.target.value)}
+                className={`w-full pl-10 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${errors.guardian_email ? 'border-red-300' : 'border-gray-300'
+                  }`}
+                placeholder="guardian@example.com"
+              />
+            </div>
+            {errors.guardian_email && (
+              <p className="mt-1 text-sm text-red-600">{errors.guardian_email}</p>
             )}
           </div>
 

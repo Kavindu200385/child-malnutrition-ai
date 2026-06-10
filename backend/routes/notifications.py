@@ -6,6 +6,7 @@ from flask_jwt_extended import jwt_required
 from backend.auth_utils_hierarchical import get_current_user
 from backend.extensions import db
 from backend.models_hierarchical import Notification
+from backend.utils.audit import log_audit
 
 bp = Blueprint("notifications", __name__, url_prefix="/api/notifications")
 
@@ -68,6 +69,13 @@ def mark_read(notification_id: int):
         notification.is_read = True
         notification.read_at = datetime.utcnow()
         db.session.commit()
+        log_audit(
+            action="READ",
+            entity_type="notification",
+            entity_id=notification.id,
+            user_id=user.id,
+            description=f"Notification marked read: {notification.title}",
+        )
 
     return jsonify({"status": "success", "notification": notification.to_dict()}), 200
 
@@ -85,6 +93,15 @@ def mark_all_read():
         Notification.is_read == False,
     ).update({"is_read": True, "read_at": now}, synchronize_session=False)
     db.session.commit()
+    if updated:
+        log_audit(
+            action_type="NOTIFICATION_MARKED_READ",
+            action_category="NOTIFICATIONS",
+            entity_type="notification",
+            user_id=user.id,
+            description=f"Marked {int(updated)} notifications as read.",
+            metadata={"updated_count": int(updated)},
+        )
     return jsonify({"status": "success", "updated": int(updated)}), 200
 
 
@@ -99,7 +116,14 @@ def delete_notification(notification_id: int):
     if not notification or notification.user_id != user.id:
         return jsonify({"status": "error", "message": "Notification not found"}), 404
 
+    notification_title = notification.title
     db.session.delete(notification)
     db.session.commit()
+    log_audit(
+        action="DELETE",
+        entity_type="notification",
+        entity_id=notification_id,
+        user_id=user.id,
+        description=f"Notification dismissed: {notification_title}",
+    )
     return jsonify({"status": "success", "message": "Notification deleted"}), 200
-

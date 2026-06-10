@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 from backend.auth_utils_hierarchical import get_current_user, health_ministry_required
 from backend.extensions import db
 from backend.models_hierarchical import SignPageRecord
+from backend.utils.audit import log_audit
 
 bp = Blueprint("sign_pages", __name__, url_prefix="/api/sign-pages")
 
@@ -67,6 +68,16 @@ def upload_sign_pages():
         uploaded_by_user_id=user.id,
     )
     db.session.add(record)
+    db.session.flush()
+    log_audit(
+        action_type="SIGN_PAGE_UPLOADED",
+        action_category="SYSTEM_ADMINISTRATION",
+        entity_type="sign_page",
+        entity_id=record.id,
+        user_id=user.id,
+        description=f"Uploaded sign page images for role {record.role}.",
+        metadata={"front_image_path": front_path, "back_image_path": back_path},
+    )
     db.session.commit()
 
     return jsonify({"status": "success", "record": record.to_dict()}), 201
@@ -96,6 +107,7 @@ def import_signin_photos():
     photos = payload.get("photos") if isinstance(payload.get("photos"), list) else DEFAULT_SIGNIN_PHOTOS
     created = 0
 
+    created_records = []
     for url in photos:
         if not isinstance(url, str) or not url.strip():
             continue
@@ -106,16 +118,26 @@ def import_signin_photos():
         ).first()
         if existing:
             continue
-        db.session.add(
-            SignPageRecord(
-                front_image_path=normalized,
-                back_image_path=normalized,
-                role=user.role,
-                uploaded_by_user_id=user.id,
-            )
+        record = SignPageRecord(
+            front_image_path=normalized,
+            back_image_path=normalized,
+            role=user.role,
+            uploaded_by_user_id=user.id,
         )
+        db.session.add(record)
+        created_records.append(record)
         created += 1
 
+    db.session.flush()
+    if created:
+        log_audit(
+            action_type="SIGNIN_PHOTOS_IMPORTED",
+            action_category="SYSTEM_ADMINISTRATION",
+            entity_type="sign_page",
+            user_id=user.id,
+            description=f"Imported {created} sign-in photo records.",
+            metadata={"created_count": created, "record_ids": [record.id for record in created_records]},
+        )
     db.session.commit()
     return jsonify({"status": "success", "created": created}), 200
 
@@ -144,7 +166,17 @@ def delete_sign_page(record_id: int):
             except Exception:
                 pass
 
+    old_values = record.to_dict()
     db.session.delete(record)
+    log_audit(
+        action_type="SIGN_PAGE_DELETED",
+        action_category="SYSTEM_ADMINISTRATION",
+        entity_type="sign_page",
+        entity_id=record_id,
+        user_id=user.id,
+        description=f"Deleted sign page record {record_id}.",
+        metadata={"old_values": old_values},
+    )
     db.session.commit()
     return jsonify({"status": "success", "message": "Sign page record deleted"}), 200
 
@@ -156,4 +188,3 @@ def get_sign_page_file(filename: str):
     except Exception:
         return jsonify({"status": "error", "message": "Authentication required"}), 401
     return send_from_directory(UPLOAD_DIR, filename)
-

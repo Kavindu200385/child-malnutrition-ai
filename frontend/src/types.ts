@@ -25,6 +25,7 @@ export interface Child {
   gender: 'male' | 'female';
   guardianName: string;
   guardianPhone: string;
+  guardianEmail?: string;
   address: string;
   riskLevel: RiskLevel;
   lastVisit: string;
