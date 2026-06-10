@@ -1,4 +1,5 @@
 import secrets
+from threading import Thread
 from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, jsonify, request
@@ -50,6 +51,9 @@ def _issue_login_response(user: User):
 def _can_bypass_login_otp(user: User) -> bool:
     if getattr(user, "is_protected", False):
         return True
+    superadmin_username = current_app.config.get("SUPERADMIN_USERNAME") or "superadmin"
+    if (user.username or "").strip().lower() == str(superadmin_username).strip().lower():
+        return True
     return (user.role or "").strip().lower() in OTP_ADMIN_BYPASS_ROLES
 
 
@@ -64,6 +68,31 @@ def _invalidate_active_otps(user_id: int, purpose: str) -> None:
         UserOTPCode.purpose == purpose,
         UserOTPCode.used_at.is_(None),
     ).update({"used_at": now}, synchronize_session=False)
+
+
+def _send_login_otp_async(app, user_id: int, username: str, role: str, user_email: str, otp_code: str) -> None:
+    with app.app_context():
+        result = send_otp_email(user_email, otp_code, OTP_EXPIRY_MINUTES)
+        if not result.ok:
+            log_audit(
+                action_type="OTP_EMAIL_FAILED",
+                action_category="AUTHENTICATION",
+                status="FAILED",
+                user_id=user_id,
+                username=username,
+                role=role,
+                description="Failed to send login OTP email.",
+                metadata={"error": result.message},
+            )
+
+
+def _queue_login_otp_email(user: User, otp_code: str) -> None:
+    app = current_app._get_current_object()
+    Thread(
+        target=_send_login_otp_async,
+        args=(app, user.id, user.username, user.role, user.email, otp_code),
+        daemon=True,
+    ).start()
 
 
 def _create_and_send_login_otp(user: User):
@@ -82,21 +111,6 @@ def _create_and_send_login_otp(user: User):
         return jsonify({"status": "error", "message": "Your account does not have an email address for OTP verification. Contact your administrator."}), 403
 
     otp_code = _generate_otp()
-    result = send_otp_email(user.email, otp_code, OTP_EXPIRY_MINUTES)
-    if not result.ok:
-        log_audit(
-            action_type="OTP_EMAIL_FAILED",
-            action_category="AUTHENTICATION",
-            status="FAILED",
-            user_id=user.id,
-            username=user.username,
-            role=user.role,
-            description="Failed to send login OTP email.",
-            metadata={"error": result.message},
-        )
-        safe_message = "Could not send OTP email. Verify the user's email address in AWS SES or turn off EMAIL_2FA_ENABLED for testing."
-        return jsonify({"status": "error", "message": safe_message}), 503
-
     _invalidate_active_otps(user.id, OTPPurpose.LOGIN_2FA.value)
     otp = UserOTPCode(
         user_id=user.id,
@@ -115,14 +129,19 @@ def _create_and_send_login_otp(user: User):
         user_id=user.id,
         username=user.username,
         role=user.role,
-        description="Login OTP generated and emailed.",
-        metadata={"purpose": OTPPurpose.LOGIN_2FA.value, "expires_in_minutes": OTP_EXPIRY_MINUTES},
+        description="Login OTP generated and email delivery queued.",
+        metadata={
+            "purpose": OTPPurpose.LOGIN_2FA.value,
+            "expires_in_minutes": OTP_EXPIRY_MINUTES,
+            "email_delivery": "queued",
+        },
     )
     db.session.commit()
+    _queue_login_otp_email(user, otp_code)
     return jsonify({
         "status": "success",
         "requires_2fa": True,
-        "message": "OTP sent to registered email",
+        "message": "OTP is being sent to your registered email",
         "username": user.username,
     }), 200
 

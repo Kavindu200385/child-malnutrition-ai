@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import textwrap
 import zipfile
 from datetime import datetime, time
 from functools import wraps
@@ -187,6 +188,14 @@ def _rows(logs):
         ]
 
 
+def _count_by(logs, attr: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for log in logs:
+        value = getattr(log, attr, None) or "N/A"
+        counts[str(value)] = counts.get(str(value), 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+
+
 EXPORT_HEADERS = [
     "Audit ID",
     "Timestamp",
@@ -205,42 +214,112 @@ EXPORT_HEADERS = [
 ]
 
 
-def _xlsx_cell(value, row_index: int, col_index: int) -> str:
+def _xlsx_cell(value, row_index: int, col_index: int, style: int | None = None) -> str:
     col_name = ""
     n = col_index
     while n:
         n, remainder = divmod(n - 1, 26)
         col_name = chr(65 + remainder) + col_name
     cell_ref = f"{col_name}{row_index}"
-    return f'<c r="{cell_ref}" t="inlineStr"><is><t>{xml_escape(str(value))}</t></is></c>'
+    style = style if style is not None else (1 if row_index == 1 else 2)
+    return f'<c r="{cell_ref}" s="{style}" t="inlineStr"><is><t>{xml_escape(str(value))}</t></is></c>'
 
 
-def _xlsx_response(logs) -> Response:
+def _xlsx_sheet(rows, *, widths: str, frozen_header: bool = True, auto_filter: bool = True) -> str:
     sheet_rows = []
-    all_rows = [EXPORT_HEADERS, *list(_rows(logs))]
-    for row_index, values in enumerate(all_rows, start=1):
+    for row_index, values in enumerate(rows, start=1):
         cells = "".join(_xlsx_cell(value, row_index, col_index) for col_index, value in enumerate(values, start=1))
         sheet_rows.append(f'<row r="{row_index}">{cells}</row>')
 
     worksheet = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        f"<sheetData>{''.join(sheet_rows)}</sheetData></worksheet>"
+        + ('<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' if frozen_header else "")
+        + widths
+        + f"<sheetData>{''.join(sheet_rows)}</sheetData></worksheet>"
     )
+    if auto_filter and len(rows) > 1:
+        last_col = chr(64 + min(len(rows[0]), 26))
+        worksheet = worksheet.replace(
+            "</worksheet>",
+            f'<autoFilter ref="A1:{last_col}{len(rows)}"/></worksheet>',
+        )
+    return worksheet
+
+
+def _xlsx_response(logs) -> Response:
+    logs = list(logs)
+    detail_rows = [EXPORT_HEADERS, *list(_rows(logs))]
+    summary_rows = [
+        ["CMRAS Audit Logs Export", ""],
+        ["Generated UTC", datetime.utcnow().isoformat(sep=" ", timespec="seconds")],
+        ["Total Records", len(logs)],
+        ["", ""],
+        ["Status Summary", "Count"],
+        *[[label, count] for label, count in _count_by(logs, "status").items()],
+        ["", ""],
+        ["Action Category Summary", "Count"],
+        *[[label, count] for label, count in _count_by(logs, "action_category").items()],
+        ["", ""],
+        ["Role Summary", "Count"],
+        *[[label, count] for label, count in _count_by(logs, "role").items()],
+    ]
+    summary_widths = (
+        '<cols><col min="1" max="1" width="34" customWidth="1"/>'
+        '<col min="2" max="2" width="22" customWidth="1"/></cols>'
+    )
+    detail_widths = (
+        '<cols>'
+        '<col min="1" max="1" width="10" customWidth="1"/>'
+        '<col min="2" max="2" width="22" customWidth="1"/>'
+        '<col min="3" max="3" width="10" customWidth="1"/>'
+        '<col min="4" max="4" width="22" customWidth="1"/>'
+        '<col min="5" max="5" width="18" customWidth="1"/>'
+        '<col min="6" max="7" width="24" customWidth="1"/>'
+        '<col min="8" max="8" width="60" customWidth="1"/>'
+        '<col min="9" max="10" width="18" customWidth="1"/>'
+        '<col min="11" max="11" width="18" customWidth="1"/>'
+        '<col min="12" max="12" width="55" customWidth="1"/>'
+        '<col min="13" max="13" width="14" customWidth="1"/>'
+        '<col min="14" max="14" width="70" customWidth="1"/>'
+        '</cols>'
+    )
+    summary_sheet = _xlsx_sheet(summary_rows, widths=summary_widths, frozen_header=False, auto_filter=False)
+    details_sheet = _xlsx_sheet(detail_rows, widths=detail_widths)
     workbook = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        '<sheets><sheet name="Audit Logs" sheetId="1" r:id="rId1"/></sheets></workbook>'
+        '<sheets>'
+        '<sheet name="Summary" sheetId="1" r:id="rId1"/>'
+        '<sheet name="Detailed Logs" sheetId="2" r:id="rId2"/>'
+        '</sheets></workbook>'
+    )
+    styles = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>'
+        '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1E3A5F"/><bgColor indexed="64"/></patternFill></fill></fills>'
+        '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD9E2F3"/></left><right style="thin"><color rgb="FFD9E2F3"/></right><top style="thin"><color rgb="FFD9E2F3"/></top><bottom style="thin"><color rgb="FFD9E2F3"/></bottom><diagonal/></border></borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="3">'
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+        '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"><alignment vertical="top" wrapText="1"/></xf>'
+        '</cellXfs>'
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        '</styleSheet>'
     )
 
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>')
+        archive.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>')
         archive.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
         archive.writestr("xl/workbook.xml", workbook)
-        archive.writestr("xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
-        archive.writestr("xl/worksheets/sheet1.xml", worksheet)
+        archive.writestr("xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>')
+        archive.writestr("xl/styles.xml", styles)
+        archive.writestr("xl/worksheets/sheet1.xml", summary_sheet)
+        archive.writestr("xl/worksheets/sheet2.xml", details_sheet)
 
     output.seek(0)
     return Response(
@@ -255,30 +334,62 @@ def _pdf_escape(value) -> str:
 
 
 def _simple_pdf_response(logs) -> Response:
-    lines = ["CMRAS Audit Logs", f"Generated: {datetime.utcnow().isoformat(sep=' ', timespec='seconds')} UTC", ""]
+    lines = [
+        "CMRAS SYSTEM AUDIT LOGS",
+        f"Generated: {datetime.utcnow().isoformat(sep=' ', timespec='seconds')} UTC",
+        f"Records: {len(logs)}",
+        "",
+    ]
     for row in _rows(logs):
-        lines.append(f"#{row[0]} | {row[1]} | {row[3]} | {row[5]} | {row[12]} | {row[8]}:{row[9]}")
-        if row[7]:
-            lines.append(f"  {row[7][:110]}")
-        if len(lines) >= 48:
-            lines.append(f"... Export truncated in fallback PDF. Use CSV/XLSX for all {len(logs)} rows.")
-            break
+        entries = [
+            f"Audit ID: {row[0]}",
+            f"Timestamp: {row[1]}",
+            f"User ID: {row[2]}",
+            f"Username: {row[3]}",
+            f"Role: {row[4]}",
+            f"Action Type: {row[5]}",
+            f"Action Category: {row[6]}",
+            f"Status: {row[12]}",
+            f"Affected Entity: {row[8]}:{row[9]}",
+            f"IP Address: {row[10]}",
+            f"User Agent: {row[11]}",
+            f"Description: {row[7]}",
+            f"Additional Metadata JSON: {row[13]}",
+        ]
+        for entry in entries:
+            lines.extend(textwrap.wrap(entry, width=118, subsequent_indent="    ") or [""])
+        lines.append("-" * 118)
 
-    text_commands = ["BT", "/F1 10 Tf", "40 560 Td"]
-    for index, line in enumerate(lines):
-        if index:
-            text_commands.append("0 -13 Td")
-        text_commands.append(f"({_pdf_escape(line)}) Tj")
-    text_commands.append("ET")
-    stream = "\n".join(text_commands).encode("latin-1", "replace")
+    max_lines = 72
+    page_lines = [lines[index:index + max_lines] for index in range(0, len(lines), max_lines)] or [[]]
+
+    content_objects: list[bytes] = []
+    for page in page_lines:
+        text_commands = ["BT", "/F1 8 Tf", "40 805 Td"]
+        for line_index, line in enumerate(page):
+            if line_index:
+                text_commands.append("0 -10 Td")
+            text_commands.append(f"({_pdf_escape(line)}) Tj")
+        text_commands.append("ET")
+        stream = "\n".join(text_commands).encode("latin-1", "replace")
+        content_objects.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream")
+
+    page_count = len(page_lines)
+    font_object_id = 3
+    page_object_ids = [4 + (i * 2) for i in range(page_count)]
+    content_object_ids = [5 + (i * 2) for i in range(page_count)]
+    kids = " ".join(f"{obj_id} 0 R" for obj_id in page_object_ids)
 
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {page_count} >>".encode(),
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
     ]
+    for content_id, content in zip(content_object_ids, content_objects):
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 {font_object_id} 0 R >> >> /Contents {content_id} 0 R >>".encode()
+        )
+        objects.append(content)
     output = io.BytesIO()
     output.write(b"%PDF-1.4\n")
     offsets = [0]

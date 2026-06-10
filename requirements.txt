@@ -1,7 +1,7 @@
 # Flask Backend Dependencies
 flask>=2.3.0
 flask-cors>=4.0.0
-boto3>=1.34.0
+reportlab>=4.0.0
 
 # AI/ML Dependencies
 pandas>=1.5.0

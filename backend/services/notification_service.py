@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from threading import Thread
 from typing import Any, Iterable
 
 from flask import current_app
@@ -14,6 +15,15 @@ PRIORITY_LOW = "low"
 PRIORITY_NORMAL = "normal"
 PRIORITY_HIGH = "high"
 PRIORITY_CRITICAL = "critical"
+
+
+def _notification_action_url(notification_id: int | None = None) -> str:
+    frontend_url = (current_app.config.get("FRONTEND_URL") or "").rstrip("/")
+    if not frontend_url:
+        return ""
+    if notification_id:
+        return f"{frontend_url}/notifications/{notification_id}"
+    return frontend_url
 
 
 def _dedupe_users(users: Iterable[User | None]) -> list[User]:
@@ -79,6 +89,120 @@ def users_for_parent_area(area_id: int | None, roles: Iterable[str], *, parent_l
     return []
 
 
+def _send_notification_email_async(
+    app,
+    *,
+    recipient_user_id: int,
+    recipient_username: str,
+    recipient_role: str | None,
+    recipient_email: str,
+    notification_id: int,
+    title: str,
+    message: str,
+    priority: str,
+    type: str,
+    actor_user_id: int | None,
+    action_url: str,
+    metadata: dict[str, Any],
+) -> None:
+    with app.app_context():
+        result = send_notification_email(
+            recipient_email,
+            title=title,
+            message=message,
+            priority=priority,
+            action_url=action_url,
+        )
+        if not result.ok:
+            log_audit(
+                action_type="NOTIFICATION_EMAIL_FAILED",
+                action_category="NOTIFICATIONS",
+                entity_type="notification",
+                entity_id=notification_id,
+                user_id=actor_user_id,
+                status="FAILED",
+                description=f"Notification email failed for {recipient_username}: {title}",
+                metadata={
+                    "recipient_user_id": recipient_user_id,
+                    "recipient_role": recipient_role,
+                    "recipient_email": recipient_email,
+                    "notification_type": type,
+                    "priority": priority,
+                    "error": result.message,
+                    **metadata,
+                },
+            )
+
+
+def _queue_notification_email(
+    user: User,
+    notification: Notification,
+    *,
+    title: str,
+    message: str,
+    priority: str,
+    type: str,
+    actor_user_id: int | None,
+    email_metadata: dict[str, Any],
+) -> None:
+    if not current_app.config.get("EMAIL_NOTIFICATIONS_ENABLED"):
+        log_audit(
+            action_type="NOTIFICATION_EMAIL_SKIPPED",
+            action_category="NOTIFICATIONS",
+            entity_type="notification",
+            entity_id=notification.id,
+            user_id=actor_user_id,
+            status="SUCCESS",
+            description=f"Notification email skipped because email notifications are disabled: {title}",
+            metadata={
+                "recipient_user_id": user.id,
+                "recipient_role": user.role,
+                "notification_type": type,
+                "priority": priority,
+            },
+        )
+        return
+
+    if not user.email:
+        log_audit(
+            action_type="NOTIFICATION_EMAIL_SKIPPED",
+            action_category="NOTIFICATIONS",
+            entity_type="notification",
+            entity_id=notification.id,
+            user_id=actor_user_id,
+            status="FAILED",
+            description=f"Notification email skipped because {user.username} has no email address: {title}",
+            metadata={
+                "recipient_user_id": user.id,
+                "recipient_role": user.role,
+                "notification_type": type,
+                "priority": priority,
+            },
+        )
+        return
+
+    app = current_app._get_current_object()
+    Thread(
+        target=_send_notification_email_async,
+        kwargs={
+            "app": app,
+            "recipient_user_id": user.id,
+            "recipient_username": user.username,
+            "recipient_role": user.role,
+            "recipient_email": user.email,
+            "notification_id": notification.id,
+            "title": title,
+            "message": message,
+            "priority": priority,
+            "type": type,
+            "actor_user_id": actor_user_id,
+            "action_url": _notification_action_url(notification.id),
+            "metadata": email_metadata,
+        },
+        daemon=True,
+    ).start()
+
+
 def notify_users(
     users: Iterable[User | None],
     *,
@@ -96,6 +220,14 @@ def notify_users(
 ) -> list[Notification]:
     notifications: list[Notification] = []
     for user in _dedupe_users(users):
+        email_metadata = {
+            "related_child_id": related_child_id,
+            "related_referral_id": related_referral_id,
+            "related_escalation_id": related_escalation_id,
+            "related_transfer_id": related_transfer_id,
+            "related_report_id": related_report_id,
+            **(metadata or {}),
+        }
         notification = Notification(
             title=title,
             message=message,
@@ -132,17 +264,16 @@ def notify_users(
             },
         )
         notifications.append(notification)
-        if user.email:
-            try:
-                send_notification_email(
-                    user.email,
-                    title=title,
-                    message=message,
-                    priority=priority,
-                    action_url=current_app.config.get("FRONTEND_URL"),
-                )
-            except Exception as exc:
-                print(f"Notification email failed: {exc.__class__.__name__}")
+        _queue_notification_email(
+            user,
+            notification,
+            title=title,
+            message=message,
+            priority=priority,
+            type=type,
+            actor_user_id=actor_user_id,
+            email_metadata=email_metadata,
+        )
     return notifications
 
 

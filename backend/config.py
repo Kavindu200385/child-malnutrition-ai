@@ -55,6 +55,7 @@ def _build_mysql_uri_from_parts() -> str | None:
 class Config:
     # Security
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
+    SUPERADMIN_USERNAME = os.environ.get("SUPERADMIN_USERNAME", "superadmin")
     # Match your proposal env name
     JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", os.environ.get("JWT_SECRET", SECRET_KEY))
     JWT_ACCESS_TOKEN_EXPIRES = _parse_expires(os.environ.get("JWT_EXPIRES_IN"))
@@ -72,14 +73,17 @@ class Config:
     # CORS
     CORS_ORIGINS = os.environ.get("CORS_ORIGINS", os.environ.get("FRONTEND_URL", "*"))
 
-    # Email / AWS SES
+    # Email / SMTP
     EMAIL_ENABLED = os.environ.get("EMAIL_ENABLED", "false").lower() in ("1", "true", "yes")
     EMAIL_2FA_ENABLED = os.environ.get("EMAIL_2FA_ENABLED", "false").lower() in ("1", "true", "yes")
     EMAIL_NOTIFICATIONS_ENABLED = os.environ.get("EMAIL_NOTIFICATIONS_ENABLED", "false").lower() in ("1", "true", "yes")
-    AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
-    AWS_SES_ACCESS_KEY_ID = os.environ.get("AWS_SES_ACCESS_KEY_ID")
-    AWS_SES_SECRET_ACCESS_KEY = os.environ.get("AWS_SES_SECRET_ACCESS_KEY")
-    AWS_SES_SENDER_EMAIL = os.environ.get("AWS_SES_SENDER_EMAIL")
-    AWS_SES_SENDER_NAME = os.environ.get("AWS_SES_SENDER_NAME", "CMRAS")
+    EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "smtp").strip().lower()
+    SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+    SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
+    SMTP_SENDER_EMAIL = os.environ.get("SMTP_SENDER_EMAIL", os.environ.get("SMTP_USERNAME"))
+    SMTP_SENDER_NAME = os.environ.get("SMTP_SENDER_NAME", "CMRAS")
     FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3001")
     BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:5001")

@@ -155,7 +155,7 @@ class AuditLogger:
                 "action_type": actual_action_type,
                 "action_category": actual_category,
                 "description": description,
-                "entity_type": entity_type,
+                "entity_type": entity_type or "system",
                 "entity_id": entity_id,
                 "ip_address": ip_address,
                 "user_agent": user_agent,
@@ -184,6 +184,7 @@ class AuditLogger:
                         session.flush()
                         return fallback_log
                     except Exception as fallback_exc:
+                        session.rollback()
                         print(f"Audit logging fallback failed: {fallback_exc}")
             print(f"Audit logging failed: {e}")
             return None
