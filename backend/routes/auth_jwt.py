@@ -61,6 +61,10 @@ def _generate_otp() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
+def _rate_limit_disabled() -> bool:
+    return bool(current_app.config.get("TESTING") or current_app.config.get("RATELIMIT_ENABLED") is False)
+
+
 def _invalidate_active_otps(user_id: int, purpose: str) -> None:
     now = datetime.utcnow()
     db.session.query(UserOTPCode).filter(
@@ -147,7 +151,7 @@ def _create_and_send_login_otp(user: User):
 
 
 @bp.route("/login", methods=["POST"])
-@limiter.limit("5 per 15 minutes; 50 per hour")
+@limiter.limit("5 per 15 minutes; 50 per hour", exempt_when=_rate_limit_disabled)
 def login():
     data = request.get_json() or {}
     username = data.get("username")
@@ -185,7 +189,7 @@ def login():
 
 
 @bp.route("/verify-otp", methods=["POST"])
-@limiter.limit("10 per 15 minutes")
+@limiter.limit("10 per 15 minutes", exempt_when=_rate_limit_disabled)
 def verify_otp():
     data = request.get_json() or {}
     username = (data.get("username") or "").strip()
@@ -248,7 +252,7 @@ def verify_otp():
 
 
 @bp.route("/resend-otp", methods=["POST"])
-@limiter.limit("3 per 10 minutes")
+@limiter.limit("3 per 10 minutes", exempt_when=_rate_limit_disabled)
 def resend_otp():
     data = request.get_json() or {}
     username = (data.get("username") or "").strip()
