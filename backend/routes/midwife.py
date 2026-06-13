@@ -35,6 +35,7 @@ from backend.services.notification_service import (
     notify_moh_area,
     notify_phm_area,
 )
+from backend.services.email_service import send_child_event_email
 from backend.ai.predictor import (
     build_future_prediction_payload,
     predict_current_risk,
@@ -218,6 +219,20 @@ def assign_child(child_id: int):
         new_values={"phm_area_id": child.phm_area_id, "moh_area_id": child.moh_area_id},
         user_id=user.id,
         description=f"Assigned child {child.child_unique_id or child.child_id} to PHM area {midwife_phm_area_id}",
+    )
+    phm_area = db.session.get(Area, midwife_phm_area_id)
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="Child Assigned to Midwife Area",
+        event_summary="Your child has been assigned to a PHM/midwife area for follow-up care.",
+        details={
+            "Assigned area": phm_area.name if phm_area else str(midwife_phm_area_id),
+            "Assigned role": "Midwife",
+            "Status": "Active follow-up",
+        },
     )
 
     db.session.commit()
@@ -461,6 +476,21 @@ def add_measurement():
         user_id=user.id,
         description=f"Added measurement for child {child.child_unique_id or child.child_id}",
     )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="Clinic Measurement Recorded",
+        event_summary="A new growth measurement has been recorded for your child.",
+        details={
+            "Current nutrition status": current_risk,
+            "Weight": f"{weight_kg} kg",
+            "Height": f"{height_cm} cm",
+            "MUAC": f"{muac_cm} cm" if muac_cm else None,
+            "Future risk prediction": predicted_risk,
+        },
+    )
 
     db.session.commit()
 
@@ -543,6 +573,19 @@ def escalate_to_moh(child_id: int):
         new_values=escalation.to_dict(),
         user_id=user.id,
         description=f"Escalated child {child.child_unique_id} to MOH",
+    )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="Child Referred to MOH Review",
+        event_summary="Your child has been referred to the MOH team for further review and follow-up.",
+        details={
+            "Reason": escalation.reason,
+            "Current nutrition status": child.current_risk_level,
+            "Next step": "MOH review",
+        },
     )
     
     db.session.commit()

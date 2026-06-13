@@ -38,6 +38,7 @@ from backend.services.notification_service import (
     notify_moh_area,
     notify_user,
 )
+from backend.services.email_service import send_child_event_email
 
 bp = Blueprint("nutritionist", __name__, url_prefix="/api/nutritionist")
 
@@ -395,7 +396,6 @@ def add_measurement():
     db.session.add(visit)
     # ───────────────────────────────────────────────────────────────────────
 
-    db.session.commit()
     log_audit(
         action="CREATE",
         entity_type="measurement",
@@ -404,6 +404,22 @@ def add_measurement():
         user_id=user.id,
         description=f"Nutritionist added measurement for child {child.id}",
     )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="Nutritionist Measurement Recorded",
+        event_summary="A nutritionist recorded a new growth measurement for your child.",
+        details={
+            "Current nutrition status": current_risk,
+            "Weight": f"{weight_kg} kg",
+            "Height": f"{height_cm} cm",
+            "MUAC": f"{muac_cm} cm" if muac_cm is not None else None,
+            "Future risk prediction": predicted_risk,
+        },
+    )
+    db.session.commit()
 
     return jsonify({
         "status": "success",
@@ -502,6 +518,19 @@ def return_to_moh(child_id: int):
             new_values=escalation.to_dict(),
             user_id=user.id,
             description=f"Nutritionist sent return request for child {child_id} to MOH",
+        )
+        send_child_event_email(
+            child.guardian_email,
+            child_name=child.name,
+            child_identifier=child.child_unique_id or child.child_id,
+            guardian_name=child.guardian_name,
+            event_title="Return to MOH Requested",
+            event_summary="The nutritionist marked your child as ready for MOH review and follow-up planning.",
+            details={
+                "Current nutrition status": child.current_risk_level,
+                "Next step": "MOH review",
+                "Reason": escalation.reason,
+            },
         )
         db.session.commit()
         return jsonify({
@@ -794,8 +823,20 @@ def accept_transfer_request(referral_id: int):
         related_child_id=referral.child_id,
         related_referral_id=referral.id,
     )
-
-    db.session.commit()
+    if child:
+        send_child_event_email(
+            child.guardian_email,
+            child_name=child.name,
+            child_identifier=child.child_unique_id or child.child_id,
+            guardian_name=child.guardian_name,
+            event_title="Nutritionist Referral Accepted",
+            event_summary="A nutritionist accepted your child's referral for specialist care.",
+            details={
+                "Referral status": "Accepted",
+                "Next step": "Nutritionist specialist care",
+                "Notes": notes,
+            },
+        )
 
     log_audit(
         action="TRANSFER_ACCEPT",
@@ -806,6 +847,7 @@ def accept_transfer_request(referral_id: int):
         user_id=user.id,
         description=f"Nutritionist accepted transfer request for child {referral.child_id}",
     )
+    db.session.commit()
 
     return jsonify({
         "status": "success",
@@ -877,8 +919,20 @@ def reject_transfer_request(referral_id: int):
         related_child_id=referral.child_id,
         related_referral_id=referral.id,
     )
-
-    db.session.commit()
+    if child:
+        send_child_event_email(
+            child.guardian_email,
+            child_name=child.name,
+            child_identifier=child.child_unique_id or child.child_id,
+            guardian_name=child.guardian_name,
+            event_title="Nutritionist Referral Reviewed",
+            event_summary="A nutritionist reviewed the referral and did not accept it at this time.",
+            details={
+                "Referral status": "Rejected",
+                "Reason": rejection_reason,
+                "Next step": "Continue with assigned care team",
+            },
+        )
 
     log_audit(
         action="TRANSFER_REJECT",
@@ -889,6 +943,7 @@ def reject_transfer_request(referral_id: int):
         user_id=user.id,
         description=f"Nutritionist rejected transfer request for child {referral.child_id}: {rejection_reason}",
     )
+    db.session.commit()
 
     return jsonify({
         "status": "success",

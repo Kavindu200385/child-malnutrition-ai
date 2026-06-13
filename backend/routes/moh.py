@@ -47,6 +47,7 @@ from backend.services.notification_service import (
     notify_rdhs_for_area,
     notify_user,
 )
+from backend.services.email_service import send_child_event_email
 from backend.ai.predictor import (
     build_future_prediction_payload,
     predict_current_risk,
@@ -246,6 +247,21 @@ def add_measurement():
         new_values=measurement.to_dict(),
         user_id=user.id,
         description=f"MOH added measurement for child {child.child_unique_id}",
+    )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="MOH Measurement Recorded",
+        event_summary="The MOH team recorded a new growth measurement for your child.",
+        details={
+            "Current nutrition status": current_risk,
+            "Weight": f"{weight_kg} kg",
+            "Height": f"{height_cm} cm",
+            "MUAC": f"{muac_cm} cm" if muac_cm else None,
+            "Future risk prediction": predicted_risk,
+        },
     )
     db.session.commit()
 
@@ -584,6 +600,19 @@ def escalate_to_nutritionist(child_id: int):
         user_id=user.id,
         description=f"MOH escalated child {child_id} to nutritionist",
     )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="Child Referred to Nutritionist",
+        event_summary="The MOH team referred your child to a nutritionist for specialist review.",
+        details={
+            "Reason": reason,
+            "Current nutrition status": child.current_risk_level,
+            "Next step": "Nutritionist review",
+        },
+    )
     db.session.commit()
     return jsonify({
         "status": "success",
@@ -699,6 +728,18 @@ def assign_returned_child(child_id: int):
             actor_user_id=user.id,
             related_child_id=child.id,
         )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="Child Return Accepted",
+        event_summary=f"The MOH team accepted the return request and {action_desc}.",
+        details={
+            "Current nutrition status": child.current_risk_level,
+            "Next step": action_desc,
+        },
+    )
     log_audit(
         action="UPDATE",
         entity_type="child",
@@ -1366,6 +1407,19 @@ def pull_child_to_moh(child_id: int):
         user_id=user.id,
         description=f"MOH pulled child {child.child_unique_id} ({risk}) from midwife to MOH care",
     )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="Child Moved to MOH Care",
+        event_summary="Your child has been moved to MOH care for closer follow-up.",
+        details={
+            "Reason": reason,
+            "Current nutrition status": risk,
+            "Next step": "MOH care",
+        },
+    )
     db.session.commit()
 
     return jsonify({
@@ -1437,6 +1491,18 @@ def reassign_child_to_phm(child_id: int):
         user_id=user.id,
         description=f"MOH reassigned child {child.child_unique_id} to PHM area {phm_area.name}",
     )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="Child Reassigned to PHM Area",
+        event_summary=f"Your child has been reassigned to {phm_area.name} for PHM follow-up.",
+        details={
+            "Assigned area": phm_area.name,
+            "Next step": "PHM follow-up",
+        },
+    )
     db.session.commit()
 
     return jsonify({
@@ -1501,6 +1567,18 @@ def accept_escalation(escalation_id: int):
         new_values=escalation.to_dict(),
         user_id=user.id,
         description=f"MOH accepted escalation {escalation_id} — child {child.child_unique_id} moved to MOH care",
+    )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="MOH Escalation Accepted",
+        event_summary="The MOH team accepted your child for further review and follow-up.",
+        details={
+            "Current nutrition status": child.current_risk_level,
+            "Next step": "MOH care",
+        },
     )
     db.session.commit()
     return jsonify({
@@ -1609,6 +1687,19 @@ def reject_escalation(escalation_id: int):
         user_id=user.id,
         description=f"MOH rejected escalation {escalation_id} from {escalation.from_role}",
     )
+    if child:
+        send_child_event_email(
+            child.guardian_email,
+            child_name=child.name,
+            child_identifier=child.child_unique_id or child.child_id,
+            guardian_name=child.guardian_name,
+            event_title="MOH Escalation Reviewed",
+            event_summary="The MOH team reviewed the escalation request. Your child will continue with the assigned care team.",
+            details={
+                "Review status": "Rejected",
+                "Notes": escalation.review_notes,
+            },
+        )
     db.session.commit()
     return jsonify({
         "status": "success",

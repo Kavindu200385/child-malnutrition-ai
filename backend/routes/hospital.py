@@ -29,6 +29,7 @@ from backend.services.notification_service import (
     notify_hospital_nutritionists,
     notify_hospital_users,
 )
+from backend.services.email_service import send_child_event_email, send_child_registered_email
 
 bp = Blueprint("hospital", __name__, url_prefix="/api/hospital")
 
@@ -129,6 +130,7 @@ def register_child():
         mother_name=data.get("mother_name"),
         guardian_name=data.get("guardian_name") or data.get("mother_name"),
         guardian_phone=data.get("guardian_phone") or data.get("contact_number"),
+        guardian_email=data.get("guardian_email") or data.get("parent_email"),
         guardian_nic=data.get("guardian_nic") or data.get("nic"),
         address=data.get("address"),
         hospital_id=user.hospital_id,
@@ -177,6 +179,12 @@ def register_child():
         new_values=child.to_dict(),
         user_id=user.id,
         description=f"Registered child {child_unique_id} at {hospital.hospital_name}",
+    )
+    send_child_registered_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
     )
     
     db.session.commit()
@@ -356,6 +364,19 @@ def transfer_to_nutritionist(child_id: int):
         new_values={"transfer_status": TransferStatus.TRANSFERRED_TO_NUTRITIONIST.value, "is_transferred": True},
         user_id=user.id,
         description=f"Transferred SAM case {child.child_unique_id} to nutritionist",
+    )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="Child Referred to Nutritionist",
+        event_summary="Your child has been referred to a nutritionist for specialist review.",
+        details={
+            "Reason": referral.referral_reason,
+            "Current nutrition status": child.birth_risk_level or child.current_risk_level,
+            "Next step": "Nutritionist review",
+        },
     )
     
     db.session.commit()

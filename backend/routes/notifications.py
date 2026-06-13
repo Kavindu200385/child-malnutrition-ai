@@ -68,7 +68,6 @@ def mark_read(notification_id: int):
     if not notification.is_read:
         notification.is_read = True
         notification.read_at = datetime.utcnow()
-        db.session.commit()
         log_audit(
             action="READ",
             entity_type="notification",
@@ -76,6 +75,7 @@ def mark_read(notification_id: int):
             user_id=user.id,
             description=f"Notification marked read: {notification.title}",
         )
+        db.session.commit()
 
     return jsonify({"status": "success", "notification": notification.to_dict()}), 200
 
@@ -92,7 +92,6 @@ def mark_all_read():
         Notification.user_id == user.id,
         Notification.is_read == False,
     ).update({"is_read": True, "read_at": now}, synchronize_session=False)
-    db.session.commit()
     if updated:
         log_audit(
             action_type="NOTIFICATION_MARKED_READ",
@@ -102,6 +101,7 @@ def mark_all_read():
             description=f"Marked {int(updated)} notifications as read.",
             metadata={"updated_count": int(updated)},
         )
+    db.session.commit()
     return jsonify({"status": "success", "updated": int(updated)}), 200
 
 
@@ -118,7 +118,6 @@ def delete_notification(notification_id: int):
 
     notification_title = notification.title
     db.session.delete(notification)
-    db.session.commit()
     log_audit(
         action="DELETE",
         entity_type="notification",
@@ -126,4 +125,5 @@ def delete_notification(notification_id: int):
         user_id=user.id,
         description=f"Notification dismissed: {notification_title}",
     )
+    db.session.commit()
     return jsonify({"status": "success", "message": "Notification deleted"}), 200

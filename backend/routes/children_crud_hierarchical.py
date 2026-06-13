@@ -50,7 +50,7 @@ from backend.models_hierarchical import (
 from backend.utils.audit import log_audit
 from backend.utils.midwife_helpers import get_area_hierarchy
 from backend.utils.hospital_helpers import calculate_birth_risk_level, generate_child_unique_id
-from backend.services.email_service import send_child_registered_email
+from backend.services.email_service import send_child_event_email, send_child_registered_email
 
 bp = Blueprint("children_crud_hierarchical", __name__, url_prefix="/api/children")
 
@@ -248,6 +248,22 @@ def create_child():
             description=f"Child registration email {'sent' if result.ok else 'failed'} for {child.child_unique_id or child.child_id}.",
             metadata={"recipient": child.guardian_email, "error": None if result.ok else result.message},
         )
+        if user and user.role == ROLE_MIDWIFE and child.current_assigned_area_id:
+            assigned_area = db.session.get(Area, child.current_assigned_area_id)
+            send_child_event_email(
+                child.guardian_email,
+                child_name=child.name,
+                child_identifier=child.child_unique_id or child.child_id,
+                guardian_name=child.guardian_name,
+                event_title="Child Assigned to Midwife Area",
+                event_summary="Your child has been assigned to a PHM/midwife area for follow-up care.",
+                details={
+                    "Assigned area": assigned_area.name if assigned_area else str(child.current_assigned_area_id),
+                    "Assigned role": "Midwife",
+                    "Status": "Active follow-up",
+                },
+            )
+        db.session.commit()
     return jsonify({"status": "success", "child": child.to_dict()}), 201
 
 
@@ -767,6 +783,19 @@ def assign_child_to_area(child_id: str):
         new_values=child.to_dict(),
         user_id=user.id,
         description=f"Assigned child {child_id} to {area.name}",
+    )
+    send_child_event_email(
+        child.guardian_email,
+        child_name=child.name,
+        child_identifier=child.child_unique_id or child.child_id,
+        guardian_name=child.guardian_name,
+        event_title="Child Assigned to Care Area",
+        event_summary=f"Your child has been assigned to {area.name} for follow-up care.",
+        details={
+            "Assigned area": area.name,
+            "Assigned role": user.role,
+            "Status": "Active follow-up",
+        },
     )
     
     db.session.commit()

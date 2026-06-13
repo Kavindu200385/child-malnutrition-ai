@@ -376,3 +376,60 @@ def send_child_registered_email(
         text,
         audit_context={"email_type": "child_registered", "child_identifier": child_identifier},
     )
+
+
+def send_child_event_email(
+    guardian_email: str | None,
+    child_name: str | None,
+    child_identifier: str | None,
+    event_title: str,
+    event_summary: str,
+    guardian_name: str | None = None,
+    details: dict[str, str | None] | None = None,
+) -> EmailResult:
+    """
+    Send parent/guardian updates for important child-care workflow events.
+    This is intentionally separate from staff in-app notifications.
+    """
+    child_label = child_name or child_identifier or "your child"
+    greeting = f"Dear {_escape(guardian_name)}," if guardian_name else "Dear parent/guardian,"
+    rows = [
+        _detail_row("Child", child_label),
+        _detail_row("Child ID", child_identifier),
+        _detail_row("Update", event_title),
+    ]
+    for label, value in (details or {}).items():
+        rows.append(_detail_row(label, value))
+    rows.append(_detail_row("Message", event_summary, last=True))
+
+    html = _email_shell(
+        event_title,
+        "A child health record update has been recorded in CMRAS.",
+        f"""
+        <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.6">{greeting}</p>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e5e7eb;border-radius:12px;border-collapse:separate;overflow:hidden;margin-bottom:18px">
+          {''.join(rows)}
+        </table>
+        <p style="margin:0;color:#64748b;font-size:14px;line-height:1.6">For clinical guidance or urgent questions, please contact your assigned health worker or clinic.</p>
+        """,
+        accent="#2563eb",
+    )
+    details_text = "\n".join(f"{label}: {value or '-'}" for label, value in (details or {}).items())
+    text = (
+        f"{event_title}\n"
+        f"Child: {child_label}\n"
+        f"Child ID: {child_identifier or '-'}\n"
+        f"{details_text}\n"
+        f"Message: {event_summary}"
+    ).strip()
+    return send_email(
+        guardian_email or "",
+        f"CMRAS update: {event_title}",
+        html,
+        text,
+        audit_context={
+            "email_type": "guardian_child_event",
+            "child_identifier": child_identifier,
+            "event_title": event_title,
+        },
+    )

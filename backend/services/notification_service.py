@@ -50,17 +50,30 @@ def active_users_by_role(role: str) -> list[User]:
 def users_for_area(area_id: int | None, roles: Iterable[str]) -> list[User]:
     if area_id is None:
         return []
-    return _dedupe_users(
+    role_list = list(roles)
+    mapped_users = (
         db.session.query(User)
         .join(WorkerAreaMapping, WorkerAreaMapping.user_id == User.id)
         .filter(
             WorkerAreaMapping.area_id == area_id,
             WorkerAreaMapping.is_active == True,
-            User.role.in_(list(roles)),
+            User.role.in_(role_list),
             User.is_active == True,
         )
         .all()
     )
+    legacy_midwives = []
+    if UserRole.MIDWIFE.value in role_list:
+        legacy_midwives = (
+            db.session.query(User)
+            .filter(
+                User.phm_area_id == area_id,
+                User.role == UserRole.MIDWIFE.value,
+                User.is_active == True,
+            )
+            .all()
+        )
+    return _dedupe_users([*mapped_users, *legacy_midwives])
 
 
 def users_for_hospital(hospital_id: int | None, roles: Iterable[str]) -> list[User]:
@@ -132,6 +145,7 @@ def _send_notification_email_async(
                     **metadata,
                 },
             )
+        db.session.commit()
 
 
 def _queue_notification_email(
@@ -318,4 +332,9 @@ def notify_pdhs_for_area(area_id: int | None, **kwargs: Any) -> list[Notificatio
 
 
 def notify_ministry(**kwargs: Any) -> list[Notification]:
-    return notify_role(UserRole.HEALTH_MINISTRY.value, **kwargs)
+    return notify_users(
+        active_users_by_role(UserRole.HEALTH_MINISTRY.value)
+        + active_users_by_role(UserRole.ADMIN.value)
+        + active_users_by_role(UserRole.SUPERADMIN.value),
+        **kwargs,
+    )
