@@ -7,6 +7,7 @@ from decimal import Decimal
 from flask import Blueprint, jsonify, request
 
 from flask_jwt_extended import jwt_required
+from sqlalchemy import or_
 
 from backend.auth_utils_hierarchical import (
     get_current_user,
@@ -42,6 +43,7 @@ from backend.models_hierarchical import (
     ChildTransfer,
     AreaChangeRequest,
     Measurement,
+    Notification,
     User,
     WorkerAreaMapping,
 )
@@ -621,6 +623,30 @@ def delete_child(child_id: str):
 
     # Delete related records that lack cascade-delete on the ORM relationship.
     # (Visit already has cascade="all, delete-orphan", so it's handled automatically.)
+    referral_ids = [
+        row[0] for row in db.session.query(ChildReferral.id)
+        .filter(ChildReferral.child_id == child.id)
+        .all()
+    ]
+    escalation_ids = [
+        row[0] for row in db.session.query(ChildEscalation.id)
+        .filter(ChildEscalation.child_id == child.id)
+        .all()
+    ]
+    transfer_ids = [
+        row[0] for row in db.session.query(ChildTransfer.id)
+        .filter(ChildTransfer.child_id == child.id)
+        .all()
+    ]
+    notification_filters = [Notification.related_child_id == child.id]
+    if referral_ids:
+        notification_filters.append(Notification.related_referral_id.in_(referral_ids))
+    if escalation_ids:
+        notification_filters.append(Notification.related_escalation_id.in_(escalation_ids))
+    if transfer_ids:
+        notification_filters.append(Notification.related_transfer_id.in_(transfer_ids))
+    db.session.query(Notification).filter(or_(*notification_filters)).delete(synchronize_session=False)
+
     db.session.query(Measurement).filter(Measurement.child_id == child.id).delete(synchronize_session=False)
     db.session.query(ChildEscalation).filter(ChildEscalation.child_id == child.id).delete(synchronize_session=False)
     db.session.query(ChildReferral).filter(ChildReferral.child_id == child.id).delete(synchronize_session=False)

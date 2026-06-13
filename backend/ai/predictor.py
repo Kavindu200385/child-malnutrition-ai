@@ -1,7 +1,7 @@
 import math
 import threading
 from datetime import datetime
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Mapping, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -439,19 +439,26 @@ def _lms_zscore(value: float, L: float, M: float, S: float) -> float:
     return ((value / M) ** L - 1) / (L * S)
 
 
-def _interpolate_lms(age: int, table: Dict[int, Tuple[float, float, float]]) -> Tuple[float, float, float]:
-    ages = sorted(table.keys())
-    if age in table:
-        return table[age]
+def _interpolate_lms(point: float, table: Mapping[float, Tuple[float, float, float]]) -> Tuple[float, float, float]:
+    """Return LMS values for an age/month or height point using linear interpolation."""
+    point = float(point)
+    points = sorted(float(k) for k in table.keys())
+    if point in table:
+        return table[point]
 
-    lower = max(a for a in ages if a <= age)
-    upper = min(a for a in ages if a >= age)
+    if point <= points[0]:
+        return table[points[0]]
+    if point >= points[-1]:
+        return table[points[-1]]
+
+    lower = max(p for p in points if p <= point)
+    upper = min(p for p in points if p >= point)
     if lower == upper:
         return table[lower]
 
     L1, M1, S1 = table[lower]
     L2, M2, S2 = table[upper]
-    ratio = (age - lower) / (upper - lower)
+    ratio = (point - lower) / (upper - lower)
     return (L1 + (L2 - L1) * ratio, M1 + (M2 - M1) * ratio, S1 + (S2 - S1) * ratio)
 
 

@@ -9,7 +9,7 @@ from typing import Optional, List
 from enum import Enum
 
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import ForeignKey, CheckConstraint, Index, Numeric, event
+from sqlalchemy import ForeignKey, CheckConstraint, Index, Numeric, event, or_
 from sqlalchemy.orm import relationship
 
 from backend.extensions import db
@@ -182,9 +182,13 @@ class Area(db.Model):
         ).count() > 0
 
     def has_linked_children(self) -> bool:
-        """Check if area has actively assigned children"""
+        """Check if area is referenced by any child assignment field."""
         return db.session.query(Child).filter(
-            Child.current_assigned_area_id == self.id
+            or_(
+                Child.current_assigned_area_id == self.id,
+                Child.phm_area_id == self.id,
+                Child.moh_area_id == self.id,
+            )
         ).count() > 0
 
     def has_linked_workers(self) -> bool:
