@@ -140,7 +140,7 @@ export function NutritionistDashboardView() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Normal</p>
+              <p className="text-sm text-gray-600">Normal Status</p>
               <p className="text-3xl font-bold mt-2" style={{ color: COLORS.normal }}>{data.normal_count ?? 0}</p>
             </div>
             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
@@ -151,7 +151,7 @@ export function NutritionistDashboardView() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">MAM</p>
+              <p className="text-sm text-gray-600">Moderate (MAM)</p>
               <p className="text-3xl font-bold mt-2" style={{ color: COLORS.mam }}>{data.mam_count ?? 0}</p>
             </div>
             <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -162,7 +162,7 @@ export function NutritionistDashboardView() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">SAM</p>
+              <p className="text-sm text-gray-600">Severe (SAM)</p>
               <p className="text-3xl font-bold mt-2" style={{ color: COLORS.sam }}>{data.sam_count ?? 0}</p>
             </div>
             <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
@@ -174,7 +174,7 @@ export function NutritionistDashboardView() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Risk distribution</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">Current nutrition status distribution</h3>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>

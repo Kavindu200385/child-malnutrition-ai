@@ -140,6 +140,13 @@ export function SharedDashboardLayout({
         <p className="text-gray-600 mt-1">{subtitle}</p>
       </div>
 
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h3 className="text-lg font-bold text-gray-900">Current Nutrition Status</h3>
+          <p className="text-sm text-gray-500">WHO-based child status: Normal, Moderate Acute Malnutrition (MAM), and Severe Acute Malnutrition (SAM).</p>
+        </div>
+      </div>
+
       {/* Stats cards */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 ${
         !extraCards?.length ? 'xl:grid-cols-4' : extraCards.length === 1 ? 'xl:grid-cols-5' : 'xl:grid-cols-6'
@@ -158,7 +165,7 @@ export function SharedDashboardLayout({
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Normal</p>
+              <p className="text-sm text-gray-600">Normal Status</p>
               <p className="text-3xl font-bold mt-2" style={{ color: '#2ECC71' }}>{normalCount}</p>
             </div>
             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
@@ -169,7 +176,7 @@ export function SharedDashboardLayout({
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">MAM Cases</p>
+              <p className="text-sm text-gray-600">Moderate (MAM)</p>
               <p className="text-3xl font-bold mt-2" style={{ color: '#F1C40F' }}>{mamCount}</p>
             </div>
             <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -180,7 +187,7 @@ export function SharedDashboardLayout({
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">SAM Cases</p>
+              <p className="text-sm text-gray-600">Severe (SAM)</p>
               <p className="text-3xl font-bold mt-2" style={{ color: '#E74C3C' }}>{samCount}</p>
             </div>
             <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
@@ -214,9 +221,9 @@ export function SharedDashboardLayout({
                   <Brain className="w-6 h-6 text-purple-600" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-purple-700">Predicted Cases (next 2 months)</p>
+                  <p className="text-sm font-medium text-purple-700">Future Risk Prediction (next 2 months)</p>
                   <p className="text-3xl font-bold text-purple-900 mt-0.5">{predictedTotal}</p>
-                  <p className="text-xs text-purple-500 mt-0.5">SAM: {predictedSam} &nbsp;·&nbsp; MAM: {predictedMam}</p>
+                  <p className="text-xs text-purple-500 mt-0.5">Severe risk: {predictedSam} &nbsp;·&nbsp; Moderate/High risk: {predictedMam}</p>
                 </div>
               </div>
               <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-3 py-1 rounded-full">View chart →</span>
@@ -235,7 +242,7 @@ export function SharedDashboardLayout({
               >
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-bold text-gray-900">Predicted Risk Cases</h3>
+                    <h3 className="text-lg font-bold text-gray-900">Future Risk Prediction</h3>
                     <p className="text-sm text-gray-500">AI forecast for next 2 months</p>
                   </div>
                   <button onClick={() => setShowPredictedChart(false)} className="text-gray-400 hover:text-gray-600">
@@ -245,8 +252,8 @@ export function SharedDashboardLayout({
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart
                     data={[
-                      { name: 'Predicted SAM', count: predictedSam, fill: '#E74C3C' },
-                      { name: 'Predicted MAM', count: predictedMam, fill: '#F1C40F' },
+                      { name: 'Severe risk', count: predictedSam, fill: '#E74C3C' },
+                      { name: 'Moderate/High risk', count: predictedMam, fill: '#F1C40F' },
                     ]}
                     margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
                   >
@@ -264,11 +271,11 @@ export function SharedDashboardLayout({
                 <div className="mt-4 flex gap-4 justify-center text-sm">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-red-500" />
-                    <span className="text-gray-700">Predicted SAM: <strong>{predictedSam}</strong></span>
+                    <span className="text-gray-700">Severe risk: <strong>{predictedSam}</strong></span>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-yellow-400" />
-                    <span className="text-gray-700">Predicted MAM: <strong>{predictedMam}</strong></span>
+                    <span className="text-gray-700">Moderate/High risk: <strong>{predictedMam}</strong></span>
                   </div>
                 </div>
                 {predictedTotal === 0 && (
@@ -285,7 +292,7 @@ export function SharedDashboardLayout({
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
             <div className="flex-1">
-              <h3 className="text-lg font-bold text-red-900 mb-2">Critical Cases Requiring Immediate Attention</h3>
+              <h3 className="text-lg font-bold text-red-900 mb-2">Severe SAM Cases Requiring Immediate Attention</h3>
               <div className="space-y-2">
                 {criticalCases.map((child) => (
                   <div key={child.id} className="bg-white rounded-lg p-4">
@@ -311,7 +318,7 @@ export function SharedDashboardLayout({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Risk Level Distribution</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Current Nutrition Status Distribution</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie data={riskDistribution} cx="50%" cy="50%" labelLine={false} label={(entry) => `${entry.name}: ${entry.value}`} outerRadius={80} dataKey="value">
@@ -333,7 +340,7 @@ export function SharedDashboardLayout({
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Age Group Distribution</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Nutrition Status by Age Group</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={ageBuckets}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -349,7 +356,7 @@ export function SharedDashboardLayout({
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 lg:col-span-2">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">6-Month Trend Analysis</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">6-Month Nutrition Status Trend</h3>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={trendData}>
               <CartesianGrid strokeDasharray="3 3" />

@@ -150,7 +150,7 @@ export function MohDashboardView() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Normal</p>
+              <p className="text-sm text-gray-600">Normal Status</p>
               <p className="text-3xl font-bold mt-2" style={{ color: '#2ECC71' }}>{data.normal_count}</p>
             </div>
             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
@@ -161,7 +161,7 @@ export function MohDashboardView() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">MAM Cases</p>
+              <p className="text-sm text-gray-600">Moderate (MAM)</p>
               <p className="text-3xl font-bold mt-2" style={{ color: '#F1C40F' }}>{data.mam_count}</p>
             </div>
             <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -172,7 +172,7 @@ export function MohDashboardView() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">SAM Cases</p>
+              <p className="text-sm text-gray-600">Severe (SAM)</p>
               <p className="text-3xl font-bold mt-2" style={{ color: '#E74C3C' }}>{data.sam_count}</p>
             </div>
             <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
@@ -199,9 +199,9 @@ export function MohDashboardView() {
                     <Brain className="w-6 h-6 text-purple-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-purple-700">Predicted Cases (next 2 months)</p>
+                    <p className="text-sm font-medium text-purple-700">Future Risk Prediction (next 2 months)</p>
                     <p className="text-3xl font-bold text-purple-900 mt-0.5">{predictedTotal}</p>
-                    <p className="text-xs text-purple-500 mt-0.5">SAM: {predictedSam} &nbsp;·&nbsp; MAM: {predictedMam}</p>
+                    <p className="text-xs text-purple-500 mt-0.5">Severe risk: {predictedSam} &nbsp;·&nbsp; Moderate/High risk: {predictedMam}</p>
                   </div>
                 </div>
                 <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-3 py-1 rounded-full">View chart →</span>
@@ -219,7 +219,7 @@ export function MohDashboardView() {
                 >
                   <div className="flex items-center justify-between mb-4">
                     <div>
-                      <h3 className="text-lg font-bold text-gray-900">Predicted Risk Cases</h3>
+                      <h3 className="text-lg font-bold text-gray-900">Future Risk Prediction</h3>
                       <p className="text-sm text-gray-500">AI forecast for next 2 months</p>
                     </div>
                     <button onClick={() => setShowPredictedChart(false)} className="text-gray-400 hover:text-gray-600">
@@ -229,8 +229,8 @@ export function MohDashboardView() {
                   <ResponsiveContainer width="100%" height={220}>
                     <BarChart
                       data={[
-                        { name: 'Predicted SAM', count: predictedSam },
-                        { name: 'Predicted MAM', count: predictedMam },
+                        { name: 'Severe risk', count: predictedSam },
+                        { name: 'Moderate/High risk', count: predictedMam },
                       ]}
                       margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
                     >
@@ -248,11 +248,11 @@ export function MohDashboardView() {
                   <div className="mt-4 flex gap-4 justify-center text-sm">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full bg-red-500" />
-                      <span className="text-gray-700">Predicted SAM: <strong>{predictedSam}</strong></span>
+                      <span className="text-gray-700">Severe risk: <strong>{predictedSam}</strong></span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full bg-yellow-400" />
-                      <span className="text-gray-700">Predicted MAM: <strong>{predictedMam}</strong></span>
+                      <span className="text-gray-700">Moderate/High risk: <strong>{predictedMam}</strong></span>
                     </div>
                   </div>
                   {predictedTotal === 0 && (
@@ -267,7 +267,7 @@ export function MohDashboardView() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Risk distribution</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">Current nutrition status distribution</h3>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>

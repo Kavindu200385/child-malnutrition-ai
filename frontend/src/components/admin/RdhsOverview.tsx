@@ -157,7 +157,7 @@ export function RdhsOverview() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-sm text-gray-600">Critical Cases (SAM)</p>
+          <p className="text-sm text-gray-600">Severe Cases (SAM)</p>
           <p className="text-3xl font-bold text-red-600 mt-2">{samCount}</p>
         </div>
         <div className="bg-white rounded-lg shadow p-6">
@@ -168,10 +168,10 @@ export function RdhsOverview() {
         <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg shadow p-6">
           <div className="flex items-center gap-2 mb-1">
             <Brain className="w-4 h-4 text-purple-600" />
-            <p className="text-sm font-medium text-purple-700">AI Predicted (next 2 months)</p>
+            <p className="text-sm font-medium text-purple-700">Future Risk Prediction (next 2 months)</p>
           </div>
           <p className="text-3xl font-bold text-purple-900">{predictedTotal}</p>
-          <p className="text-xs text-purple-500 mt-1">SAM: {predictedSam} · MAM: {predictedMam}</p>
+          <p className="text-xs text-purple-500 mt-1">Severe risk: {predictedSam} · Moderate/High risk: {predictedMam}</p>
         </div>
       </div>
 
@@ -180,7 +180,7 @@ export function RdhsOverview() {
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
             <div>
-              <h3 className="text-lg font-bold text-red-900">{samCount} SAM Cases in District</h3>
+              <h3 className="text-lg font-bold text-red-900">{samCount} Severe SAM Cases in District</h3>
               <p className="text-red-800 mt-1">Coordinate with MOH areas and nutrition support.</p>
             </div>
           </div>
@@ -189,7 +189,7 @@ export function RdhsOverview() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">District Risk Distribution</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">District Current Nutrition Status</h3>
           {riskDistribution.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
@@ -206,7 +206,7 @@ export function RdhsOverview() {
           )}
         </div>
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">MOH Performance Comparison</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">MOH Nutrition Status Comparison</h3>
           {mohPerformance.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={mohPerformance}>

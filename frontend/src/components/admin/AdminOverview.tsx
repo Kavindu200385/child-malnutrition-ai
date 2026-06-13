@@ -169,7 +169,7 @@ export function AdminOverview() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Critical Cases (SAM)</p>
+              <p className="text-sm text-gray-600">Severe Cases (SAM)</p>
               <p className="text-3xl font-bold text-red-600 mt-2">{samCases}</p>
             </div>
             <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
@@ -185,7 +185,7 @@ export function AdminOverview() {
             <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
             <div>
               <h3 className="text-lg font-bold text-red-900">
-                {samCases} Critical SAM Cases Nationwide
+                {samCases} Severe SAM Cases Nationwide
               </h3>
               <p className="text-red-800 mt-1">
                 Immediate coordination required with district health offices and nutritional support programs.
@@ -203,9 +203,9 @@ export function AdminOverview() {
               <Brain className="w-6 h-6 text-purple-600" />
             </div>
             <div>
-              <p className="text-sm font-medium text-purple-700">AI Predicted Cases (next 2 months) – National</p>
+              <p className="text-sm font-medium text-purple-700">Future Risk Prediction (next 2 months) – National</p>
               <p className="text-3xl font-bold text-purple-900 mt-0.5">{predictedTotal}</p>
-              <p className="text-xs text-purple-500 mt-0.5">SAM: {predictedSam} &nbsp;·&nbsp; MAM: {predictedMam}</p>
+              <p className="text-xs text-purple-500 mt-0.5">Severe risk: {predictedSam} &nbsp;·&nbsp; Moderate/High risk: {predictedMam}</p>
             </div>
           </div>
         </div>
@@ -215,7 +215,7 @@ export function AdminOverview() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Pie Chart - National Risk Distribution */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">National Risk Distribution</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">National Current Nutrition Status</h3>
           {riskDistribution.length > 0 ? (
             <>
               <ResponsiveContainer width="100%" height={300}>
@@ -253,7 +253,7 @@ export function AdminOverview() {
 
         {/* Bar Chart - District Distribution */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">District-wise Distribution</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">District-wise Nutrition Status</h3>
           {districtData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={districtData}>
@@ -284,8 +284,8 @@ export function AdminOverview() {
                 <Tooltip />
                 <Legend />
                 <Line type="monotone" dataKey="children" stroke="#3498DB" strokeWidth={2} name="Total Children" />
-                <Line type="monotone" dataKey="sam" stroke="#E74C3C" strokeWidth={2} name="SAM Cases" />
-                <Line type="monotone" dataKey="mam" stroke="#F1C40F" strokeWidth={2} name="MAM Cases" />
+                <Line type="monotone" dataKey="sam" stroke="#E74C3C" strokeWidth={2} name="Severe (SAM)" />
+                <Line type="monotone" dataKey="mam" stroke="#F1C40F" strokeWidth={2} name="Moderate (MAM)" />
               </LineChart>
             </ResponsiveContainer>
           ) : (
