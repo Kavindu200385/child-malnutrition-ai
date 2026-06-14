@@ -3,14 +3,17 @@
  * RDHS cannot register, add measurements, or modify children.
  */
 import { useState, useEffect } from 'react';
-import { Activity, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { childrenAPI } from '../../services/api';
-import { getDisplayRiskLevel } from '../../types';
+import { ChildProfileCard } from '../ChildProfileCard';
+import { PaginationControls } from '../PaginationControls';
 
 export function RdhsChildrenView() {
+  const PAGE_SIZE = 12;
   const [children, setChildren] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const load = () => {
     setError('');
@@ -20,6 +23,7 @@ export function RdhsChildrenView() {
       .then((res) => {
         if (res.data?.status === 'success') {
           setChildren(res.data.children || []);
+          setCurrentPage(1);
         }
       })
       .catch((err) => setError(err.response?.data?.message || 'Failed to load children'))
@@ -27,15 +31,6 @@ export function RdhsChildrenView() {
   };
 
   useEffect(() => { load(); }, []);
-
-  const riskColor: Record<string, string> = {
-    NORMAL: 'bg-green-100 text-green-800',
-    MAM: 'bg-yellow-100 text-yellow-800',
-    MODERATE: 'bg-yellow-100 text-yellow-800',
-    SAM: 'bg-red-100 text-red-800',
-    CRITICAL: 'bg-red-100 text-red-800',
-    HIGH: 'bg-orange-100 text-orange-800',
-  };
 
   if (loading) {
     return (
@@ -47,6 +42,10 @@ export function RdhsChildrenView() {
       </div>
     );
   }
+
+  const pageCount = Math.max(1, Math.ceil(children.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, pageCount);
+  const paginatedChildren = children.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   return (
     <div className="space-y-6">
@@ -67,39 +66,32 @@ export function RdhsChildrenView() {
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">{error}</div>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b bg-gray-50">
-              <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">ID</th>
-              <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Name</th>
-              <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Risk</th>
-              <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Guardian</th>
-              <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {children.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="py-8 text-center text-gray-500">No children in your district.</td>
-              </tr>
-            ) : (
-              children.map((c) => (
-                <tr key={c.id} className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-sm font-mono text-gray-700">{c.child_id || c.child_unique_id || c.id}</td>
-                  <td className="py-3 px-4 text-sm font-medium text-gray-900">{c.name || '—'}</td>
-                  <td className="py-3 px-4">
-                    <span className={`inline-block px-2 py-1 text-xs rounded-full ${riskColor[getDisplayRiskLevel(c)] || 'bg-gray-100 text-gray-700'}`}>
-                      {getDisplayRiskLevel(c)}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-sm text-gray-600">{c.guardian_name || '—'}</td>
-                  <td className="py-3 px-4 text-sm text-gray-600">{c.status || 'ACTIVE'}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div className="bg-white rounded-lg shadow">
+        <div className="border-b border-gray-200 p-6">
+          <h3 className="text-lg font-bold text-gray-900">Children ({children.length})</h3>
+          {children.length > 0 && (
+            <p className="mt-1 text-sm text-gray-500">
+              Showing {(safePage - 1) * PAGE_SIZE + 1}-{Math.min(safePage * PAGE_SIZE, children.length)} of {children.length} children
+            </p>
+          )}
+        </div>
+        {children.length === 0 ? (
+          <div className="p-12 text-center text-gray-500">No children in your district.</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 items-stretch gap-6 p-6 md:grid-cols-2 lg:grid-cols-4">
+              {paginatedChildren.map((child) => (
+                <ChildProfileCard key={child.id} child={child} accent="teal" />
+              ))}
+            </div>
+            <PaginationControls
+              currentPage={safePage}
+              totalItems={children.length}
+              itemsPerPage={PAGE_SIZE}
+              onPageChange={setCurrentPage}
+            />
+          </>
+        )}
       </div>
     </div>
   );

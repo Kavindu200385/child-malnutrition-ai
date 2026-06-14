@@ -20,6 +20,7 @@ import { SignPageUploadView } from './admin/SignPageUploadView';
 import AuditLogsView from './admin/AuditLogsView';
 import { NotificationBell } from './notifications/NotificationBell';
 import { ProfilePopover } from './ProfilePopover';
+import { LoggedInGreeting } from './LoggedInGreeting';
 import {
   LayoutDashboard,
   Users,
@@ -208,6 +209,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <LoggedInGreeting user={user} roleLabel={profileRoleLabel} />
         {isRdhs ? (
           <>
             {rdhsView === 'overview' && <RdhsOverview />}

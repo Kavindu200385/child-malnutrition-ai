@@ -3,6 +3,8 @@ import { nutritionistAPI } from '../../services/api';
 import { User, PlusCircle, ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { formatDate } from '../../utils/formatDate';
 import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
+import { ChildProfileCard } from '../ChildProfileCard';
+import { PaginationControls } from '../PaginationControls';
 
 interface ReferredItem {
   child: any;
@@ -19,12 +21,14 @@ interface NutritionistReferredViewProps {
 }
 
 export function NutritionistReferredView({ onViewChild, onAddMeasurement }: NutritionistReferredViewProps) {
+  const PAGE_SIZE = 12;
   const [items, setItems] = useState<ReferredItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [returningId, setReturningId] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [dialog, setDialog] = useState<ConfirmDialogState | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const containerStyle: React.CSSProperties = {
     display: 'flex',
@@ -171,8 +175,10 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
     setError('');
     try {
       const res = await nutritionistAPI.referredChildren();
-      if (res.data?.status === 'success') setItems(res.data.children || []);
-      else setError(res.data?.message || 'Failed to load');
+      if (res.data?.status === 'success') {
+        setItems(res.data.children || []);
+        setCurrentPage(1);
+      } else setError(res.data?.message || 'Failed to load');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load referred children');
     } finally {
@@ -223,6 +229,10 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
     );
   }
 
+  const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, pageCount);
+  const paginatedItems = items.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
   return (
     <div style={containerStyle}>
       <ConfirmDialog state={dialog} onClose={() => setDialog(null)} />
@@ -261,136 +271,106 @@ export function NutritionistReferredView({ onViewChild, onAddMeasurement }: Nutr
           </p>
         </div>
       ) : (
-        <div style={cardsWrapperStyle}>
-          {items.map(({ child, display_risk_level, current_risk_level, is_active, pending_moh_return, last_measurement_date, last_measurement_confidence, }: any) => {
+        <div className="rounded-lg bg-white shadow">
+          <div className="border-b border-gray-200 p-6">
+            <h3 className="text-lg font-bold text-gray-900">Referred Children ({items.length})</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Showing {(safePage - 1) * PAGE_SIZE + 1}-{Math.min(safePage * PAGE_SIZE, items.length)} of {items.length} children
+            </p>
+          </div>
+          <div className="grid grid-cols-1 items-stretch gap-6 p-6 md:grid-cols-2 lg:grid-cols-4">
+          {paginatedItems.map(({ child, display_risk_level, current_risk_level, is_active, pending_moh_return, last_measurement_date, last_measurement_confidence, }: any) => {
             const displayRisk = (display_risk_level ||
               child.display_risk_level ||
               current_risk_level ||
               child.birth_risk_level ||
               'NORMAL').toUpperCase();
-            let riskStyle: React.CSSProperties = { ...pillBase, background: '#dcfce7', color: '#166534' };
-            if (displayRisk === 'MAM') riskStyle = { ...pillBase, background: '#fef9c3', color: '#92400e' };
-            if (displayRisk === 'SAM') riskStyle = { ...pillBase, background: '#fee2e2', color: '#b91c1c' };
-
-            const returnedBadge: React.CSSProperties = {
-              ...pillBase,
-              background: '#f0fdf4',
-              color: '#166534',
-              border: '1px solid #bbf7d0',
-            };
-
             const canReturn = is_active && (current_risk_level || '').toUpperCase() === 'NORMAL';
 
-            const borderColor = pending_moh_return ? '#f59e0b' : is_active ? '#0369a1' : '#22c55e';
-            const cardBorderStyle: React.CSSProperties = {
-              ...cardStyle,
-              borderLeft: `4px solid ${borderColor}`,
-              opacity: is_active || pending_moh_return ? 1 : 0.85,
-            };
-
-            const pendingReturnBadge: React.CSSProperties = {
-              ...pillBase,
-              background: '#fef3c7',
-              color: '#92400e',
-              border: '1px solid #fcd34d',
-            };
-
             return (
-              <div key={child.id} style={cardBorderStyle}>
-                <div style={topRowStyle}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={childNameStyle}>
-                        {child.name || child.child_id || child.child_unique_id}
+              <ChildProfileCard
+                key={child.id}
+                child={{
+                  ...child,
+                  current_risk_level: displayRisk,
+                  display_risk_level: displayRisk,
+                }}
+                accent="slate"
+                risk={displayRisk}
+                onViewProfile={() => onViewChild(String(child.id))}
+                badges={(
+                  <div className="flex flex-wrap justify-end gap-1">
+                    {pending_moh_return && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                        Pending MOH Review
                       </span>
-                      <span style={riskStyle}>{displayRisk}</span>
-                      {pending_moh_return && (
-                        <span style={pendingReturnBadge}>Pending MOH Review</span>
-                      )}
-                      {!is_active && !pending_moh_return && (
-                        <span style={returnedBadge}>Returned to MOH</span>
-                      )}
-                    </div>
-                    <div style={childIdStyle}>
-                      ID: {child.child_unique_id || child.child_id || child.id}
-                    </div>
+                    )}
+                    {!is_active && !pending_moh_return && (
+                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800">
+                        Returned
+                      </span>
+                    )}
                   </div>
-                  <div style={{ textAlign: 'right', fontSize: '11px', color: '#6b7280' }}>
-                    <div>
-                      Last measurement:{' '}
-                      {last_measurement_date
-                        ? `${formatDate(last_measurement_date)}${
-                            last_measurement_confidence != null
-                              ? ` (${(last_measurement_confidence * 100).toFixed(0)}%)`
-                              : ''
-                          }`
-                        : '—'}
+                )}
+                actions={(
+                  <>
+                    <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                      <div>
+                        Last measurement:{' '}
+                        <span className="font-semibold">
+                          {last_measurement_date
+                            ? `${formatDate(last_measurement_date)}${
+                                last_measurement_confidence != null
+                                  ? ` (${(last_measurement_confidence * 100).toFixed(0)}%)`
+                                  : ''
+                              }`
+                            : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="mt-1">
+                        Status:{' '}
+                        <span className={`font-semibold ${pending_moh_return ? 'text-amber-700' : is_active ? 'text-sky-700' : 'text-green-700'}`}>
+                          {pending_moh_return ? 'Pending MOH review' : is_active ? 'Under your care' : 'Returned to MOH'}
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ marginTop: '2px' }}>
-                      Status:{' '}
-                      <strong style={{ color: pending_moh_return ? '#b45309' : is_active ? '#0369a1' : '#166534' }}>
-                        {pending_moh_return ? 'Pending MOH review' : is_active ? 'Under your care' : 'Returned to MOH'}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={metaRowStyle}>
-                  {child.gender && <span>Sex: <strong>{String(child.gender).toUpperCase()}</strong></span>}
-                  {child.dob && <span>DOB: <strong>{formatDate(child.dob)}</strong></span>}
-                  {child.guardian_name && <span>Guardian: <strong>{child.guardian_name}</strong></span>}
-                  {child.moh_area && <span>MOH: <strong>{typeof child.moh_area === 'object' ? child.moh_area.name : child.moh_area}</strong></span>}
-                  {child.phm_area && <span>PHM Area: <strong>{typeof child.phm_area === 'object' ? child.phm_area.name : child.phm_area}</strong></span>}
-                </div>
-
-                <div style={actionsRowStyle}>
-                  <button
-                    type="button"
-                    style={btnDark}
-                    onClick={() => onViewChild(String(child.id))}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = '#334155')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = '#1e293b')}
-                  >
-                    <User size={16} />
-                    View profile
-                  </button>
-                  {is_active && (
+                    {is_active && (
                     <button
                       type="button"
-                      style={btnPrimary}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-800"
                       onClick={() => onAddMeasurement(String(child.id))}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = '#0284c7')}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = '#0369a1')}
                     >
                       <PlusCircle size={16} />
-                      Add measurement
+                      Add Measurement
                     </button>
-                  )}
-                  {canReturn && (
+                    )}
+                    {canReturn && (
                     <button
                       type="button"
-                      style={{
-                        ...btnGreen,
-                        opacity: returningId === child.id ? 0.7 : 1,
-                        cursor: returningId === child.id ? 'wait' : 'pointer',
-                      }}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={() => handleReturnToMoh(child)}
                       disabled={returningId === child.id}
-                      onMouseEnter={(e) => { if (returningId !== child.id) e.currentTarget.style.background = '#047857'; }}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = '#059669')}
                     >
                       {returningId === child.id ? (
-                        <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                        <Loader2 size={16} className="animate-spin" />
                       ) : (
                         <ArrowLeft size={16} />
                       )}
                       Return to MOH
                     </button>
-                  )}
-                </div>
-              </div>
+                    )}
+                  </>
+                )}
+              />
             );
           })}
+          </div>
+          <PaginationControls
+            currentPage={safePage}
+            totalItems={items.length}
+            itemsPerPage={PAGE_SIZE}
+            onPageChange={setCurrentPage}
+          />
         </div>
       )}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>

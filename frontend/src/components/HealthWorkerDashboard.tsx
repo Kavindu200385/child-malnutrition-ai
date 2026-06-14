@@ -20,6 +20,7 @@ import { NutritionistChildProfileView } from './health-worker/NutritionistChildP
 import { NutritionistTransferRequestsView } from './health-worker/NutritionistTransferRequestsView';
 import { NotificationBell } from './notifications/NotificationBell';
 import { ProfilePopover } from './ProfilePopover';
+import { LoggedInGreeting } from './LoggedInGreeting';
 import { nutritionistAPI, mohAPI } from '../services/api';
 import {
   LayoutDashboard,
@@ -325,6 +326,7 @@ export function HealthWorkerDashboard({ user, onLogout }: HealthWorkerDashboardP
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <LoggedInGreeting user={user} roleLabel={roleLabel} />
         {currentView === 'dashboard' && (
           isMoh ? <MohDashboardView /> : isNutritionist ? <NutritionistDashboardView /> : <DashboardView onViewChild={handleViewChild} />
         )}

@@ -11,6 +11,7 @@ import { HospitalStatsView } from './HospitalStatsView';
 import { HospitalStatisticsView } from './HospitalStatisticsView';
 import { NotificationBell } from '../notifications/NotificationBell';
 import { ProfilePopover } from '../ProfilePopover';
+import { LoggedInGreeting } from '../LoggedInGreeting';
 import { 
   LayoutDashboard, 
   UserPlus,
@@ -125,6 +126,7 @@ export function HospitalDashboard({ user, onLogout }: HospitalDashboardProps) {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <LoggedInGreeting user={user} roleLabel="Pediatric Unit" />
         {currentView === 'dashboard' && (
           <HospitalStatsView
             user={user}

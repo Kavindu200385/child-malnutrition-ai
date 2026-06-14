@@ -1,19 +1,22 @@
 import { useState, useEffect } from 'react';
-import { Search, Filter, UserPlus, Eye } from 'lucide-react';
+import { Search, Filter } from 'lucide-react';
 import { childrenAPI } from '../../services/api';
-import { getRiskColor, getRiskLabel, getDisplayRiskLevelTyped } from '../../types';
+import { ChildProfileCard } from '../ChildProfileCard';
+import { PaginationControls } from '../PaginationControls';
 
 interface SearchChildViewProps {
   onViewChild: (childId: string) => void;
 }
 
 export function SearchChildView({ onViewChild }: SearchChildViewProps) {
+  const PAGE_SIZE = 12;
   const [searchTerm, setSearchTerm] = useState('');
   const [riskFilter, setRiskFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [children, setChildren] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Load children on mount and when filters change
   useEffect(() => {
@@ -39,6 +42,7 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
       const response = await childrenAPI.list(params);
       if (response.data.status === 'success') {
         setChildren(response.data.children || []);
+        setCurrentPage(1);
       } else {
         setError(response.data.message || 'Failed to load children');
       }
@@ -54,11 +58,11 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
     loadChildren();
   };
 
-  // Risk pill uses display risk (birth when no clinic measurement) so list matches profile
-  const getRiskStyle = (child: any) => {
-    const level = getDisplayRiskLevelTyped(child);
-    return { backgroundColor: getRiskColor(level) };
-  };
+  const pageCount = Math.max(1, Math.ceil(children.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, pageCount);
+  const paginatedChildren = children.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const resultStart = children.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const resultEnd = Math.min(safePage * PAGE_SIZE, children.length);
 
   return (
     <div className="space-y-6">
@@ -148,13 +152,20 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
 
       {/* Results */}
       <div className="bg-white rounded-lg shadow">
-        <div className="p-6 border-b border-gray-200">
-          <h3 className="text-lg font-bold text-gray-900">
-            Results ({children.length})
-          </h3>
+        <div className="p-6 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">
+              Results ({children.length})
+            </h3>
+            {children.length > 0 && (
+              <p className="text-sm text-gray-500 mt-1">
+                Showing {resultStart}-{resultEnd} of {children.length} children
+              </p>
+            )}
+          </div>
         </div>
 
-        <div className="divide-y divide-gray-200">
+        <div>
           {isLoading ? (
             <div className="p-12 text-center">
               <p className="text-gray-500">Loading...</p>
@@ -164,79 +175,33 @@ export function SearchChildView({ onViewChild }: SearchChildViewProps) {
               <p className="text-gray-500">No children found matching your search criteria.</p>
             </div>
           ) : (
-            children.map((child) => {
-              const age = child.dob
-                ? Math.floor(
-                    (new Date().getTime() - new Date(child.dob).getTime()) / (1000 * 60 * 60 * 24 * 30)
-                  )
-                : null;
+            <>
+              <div className="grid grid-cols-1 items-stretch gap-6 p-6 md:grid-cols-2 lg:grid-cols-4">
+                {paginatedChildren.map((child) => {
+                  const childId = child.child_id ?? child.child_unique_id ?? String(child.id);
 
-              return (
-                <div
-                  key={child.id}
-                  className="p-6 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-start gap-3">
-                        <div className="flex-1">
-                          <h4 className="text-lg font-bold text-gray-900">
-                            {child.name || 'Unnamed Child'}
-                          </h4>
-                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
-                            <p>
-                              <span className="font-medium">ID:</span> {child.child_id}
-                            </p>
-                            {age !== null && (
-                              <p>
-                                <span className="font-medium">Age:</span> {age} months
-                              </p>
-                            )}
-                            <p>
-                              <span className="font-medium">Gender:</span>{' '}
-                              {child.gender === 'male' ? 'Male' : child.gender === 'female' ? 'Female' : 'N/A'}
-                            </p>
-                            {child.current_assigned_area && (
-                              <p>
-                                <span className="font-medium">Area:</span> {child.current_assigned_area.name}
-                              </p>
-                            )}
-                            <p className="sm:col-span-2">
-                              <span className="font-medium">Guardian:</span> {child.guardian_name || 'N/A'} (
-                              {child.guardian_phone || 'N/A'})
-                            </p>
-                            {child.is_draft && (
-                              <p className="sm:col-span-2">
-                                <span className="inline-block px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">
-                                  Draft
-                                </span>
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <span
-                            className="inline-block px-3 py-1 rounded-full text-xs font-medium text-white"
-                            style={getRiskStyle(child)}
-                          >
-                            {getRiskLabel(getDisplayRiskLevelTyped(child))}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex sm:flex-col gap-2">
-                      <button
-                        onClick={() => onViewChild(child.child_id ?? child.child_unique_id ?? String(child.id))}
-                        className="flex items-center gap-2 flex-1 sm:flex-none px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
-                      >
-                        <Eye className="w-4 h-4" />
-                        View Profile
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
+                  return (
+                    <ChildProfileCard
+                      key={child.id}
+                      child={child}
+                      onViewProfile={() => onViewChild(childId)}
+                      badges={child.is_draft ? (
+                        <span className="rounded bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-800">
+                          Draft
+                        </span>
+                      ) : null}
+                    />
+                  );
+                })}
+              </div>
+
+              <PaginationControls
+                currentPage={safePage}
+                totalItems={children.length}
+                itemsPerPage={PAGE_SIZE}
+                onPageChange={setCurrentPage}
+              />
+            </>
           )}
         </div>
       </div>

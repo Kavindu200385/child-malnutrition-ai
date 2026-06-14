@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Users, RefreshCw } from 'lucide-react';
 import { mohAPI } from '../../services/api';
 import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
+import { ChildProfileCard } from '../ChildProfileCard';
+import { PaginationControls } from '../PaginationControls';
 
 interface MohMyChildrenViewProps {
   onViewChild?: (childId: string) => void;
@@ -14,6 +16,7 @@ const RISK_BADGE: Record<string, string> = {
 };
 
 export function MohMyChildrenView({ onViewChild }: MohMyChildrenViewProps) {
+  const PAGE_SIZE = 12;
   const [children, setChildren] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -29,6 +32,7 @@ export function MohMyChildrenView({ onViewChild }: MohMyChildrenViewProps) {
   const [selectedPhmId, setSelectedPhmId] = useState<number | ''>('');
   const [assignNote, setAssignNote] = useState('');
   const [areasLoading, setAreasLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -38,6 +42,7 @@ export function MohMyChildrenView({ onViewChild }: MohMyChildrenViewProps) {
       const res = await mohAPI.getMyChildren();
       if (res.data?.status === 'success') {
         setChildren(res.data.children || []);
+        setCurrentPage(1);
       } else {
         setError(res.data?.message || 'Failed to load');
       }
@@ -145,6 +150,10 @@ export function MohMyChildrenView({ onViewChild }: MohMyChildrenViewProps) {
 
   if (loading) return <div className="text-gray-600">Loading children under your care...</div>;
 
+  const pageCount = Math.max(1, Math.ceil(children.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, pageCount);
+  const paginatedChildren = children.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
   return (
     <div className="space-y-6">
       <ConfirmDialog state={dialog} onClose={() => setDialog(null)} />
@@ -183,148 +192,135 @@ export function MohMyChildrenView({ onViewChild }: MohMyChildrenViewProps) {
         </div>
       )}
 
-      {children.map((child) => {
-        const risk = (child.current_risk_level || 'NORMAL').toUpperCase();
-        const isAssigning = assignPanelId === child.id;
-        const canEscalate = risk === 'MAM' || risk === 'SAM';
-        const canReturnToPhm = !!child.phm_area_id;
-        const isActing = actionLoading === child.id;
-
-        return (
-          <div
-            key={child.id}
-            className={`bg-white rounded-lg shadow p-5 border-l-4 ${
-              risk === 'SAM' ? 'border-red-500' : risk === 'MAM' ? 'border-yellow-400' : 'border-green-400'
-            }`}
-          >
-            {/* Info */}
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <p className="font-semibold text-gray-900 text-lg">{child.name || '—'}</p>
-              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${riskBadge(risk)}`}>
-                {risk}
-              </span>
-              {child.escalation_status && child.escalation_status !== 'NONE' && (
-                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">
-                  {child.escalation_status.replace(/_/g, ' ')}
-                </span>
-              )}
-            </div>
-            <div className="space-y-0.5 text-sm text-gray-600">
-              <p>ID: <span className="font-medium">{child.child_unique_id || child.child_id}</span></p>
-              {child.dob && <p>DOB: <span className="font-medium">{new Date(child.dob).toLocaleDateString()}</span></p>}
-              {child.phm_area_name && (
-                <p>Original PHM Area: <span className="font-medium">{child.phm_area_name}</span></p>
-              )}
-              {child.last_measurement_date && (
-                <p>Last measurement: <span className="font-medium">{new Date(child.last_measurement_date).toLocaleDateString()}</span></p>
-              )}
-            </div>
-
-            {/* Escalation reason input — only for MAM/SAM when not in assign panel */}
-            {!isAssigning && canEscalate && (
-              <div className="mt-3">
-                <input
-                  type="text"
-                  placeholder="Reason for Nutritionist escalation (optional)"
-                  value={reasonMap[child.id] || ''}
-                  onChange={(e) => setReasonMap((prev) => ({ ...prev, [child.id]: e.target.value }))}
-                  className="w-full max-w-sm px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-            )}
-
-            {/* Action buttons */}
-            {!isAssigning && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {onViewChild && (
-                  <button
-                    onClick={() => onViewChild(String(child.id))}
-                    style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', fontWeight: '500', color: '#374151', background: '#fff', cursor: 'pointer' }}
-                  >
-                    View
-                  </button>
-                )}
-
-                {/* Condition worsened → Escalate to Nutritionist */}
-                {canEscalate && (
-                  <button
-                    onClick={() => handleEscalateToNutritionist(child)}
-                    disabled={isActing}
-                    style={{ padding: '8px 16px', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', color: '#fff', background: isActing ? '#9ca3af' : '#dc2626', cursor: isActing ? 'not-allowed' : 'pointer', opacity: isActing ? 0.7 : 1 }}
-                  >
-                    {isActing ? 'Escalating…' : 'Escalate to Nutritionist'}
-                  </button>
-                )}
-
-                {/* Condition improved → Return to original PHM (quick action) */}
-                {canReturnToPhm && (
-                  <button
-                    onClick={() => handleReturnToOriginalPhm(child)}
-                    disabled={isActing}
-                    style={{ padding: '8px 16px', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', color: '#fff', background: isActing ? '#9ca3af' : '#0d9488', cursor: isActing ? 'not-allowed' : 'pointer', opacity: isActing ? 0.7 : 1 }}
-                  >
-                    {isActing ? 'Returning…' : `Return to ${child.phm_area_name || 'Original PHM'}`}
-                  </button>
-                )}
-
-                {/* Assign to a different PHM area */}
-                <button
-                  onClick={() => openAssignPanel(child.id)}
-                  disabled={isActing}
-                  style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', fontWeight: '500', color: '#374151', background: '#fff', cursor: isActing ? 'not-allowed' : 'pointer', opacity: isActing ? 0.7 : 1 }}
-                >
-                  Assign to Different PHM
-                </button>
-              </div>
-            )}
-
-            {/* PHM area selection panel (for different PHM area) */}
-            {isAssigning && (
-              <div className="mt-4 p-4 bg-teal-50 rounded-lg border border-teal-200 space-y-3">
-                <p className="text-sm font-medium text-teal-900">Select a PHM area to assign this child to:</p>
-                {areasLoading ? (
-                  <p className="text-sm text-gray-500">Loading areas...</p>
-                ) : (
-                  <select
-                    value={selectedPhmId}
-                    onChange={(e) => setSelectedPhmId(e.target.value ? Number(e.target.value) : '')}
-                    className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500"
-                  >
-                    <option value="">— Select PHM area —</option>
-                    {phmAreas.map((a: any) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}{child.phm_area_id === a.id ? ' (original)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <input
-                  type="text"
-                  placeholder="Optional notes"
-                  value={assignNote}
-                  onChange={(e) => setAssignNote(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleAssignToPHM(child)}
-                    disabled={isActing || !selectedPhmId}
-                    style={{ padding: '8px 16px', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', color: '#fff', background: isActing || !selectedPhmId ? '#9ca3af' : '#0d9488', cursor: isActing || !selectedPhmId ? 'not-allowed' : 'pointer' }}
-                  >
-                    {isActing ? 'Assigning…' : 'Confirm Assign'}
-                  </button>
-                  <button
-                    onClick={() => setAssignPanelId(null)}
-                    style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', fontWeight: '500', color: '#374151', background: '#fff', cursor: 'pointer' }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
+      {children.length > 0 && (
+        <div className="bg-white rounded-lg shadow">
+          <div className="border-b border-gray-200 p-6">
+            <h3 className="text-lg font-bold text-gray-900">Children ({children.length})</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Showing {(safePage - 1) * PAGE_SIZE + 1}-{Math.min(safePage * PAGE_SIZE, children.length)} of {children.length} children
+            </p>
           </div>
-        );
-      })}
+
+          <div className="grid grid-cols-1 items-stretch gap-6 p-6 md:grid-cols-2 lg:grid-cols-4">
+            {paginatedChildren.map((child) => {
+              const risk = (child.current_risk_level || 'NORMAL').toUpperCase();
+              const isAssigning = assignPanelId === child.id;
+              const canEscalate = risk === 'MAM' || risk === 'SAM';
+              const canReturnToPhm = !!child.phm_area_id;
+              const isActing = actionLoading === child.id;
+
+              return (
+                <ChildProfileCard
+                  key={child.id}
+                  child={child}
+                  accent="teal"
+                  risk={risk}
+                  onViewProfile={onViewChild ? () => onViewChild(String(child.id)) : undefined}
+                  badges={child.escalation_status && child.escalation_status !== 'NONE' ? (
+                    <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-800">
+                      {child.escalation_status.replace(/_/g, ' ')}
+                    </span>
+                  ) : null}
+                  actions={(
+                    <>
+                      {!isAssigning && canEscalate && (
+                        <input
+                          type="text"
+                          placeholder="Escalation reason (optional)"
+                          value={reasonMap[child.id] || ''}
+                          onChange={(e) => setReasonMap((prev) => ({ ...prev, [child.id]: e.target.value }))}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                        />
+                      )}
+
+                      {!isAssigning && canEscalate && (
+                        <button
+                          onClick={() => handleEscalateToNutritionist(child)}
+                          disabled={isActing}
+                          className="inline-flex w-full items-center justify-center rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isActing ? 'Escalating…' : 'Escalate to Nutritionist'}
+                        </button>
+                      )}
+
+                      {!isAssigning && canReturnToPhm && (
+                        <button
+                          onClick={() => handleReturnToOriginalPhm(child)}
+                          disabled={isActing}
+                          className="inline-flex w-full items-center justify-center rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isActing ? 'Returning…' : `Return to ${child.phm_area_name || 'Original PHM'}`}
+                        </button>
+                      )}
+
+                      {!isAssigning && (
+                        <button
+                          onClick={() => openAssignPanel(child.id)}
+                          disabled={isActing}
+                          className="inline-flex w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Assign to Different PHM
+                        </button>
+                      )}
+
+                      {isAssigning && (
+                        <div className="space-y-3 rounded-lg border border-teal-200 bg-teal-50 p-3">
+                          <p className="text-sm font-medium text-teal-900">Select a PHM area:</p>
+                          {areasLoading ? (
+                            <p className="text-sm text-gray-500">Loading areas...</p>
+                          ) : (
+                            <select
+                              value={selectedPhmId}
+                              onChange={(e) => setSelectedPhmId(e.target.value ? Number(e.target.value) : '')}
+                              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                            >
+                              <option value="">Select PHM area</option>
+                              {phmAreas.map((a: any) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name}{child.phm_area_id === a.id ? ' (original)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          <input
+                            type="text"
+                            placeholder="Optional notes"
+                            value={assignNote}
+                            onChange={(e) => setAssignNote(e.target.value)}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500"
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => handleAssignToPHM(child)}
+                              disabled={isActing || !selectedPhmId}
+                              className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isActing ? 'Assigning…' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => setAssignPanelId(null)}
+                              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                />
+              );
+            })}
+          </div>
+
+          <PaginationControls
+            currentPage={safePage}
+            totalItems={children.length}
+            itemsPerPage={PAGE_SIZE}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
     </div>
   );
 }

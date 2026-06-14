@@ -2,18 +2,22 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { mohAPI } from '../../services/api';
 import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
+import { ChildProfileCard } from '../ChildProfileCard';
+import { PaginationControls } from '../PaginationControls';
 
 interface MohHighRiskChildrenViewProps {
   onViewChild?: (childId: string) => void;
 }
 
 export function MohHighRiskChildrenView({ onViewChild }: MohHighRiskChildrenViewProps) {
+  const PAGE_SIZE = 12;
   const [children, setChildren] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [dialog, setDialog] = useState<ConfirmDialogState | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -23,6 +27,7 @@ export function MohHighRiskChildrenView({ onViewChild }: MohHighRiskChildrenView
       const res = await mohAPI.getHighRiskMidwifeChildren();
       if (res.data?.status === 'success') {
         setChildren(res.data.children || []);
+        setCurrentPage(1);
       } else {
         setError(res.data?.message || 'Failed to load');
       }
@@ -64,6 +69,10 @@ export function MohHighRiskChildrenView({ onViewChild }: MohHighRiskChildrenView
 
   if (loading) return <div className="text-gray-600 py-8 text-center">Loading high-risk children...</div>;
 
+  const pageCount = Math.max(1, Math.ceil(children.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, pageCount);
+  const paginatedChildren = children.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
   return (
     <div className="space-y-6">
       <ConfirmDialog state={dialog} onClose={() => setDialog(null)} />
@@ -102,53 +111,44 @@ export function MohHighRiskChildrenView({ onViewChild }: MohHighRiskChildrenView
       )}
 
       {children.length > 0 && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          {children.map((child, idx) => {
+        <div className="bg-white rounded-lg shadow">
+          <div className="border-b border-gray-200 p-6">
+            <h3 className="text-lg font-bold text-gray-900">High-Risk Children ({children.length})</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Showing {(safePage - 1) * PAGE_SIZE + 1}-{Math.min(safePage * PAGE_SIZE, children.length)} of {children.length} children
+            </p>
+          </div>
+          <div className="grid grid-cols-1 items-stretch gap-6 p-6 md:grid-cols-2 lg:grid-cols-4">
+          {paginatedChildren.map((child) => {
             const risk = (child.current_risk_level || '').toUpperCase();
             const isActing = actionLoading === child.id;
-            const isLast = idx === children.length - 1;
 
             return (
-              <div
+              <ChildProfileCard
                 key={child.id}
-                className={`flex items-center justify-between gap-4 px-6 py-4 ${!isLast ? 'border-b border-gray-100' : ''}`}
-              >
-                {/* Left: risk badge + name + area */}
-                <div className="flex items-center gap-4 min-w-0">
-                  <span
-                    className={`shrink-0 px-3 py-1 rounded-full text-xs font-bold ${
-                      risk === 'SAM' ? 'bg-red-600 text-white' : 'bg-yellow-500 text-white'
-                    }`}
-                  >
-                    {risk}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-gray-900">{child.name || '—'}</p>
-                    <p className="text-sm text-gray-500 mt-0.5">{child.phm_area_name || '—'}</p>
-                  </div>
-                </div>
-
-                {/* Right: action buttons */}
-                <div className="flex items-center gap-2 shrink-0">
-                  {onViewChild && (
-                    <button
-                      onClick={() => onViewChild(String(child.id))}
-                      className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-                    >
-                      View
-                    </button>
-                  )}
+                child={child}
+                accent="teal"
+                risk={risk}
+                onViewProfile={onViewChild ? () => onViewChild(String(child.id)) : undefined}
+                actions={(
                   <button
                     onClick={() => handleTransferToMoh(child)}
                     disabled={isActing}
-                    className="px-4 py-2 bg-teal-700 text-white rounded-lg text-sm font-semibold hover:bg-teal-800 disabled:opacity-50 transition-colors"
+                    className="inline-flex w-full items-center justify-center rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-teal-800 disabled:opacity-50"
                   >
                     {isActing ? 'Transferring…' : 'Transfer to MOH'}
                   </button>
-                </div>
-              </div>
+                )}
+              />
             );
           })}
+          </div>
+          <PaginationControls
+            currentPage={safePage}
+            totalItems={children.length}
+            itemsPerPage={PAGE_SIZE}
+            onPageChange={setCurrentPage}
+          />
         </div>
       )}
     </div>

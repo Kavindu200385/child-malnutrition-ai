@@ -5,8 +5,10 @@
 import { useState, useEffect } from 'react';
 import { User } from '../../App';
 import { hospitalAPI } from '../../services/api';
-import { Search, Filter, AlertTriangle, CheckCircle, ArrowRight, Loader2, Eye } from 'lucide-react';
+import { Search, Filter, AlertTriangle, CheckCircle, ArrowRight, Loader2 } from 'lucide-react';
 import { ConfirmDialog, type ConfirmDialogState } from '../ui/ConfirmDialog';
+import { ChildProfileCard } from '../ChildProfileCard';
+import { PaginationControls } from '../PaginationControls';
 
 interface HospitalChildrenListViewProps {
   user: User;
@@ -14,11 +16,13 @@ interface HospitalChildrenListViewProps {
 }
 
 export function HospitalChildrenListView({ user, onViewChild }: HospitalChildrenListViewProps) {
+  const PAGE_SIZE = 12;
   const [children, setChildren] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [dialog, setDialog] = useState<ConfirmDialogState | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -56,6 +60,7 @@ export function HospitalChildrenListView({ user, onViewChild }: HospitalChildren
       const response = await hospitalAPI.listChildren(params);
       if (response.data.status === 'success') {
         setChildren(response.data.children || []);
+        setCurrentPage(1);
       } else {
         setError(response.data.message || 'Failed to load children');
       }
@@ -109,6 +114,20 @@ export function HospitalChildrenListView({ user, onViewChild }: HospitalChildren
         return 'bg-gray-100 text-gray-800 border-gray-300';
     }
   };
+
+  const getArea = (child: any) => (
+    child.current_assigned_area?.name ||
+    child.assigned_to_clinic ||
+    child.registered_by_clinic ||
+    user.clinic ||
+    'N/A'
+  );
+
+  const pageCount = Math.max(1, Math.ceil(children.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, pageCount);
+  const paginatedChildren = children.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const resultStart = children.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const resultEnd = Math.min(safePage * PAGE_SIZE, children.length);
 
   return (
     <div className="space-y-6">
@@ -218,6 +237,7 @@ export function HospitalChildrenListView({ user, onViewChild }: HospitalChildren
                 setStartDate('');
                 setEndDate('');
                 setSearchTerm('');
+                setCurrentPage(1);
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
             >
@@ -229,6 +249,14 @@ export function HospitalChildrenListView({ user, onViewChild }: HospitalChildren
 
       {/* Children List */}
       <div className="bg-white rounded-lg shadow">
+        <div className="border-b border-gray-200 p-6">
+          <h3 className="text-lg font-bold text-gray-900">Children ({children.length})</h3>
+          {children.length > 0 && (
+            <p className="mt-1 text-sm text-gray-500">
+              Showing {resultStart}-{resultEnd} of {children.length} children
+            </p>
+          )}
+        </div>
         {isLoading ? (
           <div className="p-12 text-center">
             <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
@@ -239,74 +267,50 @@ export function HospitalChildrenListView({ user, onViewChild }: HospitalChildren
             <p className="text-gray-500">No children found matching your criteria.</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
-            {children.map((child) => (
-              <div key={child.id} className="p-6 hover:bg-gray-50 transition-colors">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h4 className="text-lg font-bold text-gray-900">{child.name || 'Unnamed'}</h4>
-                      <span className={`px-2 py-1 rounded text-xs font-bold border ${getRiskBadgeColor(child.birth_risk_level || 'NORMAL')}`}>
-                        {child.birth_risk_level || 'NORMAL'}
-                      </span>
-                      {child.is_transferred && (
-                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
-                          Transferred
-                        </span>
-                      )}
-                    </div>
+          <>
+            <div className="grid grid-cols-1 items-stretch gap-6 p-6 md:grid-cols-2 lg:grid-cols-4">
+              {paginatedChildren.map((child) => {
+                const childId = child.child_unique_id || child.child_id || String(child.id);
+                const risk = child.birth_risk_level || 'NORMAL';
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600 ml-2">
-                      <p><span className="font-medium">Child ID:</span> <span className="font-mono">{child.child_unique_id || child.child_id}</span></p>
-                      <p><span className="font-medium">DOB:</span> {child.dob ? new Date(child.dob).toLocaleDateString() : '-'}</p>
-                      <p><span className="font-medium">Gender:</span> {child.gender || '-'}</p>
-                      {child.birth_weight_kg && (
-                        <p><span className="font-medium">Birth Weight:</span> {child.birth_weight_kg} kg</p>
-                      )}
-                      {child.mother_name && (
-                        <p><span className="font-medium">Mother:</span> {child.mother_name}</p>
-                      )}
-                      {child.guardian_phone && (
-                        <p><span className="font-medium">Contact:</span> {child.guardian_phone}</p>
-                      )}
-                      <p><span className="font-medium">Registered:</span> {child.registration_date ? new Date(child.registration_date).toLocaleDateString() : '-'}</p>
-                    </div>
-
-                    {onViewChild && (
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={() => onViewChild(child.child_unique_id || child.child_id || String(child.id))}
-                          className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-700 border border-indigo-300 hover:bg-indigo-50 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          <Eye className="w-4 h-4 text-indigo-600" />
-                          View / Edit details
-                        </button>
-                      </div>
-                    )}
-
-                    {/* MAM / SAM Alert */}
-                    {(child.birth_risk_level === 'SAM' || child.birth_risk_level === 'MAM') && !child.is_transferred && (
-                      <div className={`mt-3 p-3 rounded-lg border-2 ${child.birth_risk_level === 'SAM' ? 'bg-red-50 border-red-300' : 'bg-yellow-50 border-yellow-300'}`}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <AlertTriangle className={`w-5 h-5 ${child.birth_risk_level === 'SAM' ? 'text-red-600' : 'text-yellow-600'}`} />
-                          <p className={`text-sm font-bold ${child.birth_risk_level === 'SAM' ? 'text-red-900' : 'text-yellow-900'}`}>
-                            {child.birth_risk_level === 'SAM' ? 'SAM Case - Transfer to Nutritionist Required' : 'MAM Case - Consider Nutritionist Referral'}
-                          </p>
-                        </div>
+                return (
+                  <ChildProfileCard
+                    key={child.id}
+                    child={child}
+                    accent="indigo"
+                    risk={risk}
+                    area={getArea(child)}
+                    onViewProfile={onViewChild ? () => onViewChild(childId) : undefined}
+                    actions={(
+                      <>
+                        {(risk === 'SAM' || risk === 'MAM') && !child.is_transferred && (
                         <button
                           onClick={() => handleTransferToNutritionist(child.id)}
-                          className={`mt-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${child.birth_risk_level === 'SAM' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-500 hover:bg-orange-600'}`}
+                          className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-colors ${risk === 'SAM' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-500 hover:bg-orange-600'}`}
                         >
-                          <ArrowRight className="w-4 h-4" />
-                          Transfer to Hospital Nutritionist
+                          <ArrowRight className="h-4 w-4" aria-hidden />
+                          Transfer to Nutritionist
                         </button>
-                      </div>
+                        )}
+                        {child.is_transferred && (
+                        <span className="inline-flex justify-center rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700">
+                          Transferred
+                        </span>
+                        )}
+                      </>
                     )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                  />
+                );
+              })}
+            </div>
+
+            <PaginationControls
+              currentPage={safePage}
+              totalItems={children.length}
+              itemsPerPage={PAGE_SIZE}
+              onPageChange={setCurrentPage}
+            />
+          </>
         )}
       </div>
     </div>
