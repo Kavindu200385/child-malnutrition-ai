@@ -64,6 +64,9 @@ function getArea(child: any, override?: string): string {
 }
 
 function getRiskLabelText(child: any, risk?: string): string {
+  if (child?.current_nutritional_status || child?.currentNutritionalStatus) {
+    return String(child.current_nutritional_status || child.currentNutritionalStatus).replace(/_/g, ' ').toUpperCase();
+  }
   if (risk) return risk.toUpperCase();
   return getRiskLabel(getDisplayRiskLevelTyped(child));
 }
@@ -79,12 +82,12 @@ function getRiskClass(riskLabel: string): string {
 
 function getPredictedRiskRaw(child: any): string | null {
   const direct =
+    child?.future_predicted_risk ||
+    child?.futurePredictedRisk ||
     child?.predicted_risk_next_2_months ||
     child?.latest_predicted_risk_next_2_months ||
     child?.predictedRiskNext2Months ||
     child?.latestPredictedRiskNext2Months ||
-    child?.future_predicted_risk ||
-    child?.futurePredictedRisk ||
     child?.predicted_risk ||
     child?.predictedRisk ||
     child?.latest_measurement?.predicted_risk_next_2_months ||
@@ -107,12 +110,24 @@ function getPredictedRiskLabel(child: any): string {
   const raw = getPredictedRiskRaw(child);
   if (!raw) return 'Not Available';
   const label = raw.replace(/_/g, ' ').trim().toUpperCase();
+  if (label === 'NOT AVAILABLE') return 'Not Available';
   if (label === 'NORMAL' || label === 'NO' || label === 'NONE' || label === 'NO RISK') return 'NO RISK';
   if (label.includes('SEVERE') || label.includes('SAM') || label.includes('CRITICAL')) return 'SEVERE RISK';
   if (label.includes('HIGH')) return 'HIGH RISK';
   if (label.includes('MODERATE') || label.includes('MAM')) return 'MODERATE RISK';
   if (label.includes('LOW')) return 'LOW RISK';
   return label.endsWith('RISK') ? label : `${label} RISK`;
+}
+
+function getClinicalAction(child: any): { label: string; className: string } {
+  const value = child?.clinical_action_required ?? child?.clinicalActionRequired;
+  if (value === true || value === 1) {
+    return { label: 'Required', className: 'border-orange-200 bg-orange-50 text-orange-700' };
+  }
+  if (value === false || value === 0) {
+    return { label: 'Routine Monitoring', className: 'border-slate-200 bg-slate-50 text-slate-700' };
+  }
+  return { label: 'Not Available', className: 'border-gray-200 bg-gray-50 text-gray-600' };
 }
 
 function getPredictedRiskClass(predictedLabel: string): string {
@@ -153,6 +168,7 @@ export function ChildProfileCard({
   const childId = getChildId(child);
   const riskLabel = getRiskLabelText(child, risk || getDisplayRiskLevel(child));
   const predictedRiskLabel = getPredictedRiskLabel(child);
+  const clinicalAction = getClinicalAction(child);
   const genderKey = getGenderKey(child);
   const AvatarIcon = genderKey === 'female' ? CircleUserRound : genderKey === 'male' ? UserRound : Baby;
   const avatarSrc = genderKey === 'female' ? girlAvatar : genderKey === 'male' ? boyAvatar : null;
@@ -223,11 +239,15 @@ export function ChildProfileCard({
         <div className="w-full space-y-2">
           <div className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold ${getRiskClass(riskLabel)}`}>
             <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden />
-            <span>Current Status: {riskLabel.toUpperCase()}</span>
+            <span>Current Nutritional Status: {riskLabel.toUpperCase()}</span>
           </div>
           <div className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[11px] font-semibold ${getPredictedRiskClass(predictedRiskLabel)}`}>
             <span className="text-gray-600">2-Month Predicted Risk:</span>
             <span className="text-right font-bold">{predictedRiskLabel}</span>
+          </div>
+          <div className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[11px] font-semibold ${clinicalAction.className}`}>
+            <span className="text-gray-600">Clinical Action:</span>
+            <span className="text-right font-bold">{clinicalAction.label}</span>
           </div>
         </div>
         {onViewProfile && (

@@ -36,12 +36,12 @@ interface PredictionData {
 
 function getLatestPredictedRiskRaw(apiChild: any): string | null {
   const direct =
+    apiChild?.future_predicted_risk ||
+    apiChild?.futurePredictedRisk ||
     apiChild?.predicted_risk_next_2_months ||
     apiChild?.latest_predicted_risk_next_2_months ||
     apiChild?.predictedRiskNext2Months ||
     apiChild?.latestPredictedRiskNext2Months ||
-    apiChild?.future_predicted_risk ||
-    apiChild?.futurePredictedRisk ||
     apiChild?.predicted_risk ||
     apiChild?.predictedRisk ||
     apiChild?.latest_measurement?.predicted_risk_next_2_months ||
@@ -63,12 +63,19 @@ function getLatestPredictedRiskRaw(apiChild: any): string | null {
 function getFutureRiskLabel(raw: string | null): string {
   if (!raw) return 'Not Available';
   const label = raw.replace(/_/g, ' ').trim().toUpperCase();
+  if (label === 'NOT AVAILABLE') return 'Not Available';
   if (label === 'NORMAL' || label === 'NO' || label === 'NONE' || label === 'NO RISK') return 'NO RISK';
   if (label.includes('SEVERE') || label.includes('SAM') || label.includes('CRITICAL')) return 'SEVERE RISK';
   if (label.includes('HIGH')) return 'HIGH RISK';
   if (label.includes('MODERATE') || label.includes('MAM')) return 'MODERATE RISK';
   if (label.includes('LOW')) return 'LOW RISK';
   return label.endsWith('RISK') ? label : `${label} RISK`;
+}
+
+function getCurrentStatusLabel(apiChild: any, fallbackRisk: RiskLevel): string {
+  const raw = apiChild?.current_nutritional_status || apiChild?.currentNutritionalStatus;
+  if (raw) return String(raw).replace(/_/g, ' ').trim().toUpperCase();
+  return getRiskLabel(fallbackRisk).toUpperCase() || 'Not Available';
 }
 
 function getFutureRiskClass(label: string): string {
@@ -464,6 +471,21 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
   const futurePredictedRiskRaw = getLatestPredictedRiskRaw(apiChild);
   const futurePredictedRiskLabel = getFutureRiskLabel(futurePredictedRiskRaw);
   const futurePredictedRiskClass = getFutureRiskClass(futurePredictedRiskLabel);
+  const currentNutritionalStatusLabel = getCurrentStatusLabel(apiChild, child.riskLevel);
+  const futureRiskConfidence = apiChild?.future_risk_confidence ?? apiChild?.futureRiskConfidence ?? null;
+  const clinicalActionValue = apiChild?.clinical_action_required ?? apiChild?.clinicalActionRequired;
+  const clinicalActionLabel =
+    clinicalActionValue === true || clinicalActionValue === 1
+      ? 'Required'
+      : clinicalActionValue === false || clinicalActionValue === 0
+        ? 'Routine Monitoring'
+        : 'Not Available';
+  const clinicalReviewReason =
+    apiChild?.clinical_review_reason ||
+    apiChild?.clinicalReviewReason ||
+    (clinicalActionLabel === 'Required'
+      ? 'Clinical review is recommended based on current status or future predicted risk.'
+      : 'Routine monitoring recommended.');
   const futureSeverity = futureRiskSeverity(futurePredictedRiskLabel);
   const futureRiskIsHighPriority = futurePredictedRiskRaw != null && futureSeverity >= 3;
   const futureRiskIsModeratePriority = futurePredictedRiskRaw != null && futureSeverity === 2;
@@ -846,7 +868,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                   className="inline-block px-4 py-3 rounded-lg text-base font-bold text-white text-center shadow-sm"
                   style={{ backgroundColor: getRiskColor(child.riskLevel) }}
                 >
-                  Current Status: {getRiskLabel(child.riskLevel).toUpperCase()}
+                  Current Nutritional Status: {currentNutritionalStatusLabel}
                 </span>
                 <p className="text-xs text-gray-600 mt-1">
                   📅 Based on measurements from {latestMeasurement ? formatDate(latestMeasurement.date) : '—'}
@@ -909,9 +931,11 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                         {forecastMessage}
                       </p>
                   </div>
-                  {prediction && (
+                  {(futureRiskConfidence != null || prediction) && (
                     <div className="flex items-center justify-between text-xs text-gray-700 mt-1">
-                      <span className="font-medium">Confidence: {prediction.confidence}%</span>
+                      <span className="font-medium">
+                        Future Risk Confidence: {futureRiskConfidence != null ? Math.round(Number(futureRiskConfidence) * 100) : prediction?.confidence}%
+                      </span>
                       <span className={`font-bold ${forecastTextClass}`}>
                         {forecastNeedsAttention ? 'Needs Attention' :
                           futureRiskIsModeratePriority ? 'Monitor Closely' :
@@ -929,6 +953,16 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                   </p>
                 </div>
               )}
+            </div>
+          </div>
+
+          <div className={`mt-4 rounded-lg border-2 p-4 ${clinicalActionLabel === 'Required' ? 'border-orange-300 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="flex items-start gap-3">
+              <AlertTriangle className={`mt-0.5 h-5 w-5 flex-shrink-0 ${clinicalActionLabel === 'Required' ? 'text-orange-600' : 'text-slate-500'}`} />
+              <div>
+                <p className="text-sm font-bold text-gray-900">Clinical Action Required: {clinicalActionLabel}</p>
+                <p className="mt-1 text-sm text-gray-700">{clinicalReviewReason}</p>
+              </div>
             </div>
           </div>
 

@@ -466,6 +466,27 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
             [
                 ("notes", "TEXT", None),
                 ("created_at", "DATETIME", None),
+                ("current_nutritional_status", "VARCHAR(40)" if is_mysql else "TEXT", None),
+                ("future_predicted_risk", "VARCHAR(40)" if is_mysql else "TEXT", None),
+                ("future_risk_confidence", "TEXT", None),
+                ("prediction_timestamp", "DATETIME", None),
+                ("model_version", "VARCHAR(120)" if is_mysql else "TEXT", None),
+                ("clinical_action_required", "TINYINT(1)" if is_mysql else "INTEGER", "NOT NULL DEFAULT 0"),
+                ("clinical_review_reason", "TEXT", None),
+            ],
+        )
+
+        # measurements table additions
+        add_missing_columns(
+            "measurements",
+            [
+                ("current_nutritional_status", "VARCHAR(40)" if is_mysql else "TEXT", None),
+                ("future_predicted_risk", "VARCHAR(40)" if is_mysql else "TEXT", None),
+                ("future_risk_confidence", "TEXT", None),
+                ("prediction_timestamp", "DATETIME", None),
+                ("model_version", "VARCHAR(120)" if is_mysql else "TEXT", None),
+                ("clinical_action_required", "TINYINT(1)" if is_mysql else "INTEGER", "NOT NULL DEFAULT 0"),
+                ("clinical_review_reason", "TEXT", None),
             ],
         )
 

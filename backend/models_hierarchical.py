@@ -20,6 +20,7 @@ from backend.services.encryption_service import (
     EncryptedJSON,
     EncryptedText,
 )
+from backend.utils.risk_status import normalize_current_status, normalize_future_risk
 
 
 # ============================================================================
@@ -492,19 +493,48 @@ class Child(db.Model):
     measurements = relationship("Measurement", back_populates="child", lazy=True, order_by="Measurement.measurement_date.desc()")
 
     def latest_predicted_risk_next_2_months(self) -> str | None:
+        risk = self.latest_assessment_summary()["future_predicted_risk"]
+        return None if risk == "NOT AVAILABLE" else risk
+
+    def latest_assessment_summary(self) -> dict:
         candidates = []
         for measurement in self.measurements:
-            if measurement.predicted_risk_next_2_months:
-                candidates.append((measurement.measurement_date, measurement.predicted_risk_next_2_months))
+            if measurement.predicted_risk_next_2_months or measurement.future_predicted_risk:
+                candidates.append((measurement.measurement_date, measurement))
         for visit in self.visits:
-            if visit.predicted_risk_next_2_months:
-                candidates.append((visit.visit_date, visit.predicted_risk_next_2_months))
+            if visit.predicted_risk_next_2_months or visit.future_predicted_risk:
+                candidates.append((visit.visit_date, visit))
         if not candidates:
-            return None
+            current_status = normalize_current_status(self.current_risk_level or self.birth_risk_level)
+            return {
+                "current_nutritional_status": current_status,
+                "future_predicted_risk": "NOT AVAILABLE",
+                "future_risk_confidence": None,
+                "prediction_timestamp": None,
+                "model_version": None,
+                "clinical_action_required": current_status in {"SAM", "SEVERE STUNTING", "SEVERE UNDERWEIGHT", "NEEDS CLINICAL REVIEW"},
+                "clinical_review_reason": None,
+            }
         candidates.sort(key=lambda item: item[0] or datetime.min, reverse=True)
-        return candidates[0][1]
+        latest = candidates[0][1]
+        current_status = getattr(latest, "current_nutritional_status", None) or getattr(latest, "risk_level", None) or getattr(latest, "current_risk", None)
+        future_risk = getattr(latest, "future_predicted_risk", None) or getattr(latest, "predicted_risk_next_2_months", None)
+        confidence = getattr(latest, "future_risk_confidence", None)
+        if confidence is None:
+            confidence = getattr(latest, "model_confidence", None)
+        timestamp = getattr(latest, "prediction_timestamp", None) or getattr(latest, "measurement_date", None) or getattr(latest, "visit_date", None)
+        return {
+            "current_nutritional_status": normalize_current_status(current_status),
+            "future_predicted_risk": normalize_future_risk(future_risk),
+            "future_risk_confidence": float(confidence) if confidence is not None else None,
+            "prediction_timestamp": timestamp.isoformat() if timestamp else None,
+            "model_version": getattr(latest, "model_version", None),
+            "clinical_action_required": bool(getattr(latest, "clinical_action_required", False)),
+            "clinical_review_reason": getattr(latest, "clinical_review_reason", None),
+        }
 
     def to_dict(self, include_visits: bool = False, include_transfers: bool = False, include_referrals: bool = False, include_escalations: bool = False) -> dict:
+        latest_assessment = self.latest_assessment_summary()
         latest_predicted_risk = self.latest_predicted_risk_next_2_months()
         data = {
             "id": self.id,
@@ -542,8 +572,15 @@ class Child(db.Model):
             "current_assigned_area": self.current_assigned_area.to_dict() if self.current_assigned_area else None,
             "current_assigned_user_id": self.current_assigned_user_id,
             "current_risk_level": self.current_risk_level,
+            "current_nutritional_status": latest_assessment["current_nutritional_status"],
             "predicted_risk_next_2_months": latest_predicted_risk,
             "latest_predicted_risk_next_2_months": latest_predicted_risk,
+            "future_predicted_risk": latest_assessment["future_predicted_risk"],
+            "future_risk_confidence": latest_assessment["future_risk_confidence"],
+            "prediction_timestamp": latest_assessment["prediction_timestamp"],
+            "model_version": latest_assessment["model_version"],
+            "clinical_action_required": latest_assessment["clinical_action_required"],
+            "clinical_review_reason": latest_assessment["clinical_review_reason"],
             "last_risk_update": self.last_risk_update.isoformat() if self.last_risk_update else None,
             "is_draft": self.is_draft,
             "status": self.status,
@@ -592,6 +629,13 @@ class Measurement(db.Model):
     risk_level = db.Column(db.String(20), nullable=True, index=True)  # NORMAL, MAM, SAM
     predicted_risk_next_2_months = db.Column(db.String(20), nullable=True)
     model_confidence = db.Column(EncryptedDecimal(scale=2), nullable=True)
+    current_nutritional_status = db.Column(db.String(40), nullable=True, index=True)
+    future_predicted_risk = db.Column(db.String(40), nullable=True, index=True)
+    future_risk_confidence = db.Column(EncryptedDecimal(scale=2), nullable=True)
+    prediction_timestamp = db.Column(db.DateTime, nullable=True)
+    model_version = db.Column(db.String(120), nullable=True)
+    clinical_action_required = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    clinical_review_reason = db.Column(db.Text, nullable=True)
     
     # Measured by (midwife who collected the clinic data)
     measured_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
@@ -618,7 +662,14 @@ class Measurement(db.Model):
             "z_score_hfa": float(self.z_score_hfa) if self.z_score_hfa else None,
             "z_score_wfh": float(self.z_score_wfh) if self.z_score_wfh else None,
             "risk_level": self.risk_level,
+            "current_nutritional_status": normalize_current_status(self.current_nutritional_status or self.risk_level),
             "predicted_risk_next_2_months": self.predicted_risk_next_2_months,
+            "future_predicted_risk": normalize_future_risk(self.future_predicted_risk or self.predicted_risk_next_2_months),
+            "future_risk_confidence": float(self.future_risk_confidence) if self.future_risk_confidence else None,
+            "prediction_timestamp": self.prediction_timestamp.isoformat() if self.prediction_timestamp else None,
+            "model_version": self.model_version,
+            "clinical_action_required": bool(self.clinical_action_required),
+            "clinical_review_reason": self.clinical_review_reason,
             "model_confidence": float(self.model_confidence) if self.model_confidence else None,
             "measured_by_user_id": self.measured_by_user_id,
             "measured_by": self.measured_by.to_dict() if self.measured_by else None,
@@ -1109,6 +1160,13 @@ class Visit(db.Model):
     current_risk = db.Column(db.String(32), nullable=True)  # NORMAL/MODERATE/HIGH/CRITICAL
     predicted_risk_next_2_months = db.Column(db.String(16), nullable=True)  # Low/Moderate/High/Severe
     model_confidence = db.Column(EncryptedFloat, nullable=True)
+    current_nutritional_status = db.Column(db.String(40), nullable=True, index=True)
+    future_predicted_risk = db.Column(db.String(40), nullable=True, index=True)
+    future_risk_confidence = db.Column(EncryptedFloat, nullable=True)
+    prediction_timestamp = db.Column(db.DateTime, nullable=True)
+    model_version = db.Column(db.String(120), nullable=True)
+    clinical_action_required = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    clinical_review_reason = db.Column(db.Text, nullable=True)
 
     # Additional notes
     notes = db.Column(EncryptedText, nullable=True)
@@ -1133,7 +1191,14 @@ class Visit(db.Model):
             "z_hfa": self.z_hfa,
             "z_wfh": self.z_wfh,
             "current_risk": self.current_risk,
+            "current_nutritional_status": normalize_current_status(self.current_nutritional_status or self.current_risk),
             "predicted_risk_next_2_months": self.predicted_risk_next_2_months,
+            "future_predicted_risk": normalize_future_risk(self.future_predicted_risk or self.predicted_risk_next_2_months),
+            "future_risk_confidence": self.future_risk_confidence,
+            "prediction_timestamp": self.prediction_timestamp.isoformat() if self.prediction_timestamp else None,
+            "model_version": self.model_version,
+            "clinical_action_required": bool(self.clinical_action_required),
+            "clinical_review_reason": self.clinical_review_reason,
             "model_confidence": self.model_confidence,
             "notes": self.notes,
             "created_by_user_id": self.created_by_user_id,

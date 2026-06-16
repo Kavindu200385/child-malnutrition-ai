@@ -38,6 +38,13 @@ from backend.models_hierarchical import (
 )
 from backend.utils.audit import log_audit
 from backend.utils.midwife_helpers import calculate_z_scores, should_escalate_to_moh
+from backend.utils.risk_status import (
+    COMBINED_MODEL_VERSION,
+    clinical_review_summary,
+    normalize_current_status,
+    normalize_future_risk,
+    prediction_time,
+)
 from backend.services.notification_service import (
     PRIORITY_CRITICAL,
     PRIORITY_HIGH,
@@ -171,7 +178,8 @@ def add_measurement():
                 "message": f"AI analysis failed: {ai_result.get('error', 'Unknown error')}",
             }), 500
         # KEY FIX: model returns 'model_prediction', not 'risk_level'
-        current_risk = _normalize_ai_risk(ai_result.get("model_prediction", "Normal"))
+        raw_label = ai_result.get("model_prediction", "Normal")
+        current_risk = _normalize_ai_risk(raw_label)
         confidence = ai_result.get("confidence", 0.0)
     except Exception as e:
         return jsonify({"status": "error", "message": f"AI analysis error: {str(e)}"}), 500
@@ -191,11 +199,24 @@ def add_measurement():
         if future_payload.get("ok"):
             future_result = predict_future_risk(future_payload["payload"])
             predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
+            future_confidence = future_result.get("confidence") if future_result.get("ok") else None
         else:
             predicted_risk = None
+            future_confidence = None
     except Exception:
         prediction_warning = "Future prediction could not be generated from child history."
         predicted_risk = None
+        future_confidence = None
+
+    current_status = normalize_current_status(raw_label)
+    future_predicted_risk = normalize_future_risk(predicted_risk)
+    clinical_action_required, clinical_review_reason = clinical_review_summary(
+        current_status=current_status,
+        future_risk=future_predicted_risk,
+        future_confidence=future_confidence,
+        prediction_warning=prediction_warning,
+    )
+    pred_timestamp = prediction_time() if future_predicted_risk != "NOT AVAILABLE" else None
 
     previous_risk = child.current_risk_level
     measurement = Measurement(
@@ -210,6 +231,13 @@ def add_measurement():
         risk_level=current_risk,
         predicted_risk_next_2_months=predicted_risk,
         model_confidence=Decimal(str(confidence)) if confidence else None,
+        current_nutritional_status=current_status,
+        future_predicted_risk=future_predicted_risk,
+        future_risk_confidence=Decimal(str(future_confidence)) if future_confidence is not None else None,
+        prediction_timestamp=pred_timestamp,
+        model_version=COMBINED_MODEL_VERSION,
+        clinical_action_required=clinical_action_required,
+        clinical_review_reason=clinical_review_reason,
         measured_by_user_id=user.id,
         notes=data.get("notes"),
     )
@@ -230,6 +258,13 @@ def add_measurement():
         current_risk=current_risk,
         predicted_risk_next_2_months=predicted_risk,
         model_confidence=float(confidence) if confidence else None,
+        current_nutritional_status=current_status,
+        future_predicted_risk=future_predicted_risk,
+        future_risk_confidence=float(future_confidence) if future_confidence is not None else None,
+        prediction_timestamp=pred_timestamp,
+        model_version=COMBINED_MODEL_VERSION,
+        clinical_action_required=clinical_action_required,
+        clinical_review_reason=clinical_review_reason,
         notes=data.get("notes"),
         created_by_user_id=user.id,
     )
