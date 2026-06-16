@@ -21,7 +21,6 @@ from flask import Flask
 from flask_cors import CORS
 from sqlalchemy import inspect, text
 
-from backend.config import Config
 from backend.extensions import db, jwt, migrate, limiter
 from backend.models import User
 from backend.services.encryption_service import validate_encryption_key
@@ -521,6 +520,8 @@ def create_app() -> Flask:
     node_env = os.environ.get("NODE_ENV", "development").lower()
     flask_env = os.environ.get("FLASK_ENV", "").lower()
     validate_encryption_key(required=node_env == "production" or flask_env == "production")
+
+    from backend.config import Config
 
     app = Flask(__name__)
     app.config.from_object(Config)

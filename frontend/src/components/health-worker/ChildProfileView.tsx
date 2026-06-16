@@ -34,6 +34,69 @@ interface PredictionData {
   message: string;
 }
 
+function getLatestPredictedRiskRaw(apiChild: any): string | null {
+  const direct =
+    apiChild?.predicted_risk_next_2_months ||
+    apiChild?.latest_predicted_risk_next_2_months ||
+    apiChild?.predictedRiskNext2Months ||
+    apiChild?.latestPredictedRiskNext2Months ||
+    apiChild?.future_predicted_risk ||
+    apiChild?.futurePredictedRisk ||
+    apiChild?.predicted_risk ||
+    apiChild?.predictedRisk ||
+    apiChild?.latest_measurement?.predicted_risk_next_2_months ||
+    apiChild?.latestMeasurement?.predictedRiskNext2Months ||
+    apiChild?.latest_visit?.predicted_risk_next_2_months ||
+    apiChild?.latestVisit?.predictedRiskNext2Months;
+  if (direct) return String(direct);
+  const datedItems = [...(apiChild?.measurements || []), ...(apiChild?.visits || [])]
+    .filter((item) => item?.predicted_risk_next_2_months || item?.predictedRiskNext2Months)
+    .sort((a, b) => {
+      const aDate = new Date(a.measurement_date || a.visit_date || a.created_at || 0).getTime();
+      const bDate = new Date(b.measurement_date || b.visit_date || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+  const latest = datedItems[0]?.predicted_risk_next_2_months || datedItems[0]?.predictedRiskNext2Months;
+  return latest ? String(latest) : null;
+}
+
+function getFutureRiskLabel(raw: string | null): string {
+  if (!raw) return 'Not Available';
+  const label = raw.replace(/_/g, ' ').trim().toUpperCase();
+  if (label === 'NORMAL' || label === 'NO' || label === 'NONE' || label === 'NO RISK') return 'NO RISK';
+  if (label.includes('SEVERE') || label.includes('SAM') || label.includes('CRITICAL')) return 'SEVERE RISK';
+  if (label.includes('HIGH')) return 'HIGH RISK';
+  if (label.includes('MODERATE') || label.includes('MAM')) return 'MODERATE RISK';
+  if (label.includes('LOW')) return 'LOW RISK';
+  return label.endsWith('RISK') ? label : `${label} RISK`;
+}
+
+function getFutureRiskClass(label: string): string {
+  const risk = label.toUpperCase();
+  if (risk.includes('NOT AVAILABLE')) return 'border-gray-300 bg-gray-50 text-gray-600';
+  if (risk.includes('NO RISK')) return 'border-green-300 bg-green-50 text-green-700';
+  if (risk.includes('LOW')) return 'border-sky-300 bg-sky-50 text-sky-700';
+  if (risk.includes('MODERATE')) return 'border-amber-300 bg-amber-50 text-amber-700';
+  if (risk.includes('HIGH')) return 'border-orange-300 bg-orange-50 text-orange-700';
+  if (risk.includes('SEVERE')) return 'border-red-300 bg-red-50 text-red-700';
+  return 'border-gray-300 bg-gray-50 text-gray-700';
+}
+
+function futureRiskSeverity(label: string): number {
+  const risk = label.toUpperCase();
+  if (risk.includes('SEVERE')) return 4;
+  if (risk.includes('HIGH')) return 3;
+  if (risk.includes('MODERATE')) return 2;
+  if (risk.includes('LOW')) return 1;
+  return 0;
+}
+
+function currentRiskSeverity(riskLevel: RiskLevel): number {
+  if (riskLevel === 'sam') return 4;
+  if (riskLevel === 'mam') return 2;
+  return 0;
+}
+
 /** 
  * Simple fallback WHO Z-score approximation (for old measurements stored with null Z-scores).
  * Uses simplified LMS interpolation. The backend now stores real Z-scores; this is a display fallback only.
@@ -114,6 +177,7 @@ function mapToMeasurements(items: any[], dob: string | null) {
       heightForAge,
       weightForHeight,
       riskLevel: r as RiskLevel,
+      predictedRiskNext2Months: v.predicted_risk_next_2_months || null,
       notes: v.notes,
       measuredBy,
     };
@@ -397,10 +461,66 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
   };
 
   const prediction = calculatePrediction();
+  const futurePredictedRiskRaw = getLatestPredictedRiskRaw(apiChild);
+  const futurePredictedRiskLabel = getFutureRiskLabel(futurePredictedRiskRaw);
+  const futurePredictedRiskClass = getFutureRiskClass(futurePredictedRiskLabel);
+  const futureSeverity = futureRiskSeverity(futurePredictedRiskLabel);
+  const futureRiskIsHighPriority = futurePredictedRiskRaw != null && futureSeverity >= 3;
+  const futureRiskIsModeratePriority = futurePredictedRiskRaw != null && futureSeverity === 2;
+  const futureRiskNeedsAction =
+    futurePredictedRiskRaw != null &&
+    futureSeverity > currentRiskSeverity(child.riskLevel);
+  const forecastNeedsAttention = futureRiskIsHighPriority || futureRiskNeedsAction;
+  const forecastPanelClass = !futurePredictedRiskRaw
+    ? 'border-gray-300 bg-gray-50'
+    : forecastNeedsAttention
+      ? 'border-orange-500 bg-gradient-to-br from-orange-50 via-orange-100/50 to-orange-50'
+      : futureRiskIsModeratePriority
+        ? 'border-amber-500 bg-gradient-to-br from-amber-50 via-amber-100/50 to-amber-50'
+        : futurePredictedRiskLabel === 'NO RISK'
+          ? 'border-green-500 bg-gradient-to-br from-green-50 via-green-100/50 to-green-50'
+          : 'border-blue-500 bg-gradient-to-br from-blue-50 via-blue-100/50 to-blue-50';
+  const forecastAccentClass = forecastNeedsAttention
+    ? 'bg-orange-600'
+    : futureRiskIsModeratePriority
+      ? 'bg-amber-600'
+      : futurePredictedRiskLabel === 'NO RISK'
+        ? 'bg-green-600'
+        : 'bg-blue-600';
+  const forecastIconBgClass = forecastNeedsAttention
+    ? 'bg-orange-200'
+    : futureRiskIsModeratePriority
+      ? 'bg-amber-200'
+      : futurePredictedRiskLabel === 'NO RISK'
+        ? 'bg-green-200'
+        : 'bg-blue-200';
+  const forecastTextClass = forecastNeedsAttention
+    ? 'text-orange-700'
+    : futureRiskIsModeratePriority
+      ? 'text-amber-700'
+      : futurePredictedRiskLabel === 'NO RISK'
+        ? 'text-green-700'
+        : 'text-blue-700';
+  const forecastMessageTitle = forecastNeedsAttention
+    ? 'Action Required:'
+    : futureRiskIsModeratePriority
+      ? 'Close Monitoring:'
+      : futurePredictedRiskLabel === 'NO RISK'
+        ? 'Positive Outlook:'
+        : 'Routine Monitoring:';
+  const forecastMessage = futurePredictedRiskRaw
+    ? forecastNeedsAttention
+      ? `${futurePredictedRiskLabel} predicted within 2 months. Early intervention and closer follow-up are recommended.`
+      : futureRiskIsModeratePriority
+        ? `${futurePredictedRiskLabel} predicted within 2 months. Monitor growth closely and provide nutrition guidance.`
+        : futurePredictedRiskLabel === 'NO RISK'
+          ? 'No future malnutrition risk is predicted within 2 months. Continue routine growth monitoring.'
+          : `${futurePredictedRiskLabel} predicted within 2 months. Continue routine monitoring.`
+    : 'No future prediction has been saved for the latest measurement.';
 
-  // Determine which alert to show - predicted risk takes priority if it's worse
-  const showPredictionAlert = prediction && prediction.actionRequired;
-  const displayRisk = showPredictionAlert ? prediction.predictedRiskLevel : child.riskLevel;
+  // Keep current nutritional status separate from the 2-month future risk.
+  const showPredictionAlert = forecastNeedsAttention;
+  const displayRisk = child.riskLevel;
 
   // Prepare growth chart data - sort from oldest to newest (earliest date first)
   const growthData = child.measurements
@@ -719,14 +839,14 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                 <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                   <Activity className="w-4 h-4 text-blue-600" />
                 </div>
-                <p className="text-sm font-bold text-gray-900">Current Status</p>
+                <p className="text-sm font-bold text-gray-900">Current Nutritional Status</p>
               </div>
               <div className="flex flex-col gap-2">
                 <span
                   className="inline-block px-4 py-3 rounded-lg text-base font-bold text-white text-center shadow-sm"
                   style={{ backgroundColor: getRiskColor(child.riskLevel) }}
                 >
-                  {getRiskLabel(child.riskLevel)}
+                  Current Status: {getRiskLabel(child.riskLevel).toUpperCase()}
                 </span>
                 <p className="text-xs text-gray-600 mt-1">
                   📅 Based on measurements from {latestMeasurement ? formatDate(latestMeasurement.date) : '—'}
@@ -735,31 +855,18 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
             </div>
 
             {/* Predicted Risk - Highly Distinct Future Forecast */}
-            <div className={`border-4 rounded-lg p-5 relative overflow-hidden ${prediction
-              ? prediction.actionRequired
-                ? 'border-orange-500 bg-gradient-to-br from-orange-50 via-orange-100/50 to-orange-50'
-                : prediction.trend === 'improving'
-                  ? 'border-green-500 bg-gradient-to-br from-green-50 via-green-100/50 to-green-50'
-                  : 'border-blue-500 bg-gradient-to-br from-blue-50 via-blue-100/50 to-blue-50'
-              : 'border-gray-300 bg-gray-50'
-              }`} style={{ borderStyle: 'dashed' }}>
+            <div className={`border-4 rounded-lg p-5 relative overflow-hidden ${forecastPanelClass}`} style={{ borderStyle: 'dashed' }}>
               {/* Forecast Badge Corner */}
-              <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white ${prediction?.actionRequired ? 'bg-orange-600' :
-                prediction?.trend === 'improving' ? 'bg-green-600' :
-                  'bg-blue-600'
-                }`} style={{ borderBottomLeftRadius: '8px' }}>
+              <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white ${forecastAccentClass}`} style={{ borderBottomLeftRadius: '8px' }}>
                 FORECAST
               </div>
 
               <div className="flex items-center gap-2 mb-3">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${prediction?.actionRequired ? 'bg-orange-200' :
-                  prediction?.trend === 'improving' ? 'bg-green-200' :
-                    'bg-blue-200'
-                  }`}>
-                  {prediction ? (
-                    prediction.trend === 'declining' ? (
-                      <TrendingDown className={`w-5 h-5 ${prediction.actionRequired ? 'text-orange-700' : 'text-blue-700'}`} />
-                    ) : prediction.trend === 'improving' ? (
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${forecastIconBgClass}`}>
+                  {futurePredictedRiskRaw ? (
+                    forecastNeedsAttention || futureRiskIsModeratePriority ? (
+                      <TrendingDown className={`w-5 h-5 ${forecastTextClass}`} />
+                    ) : futurePredictedRiskLabel === 'NO RISK' ? (
                       <TrendingUp className="w-5 h-5 text-green-700" />
                     ) : (
                       <Activity className="w-5 h-5 text-blue-700" />
@@ -769,64 +876,56 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                   )}
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-900">Predicted Risk</p>
-                  <p className={`text-xs font-bold ${prediction?.actionRequired ? 'text-orange-700' :
-                    prediction?.trend === 'improving' ? 'text-green-700' :
-                      'text-blue-700'
-                    }`}>
-                    ⏱ 1-2 Months Ahead (Future)
+                  <p className="text-sm font-bold text-gray-900">2-Month Future Risk</p>
+                  <p className={`text-xs font-bold ${forecastTextClass}`}>
+                    2-Month Predicted Risk
                   </p>
                 </div>
               </div>
 
-              {prediction ? (
+              {futurePredictedRiskRaw ? (
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <span
-                      className="inline-block px-4 py-3 rounded-lg text-base font-bold text-white text-center flex-1 shadow-md relative"
-                      style={{
-                        backgroundColor: getRiskColor(prediction.predictedRiskLevel),
-                        backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px)'
-                      }}
+                      className={`inline-block flex-1 rounded-lg border px-4 py-3 text-center text-base font-bold shadow-sm ${futurePredictedRiskClass}`}
                     >
-                      {getRiskLabel(prediction.predictedRiskLevel)}
+                      2-Month Predicted Risk: {futurePredictedRiskLabel}
                     </span>
-                    {prediction.actionRequired && (
+                    {forecastNeedsAttention && (
                       <div className="w-10 h-10 bg-orange-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg animate-pulse">
                         <AlertTriangle className="w-5 h-5 text-white" />
                       </div>
                     )}
                   </div>
-                  <div className={`mt-2 p-3 rounded-lg border-2 ${prediction.actionRequired ? 'bg-orange-50/50 border-orange-300' :
-                    prediction.trend === 'improving' ? 'bg-green-50/50 border-green-300' :
-                      'bg-blue-50/50 border-blue-300'
+                  <div className={`mt-2 p-3 rounded-lg border-2 ${forecastNeedsAttention ? 'bg-orange-50/50 border-orange-300' :
+                    futureRiskIsModeratePriority ? 'bg-amber-50/50 border-amber-300' :
+                      futurePredictedRiskLabel === 'NO RISK' ? 'bg-green-50/50 border-green-300' :
+                        'bg-blue-50/50 border-blue-300'
                     }`}>
-                    <p className="text-xs font-bold text-gray-900 mb-1">
-                      {prediction.actionRequired ? '⚠️ Action Required:' :
-                        prediction.trend === 'improving' ? '✅ Positive Outlook:' :
-                          '→ Expected Status:'}
-                    </p>
-                    <p className="text-xs font-medium text-gray-800">
-                      {prediction.message}
-                    </p>
+                      <p className="text-xs font-bold text-gray-900 mb-1">
+                        {forecastMessageTitle}
+                      </p>
+                      <p className="text-xs font-medium text-gray-800">
+                        {forecastMessage}
+                      </p>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-gray-700 mt-1">
-                    <span className="font-medium">Confidence: {prediction.confidence}%</span>
-                    <span className={`font-bold ${prediction.trend === 'declining' ? 'text-orange-700' :
-                      prediction.trend === 'improving' ? 'text-green-700' :
-                        'text-blue-700'
-                      }`}>
-                      {prediction.trend === 'declining' ? '📉 Declining' :
-                        prediction.trend === 'improving' ? '📈 Improving' :
-                          '➡️ Stable'}
-                    </span>
-                  </div>
+                  {prediction && (
+                    <div className="flex items-center justify-between text-xs text-gray-700 mt-1">
+                      <span className="font-medium">Confidence: {prediction.confidence}%</span>
+                      <span className={`font-bold ${forecastTextClass}`}>
+                        {forecastNeedsAttention ? 'Needs Attention' :
+                          futureRiskIsModeratePriority ? 'Monitor Closely' :
+                            futurePredictedRiskLabel === 'NO RISK' ? 'Improving' :
+                              'Stable'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="text-sm text-gray-500 italic text-center py-4">
-                  <p className="font-medium">Prediction Unavailable</p>
+                <div className={`rounded-lg border px-4 py-4 text-center text-sm font-semibold ${futurePredictedRiskClass}`}>
+                  <p>2-Month Predicted Risk: Not Available</p>
                   <p className="text-xs text-gray-500 mt-1">
-                    Requires at least 2 measurements
+                    No future prediction has been saved for the latest measurement.
                   </p>
                 </div>
               )}
@@ -834,16 +933,16 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
           </div>
 
           {/* Alert Banner for High Priority Cases */}
-          {prediction && prediction.actionRequired && (
+          {showPredictionAlert && (
             <div className="mt-4 p-4 bg-orange-100 border-2 border-orange-400 rounded-lg animate-pulse">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-base font-bold text-orange-900">🚨 Early Warning Alert - Action Required</p>
                   <p className="text-sm text-orange-800 mt-1 font-medium">
-                    {prediction.predictedRiskLevel === 'sam'
+                    {futurePredictedRiskLabel === 'SEVERE RISK'
                       ? 'This child is predicted to progress to Severe Acute Malnutrition within 1-2 months. Early intervention required before next scheduled clinic visit.'
-                      : 'This child is predicted to progress to Moderate Acute Malnutrition within 1-2 months. Increased monitoring and preventive measures recommended.'}
+                      : `This child has a ${futurePredictedRiskLabel.toLowerCase()} within 2 months. Increased monitoring and preventive measures recommended.`}
                   </p>
                 </div>
               </div>

@@ -491,7 +491,21 @@ class Child(db.Model):
     escalations = relationship("ChildEscalation", back_populates="child", lazy=True, order_by="ChildEscalation.created_at.desc()")
     measurements = relationship("Measurement", back_populates="child", lazy=True, order_by="Measurement.measurement_date.desc()")
 
+    def latest_predicted_risk_next_2_months(self) -> str | None:
+        candidates = []
+        for measurement in self.measurements:
+            if measurement.predicted_risk_next_2_months:
+                candidates.append((measurement.measurement_date, measurement.predicted_risk_next_2_months))
+        for visit in self.visits:
+            if visit.predicted_risk_next_2_months:
+                candidates.append((visit.visit_date, visit.predicted_risk_next_2_months))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0] or datetime.min, reverse=True)
+        return candidates[0][1]
+
     def to_dict(self, include_visits: bool = False, include_transfers: bool = False, include_referrals: bool = False, include_escalations: bool = False) -> dict:
+        latest_predicted_risk = self.latest_predicted_risk_next_2_months()
         data = {
             "id": self.id,
             "child_unique_id": self.child_unique_id or self.child_id,  # Use new field, fallback to legacy
@@ -528,6 +542,8 @@ class Child(db.Model):
             "current_assigned_area": self.current_assigned_area.to_dict() if self.current_assigned_area else None,
             "current_assigned_user_id": self.current_assigned_user_id,
             "current_risk_level": self.current_risk_level,
+            "predicted_risk_next_2_months": latest_predicted_risk,
+            "latest_predicted_risk_next_2_months": latest_predicted_risk,
             "last_risk_update": self.last_risk_update.isoformat() if self.last_risk_update else None,
             "is_draft": self.is_draft,
             "status": self.status,
