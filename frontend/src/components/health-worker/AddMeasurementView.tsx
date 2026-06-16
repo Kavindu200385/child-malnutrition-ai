@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { calculateRiskLevel, getRiskColor, getRiskLabel } from '../../types';
 import { ArrowLeft, Save, CheckCircle, AlertTriangle, Brain, TrendingUp, Calendar, FileText, TrendingDown, Activity } from 'lucide-react';
 import { nutritionistAPI, midwifeAPI, mohAPI, childrenAPI } from '../../services/api';
+import { validateMeasurementForm } from '../../utils/measurementValidation';
 
 interface AddMeasurementViewProps {
   user?: { role?: string } | null;
@@ -29,7 +30,9 @@ interface AIResults {
   date: string;
   weight: number;
   height: number;
-  muac: number;
+  muac: number | null;
+  muacStatus?: string;
+  edemaStatus?: string;
   weightForAge: number;
   heightForAge: number;
   weightForHeight: number;
@@ -49,6 +52,8 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
   const [weight, setWeight] = useState('');
   const [height, setHeight] = useState('');
   const [muac, setMuac] = useState('');
+  const [edema, setEdema] = useState('');
+  const [measurementMethod, setMeasurementMethod] = useState('');
   const [notes, setNotes] = useState('');
   const [showResults, setShowResults] = useState(false);
   const [aiResults, setAiResults] = useState<AIResults | null>(null);
@@ -57,6 +62,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
   const [nutLoading, setNutLoading] = useState(false);
   const [midwifeLoading, setMidwifeLoading] = useState(false);
   const [nutError, setNutError] = useState('');
+  const [measurementWarnings, setMeasurementWarnings] = useState<string[]>([]);
   const [nutSuccess, setNutSuccess] = useState(false);
 
   // Searchable combobox state
@@ -147,13 +153,18 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const validation = validateMeasurementForm({ childId, weight, height, muac, edema });
+    setMeasurementWarnings(validation.warnings);
+    if (validation.errors.length > 0) {
+      setNutError(validation.errors[0]);
+      return;
+    }
+
+    const weightNum = validation.values.weightKg as number;
+    const heightNum = validation.values.heightCm as number;
+    const muacNum = validation.values.muacCm;
+
     if (isNutritionist) {
-      const weightNum = parseFloat(weight);
-      const heightNum = parseFloat(height);
-      if (!childId || isNaN(weightNum) || isNaN(heightNum) || weightNum <= 0 || heightNum <= 0) {
-        setNutError('Please select a child and enter valid weight and height.');
-        return;
-      }
       setNutError('');
       setNutLoading(true);
       try {
@@ -161,7 +172,9 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
           child_id: Number(childId),
           weight_kg: weightNum,
           height_cm: heightNum,
-          muac_cm: muac ? parseFloat(muac) : undefined,
+          muac_cm: muacNum,
+          edema: edema || undefined,
+          measurement_method: measurementMethod || undefined,
           measurement_date: date,
           specialist_notes: notes || undefined,
         });
@@ -175,14 +188,6 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
       return;
     }
 
-    const weightNum = parseFloat(weight);
-    const heightNum = parseFloat(height);
-    const muacNum = parseFloat(muac);
-    if (!childId || isNaN(weightNum) || isNaN(heightNum) || weightNum <= 0 || heightNum <= 0) {
-      setNutError('Please select a child and enter valid weight and height.');
-      return;
-    }
-
     setMidwifeLoading(true);
     setNutError('');
     const numericChildId = selectedChild?.id ?? childId;
@@ -193,7 +198,11 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
         child_id: Number(numericChildId),
         weight_kg: weightNum,
         height_cm: heightNum,
-        muac_cm: muac ? parseFloat(muac) : undefined,
+        muac_cm: muacNum,
+        edema: edema || undefined,
+        measurement_method: measurementMethod || undefined,
+        measurement_date: date,
+        notes: notes || undefined,
       });
     } catch (err: any) {
       setNutError(err.response?.data?.message || 'Failed to save measurement');
@@ -284,10 +293,13 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
       nutritionalGuidance.push('Focus on nutrient-dense foods to support catch-up growth');
     }
 
-    if (muacNum && muacNum < 11.5) {
+    if (muacNum != null && muacNum < 11.5) {
       alerts.push('MUAC indicates severe wasting - prioritize immediate intervention');
-    } else if (muacNum && muacNum < 12.5) {
+    } else if (muacNum != null && muacNum < 12.5) {
       alerts.push('MUAC indicates moderate wasting - increased monitoring needed');
+    }
+    if (serverMeas?.clinical_action_required && serverMeas?.clinical_review_reason) {
+      alerts.push(serverMeas.clinical_review_reason);
     }
 
     // Additional recommendations based on prediction
@@ -304,7 +316,9 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
       date: date,
       weight: weightNum,
       height: heightNum,
-      muac: muacNum,
+      muac: muacNum ?? null,
+      muacStatus: serverMeas?.muac_status,
+      edemaStatus: serverMeas?.edema_status,
       weightForAge,
       heightForAge,
       weightForHeight,
@@ -328,7 +342,10 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
     setWeight('');
     setHeight('');
     setMuac('');
+    setEdema('');
+    setMeasurementMethod('');
     setNotes('');
+    setMeasurementWarnings([]);
     setAiResults(null);
   };
 
@@ -579,7 +596,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h4 className="font-medium text-gray-900 mb-2">Recorded Measurements</h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
               <div>
                 <span className="text-gray-600">Weight:</span>
                 <span className="ml-2 font-medium text-gray-900">{aiResults.weight} kg</span>
@@ -590,7 +607,13 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
               </div>
               <div>
                 <span className="text-gray-600">MUAC:</span>
-                <span className="ml-2 font-medium text-gray-900">{aiResults.muac} cm</span>
+                <span className="ml-2 font-medium text-gray-900">
+                  {aiResults.muac != null ? `${aiResults.muac} cm` : aiResults.muacStatus || 'Not Recorded'}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-600">Edema:</span>
+                <span className="ml-2 font-medium text-gray-900">{aiResults.edemaStatus || 'Not Recorded'}</span>
               </div>
               <div>
                 <span className="text-gray-600">Date:</span>
@@ -704,6 +727,16 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
             {nutError}
           </div>
         )}
+        {measurementWarnings.length > 0 && (
+          <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+            <div className="font-semibold mb-1">Clinical review warning</div>
+            <ul className="space-y-1">
+              {measurementWarnings.map((warning) => (
+                <li key={warning}>• {warning}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Child Selection — searchable combobox (hidden when coming from a child profile) */}
           {!selectedChildId ? (
@@ -807,6 +840,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                 id="weight"
                 type="number"
                 step="0.1"
+                min="0"
                 value={weight}
                 onChange={(e) => setWeight(e.target.value)}
                 placeholder="e.g., 10.5"
@@ -824,6 +858,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                 id="height"
                 type="number"
                 step="0.1"
+                min="0"
                 value={height}
                 onChange={(e) => setHeight(e.target.value)}
                 placeholder="e.g., 85.5"
@@ -835,19 +870,55 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
 
             <div>
               <label htmlFor="muac" className="block text-sm font-medium text-gray-700 mb-2">
-                MUAC (cm){!isNutritionist ? ' *' : ''}
+                MUAC (cm)
               </label>
               <input
                 id="muac"
                 type="number"
                 step="0.1"
+                min="0"
                 value={muac}
                 onChange={(e) => setMuac(e.target.value)}
                 placeholder="e.g., 13.5"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required={!isNutritionist}
               />
-              <p className="mt-1 text-xs text-gray-500">Mid-Upper Arm Circumference</p>
+              <p className="mt-1 text-xs text-gray-500">MUAC is optional and not required for routine ground-level assessment.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="edema" className="block text-sm font-medium text-gray-700 mb-2">
+                Edema
+              </label>
+              <select
+                id="edema"
+                value={edema}
+                onChange={(e) => setEdema(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Not recorded</option>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Optional. Select yes only if bilateral pitting edema is recorded.</p>
+            </div>
+
+            <div>
+              <label htmlFor="measurement-method" className="block text-sm font-medium text-gray-700 mb-2">
+                Measurement Method
+              </label>
+              <select
+                id="measurement-method"
+                value={measurementMethod}
+                onChange={(e) => setMeasurementMethod(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Not specified</option>
+                <option value="recumbent_length">Recumbent length</option>
+                <option value="standing_height">Standing height</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Optional height/length method for the recorded measurement.</p>
             </div>
           </div>
 
@@ -898,7 +969,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
             </button>
             <button
               type="submit"
-              disabled={nutLoading || midwifeLoading || !childId || !weight || !height || (!isNutritionist && !muac)}
+              disabled={nutLoading || midwifeLoading || !childId || !weight || !height}
               className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
             >
               <Save className="w-4 h-4" />

@@ -619,6 +619,10 @@ class Measurement(db.Model):
     weight_kg = db.Column(EncryptedDecimal(scale=2), nullable=False)
     height_cm = db.Column(EncryptedDecimal(scale=1), nullable=False)
     muac_cm = db.Column(EncryptedDecimal(scale=1), nullable=True)
+    muac_status = db.Column(db.String(40), nullable=True)
+    edema_present = db.Column(db.Boolean, nullable=True)
+    edema_status = db.Column(db.String(60), nullable=True)
+    measurement_method = db.Column(db.String(32), nullable=True)
     
     # Calculated Z-scores
     z_score_wfa = db.Column(EncryptedDecimal(scale=2), nullable=True)  # Weight-for-age
@@ -658,6 +662,10 @@ class Measurement(db.Model):
             "weight_kg": float(self.weight_kg) if self.weight_kg else None,
             "height_cm": float(self.height_cm) if self.height_cm else None,
             "muac_cm": float(self.muac_cm) if self.muac_cm else None,
+            "muac_status": self.muac_status or ("Not Recorded" if self.muac_cm is None else None),
+            "edema_present": self.edema_present,
+            "edema_status": self.edema_status or "Not Recorded",
+            "measurement_method": self.measurement_method,
             "z_score_wfa": float(self.z_score_wfa) if self.z_score_wfa else None,
             "z_score_hfa": float(self.z_score_hfa) if self.z_score_hfa else None,
             "z_score_wfh": float(self.z_score_wfh) if self.z_score_wfh else None,
@@ -1150,6 +1158,11 @@ class Visit(db.Model):
     sex = db.Column(db.String(2), nullable=False)  # 'M' | 'F'
     weight_kg = db.Column(EncryptedFloat, nullable=False)
     height_cm = db.Column(EncryptedFloat, nullable=False)
+    muac_cm = db.Column(EncryptedFloat, nullable=True)
+    muac_status = db.Column(db.String(40), nullable=True)
+    edema_present = db.Column(db.Boolean, nullable=True)
+    edema_status = db.Column(db.String(60), nullable=True)
+    measurement_method = db.Column(db.String(32), nullable=True)
 
     # Z-scores
     z_wfa = db.Column(EncryptedFloat, nullable=True)
@@ -1187,6 +1200,11 @@ class Visit(db.Model):
             "sex": self.sex,
             "weight_kg": self.weight_kg,
             "height_cm": self.height_cm,
+            "muac_cm": self.muac_cm,
+            "muac_status": self.muac_status or ("Not Recorded" if self.muac_cm is None else None),
+            "edema_present": self.edema_present,
+            "edema_status": self.edema_status or "Not Recorded",
+            "measurement_method": self.measurement_method,
             "z_wfa": self.z_wfa,
             "z_hfa": self.z_hfa,
             "z_wfh": self.z_wfh,

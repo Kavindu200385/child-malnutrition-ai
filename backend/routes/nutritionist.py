@@ -38,6 +38,7 @@ from backend.utils.risk_status import (
     normalize_future_risk,
     prediction_time,
 )
+from backend.utils.measurement_validation import validate_measurement_payload
 from backend.services.notification_service import (
     PRIORITY_HIGH,
     PRIORITY_NORMAL,
@@ -290,28 +291,22 @@ def add_measurement():
             "message": "Cannot add measurement. This child has been returned to MOH and is no longer under nutritionist care."
         }), 403
 
-    weight_kg = data.get("weight_kg") or data.get("weight")
-    height_cm = data.get("height_cm") or data.get("height")
-    muac_cm = data.get("muac_cm") or data.get("muac")
-    measurement_date = data.get("measurement_date")
     specialist_notes = data.get("specialist_notes") or data.get("notes")
 
-    if not weight_kg or not height_cm:
-        return jsonify({"status": "error", "message": "weight_kg and height_cm are required"}), 400
+    validation = validate_measurement_payload(data, child)
+    if not validation["ok"]:
+        return jsonify({"status": "error", "message": validation["error"]}), 400
 
-    if not child.dob:
-        return jsonify({"status": "error", "message": "Child DOB required"}), 400
-
-    try:
-        weight_kg = float(weight_kg)
-        height_cm = float(height_cm)
-        muac_cm = float(muac_cm) if muac_cm is not None else None
-    except (TypeError, ValueError):
-        return jsonify({"status": "error", "message": "Invalid numeric values"}), 400
-
-    age_days = (datetime.now().date() - child.dob).days
-    age_months = max(0, age_days // 30)
-    sex = "M" if (child.gender or "").lower() == "male" else "F"
+    weight_kg = validation["weight_kg"]
+    height_cm = validation["height_cm"]
+    muac_cm = validation["muac_cm"]
+    muac_status = validation["muac_status"]
+    edema_present = validation["edema_present"]
+    edema_status = validation["edema_status"]
+    measurement_method = validation["measurement_method"]
+    m_date = validation["measurement_date"]
+    age_months = validation["age_months"]
+    sex = validation["sex"]
 
     try:
         z_wfa, z_hfa, z_wfh = compute_z_scores(age_months=age_months, sex=sex, weight_kg=weight_kg, height_cm=height_cm)
@@ -332,15 +327,6 @@ def add_measurement():
         confidence = ai_result.get("confidence") or 0.0
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
-    m_date = datetime.now()
-    if measurement_date:
-        try:
-            m_date = datetime.fromisoformat(measurement_date.replace("Z", "+00:00"))
-            if m_date.tzinfo:
-                m_date = m_date.replace(tzinfo=None)
-        except Exception:
-            pass
 
     prediction_warning = None
     prediction_history_source = None
@@ -374,6 +360,11 @@ def add_measurement():
         future_confidence=future_confidence,
         prediction_warning=prediction_warning,
     )
+    review_reasons = [clinical_review_reason] if clinical_review_reason else []
+    if validation["clinical_review_required"]:
+        clinical_action_required = True
+        review_reasons.extend(validation["clinical_review_reasons"])
+    clinical_review_reason = " ".join(dict.fromkeys(review_reasons))
     pred_timestamp = prediction_time() if future_predicted_risk != "NOT AVAILABLE" else None
 
     measurement = Measurement(
@@ -382,6 +373,10 @@ def add_measurement():
         weight_kg=Decimal(str(weight_kg)),
         height_cm=Decimal(str(height_cm)),
         muac_cm=Decimal(str(muac_cm)) if muac_cm is not None else None,
+        muac_status=muac_status,
+        edema_present=edema_present,
+        edema_status=edema_status,
+        measurement_method=measurement_method,
         z_score_wfa=Decimal(str(z_wfa)) if z_wfa is not None else None,
         z_score_hfa=Decimal(str(z_hfa)) if z_hfa is not None else None,
         z_score_wfh=Decimal(str(z_wfh)) if z_wfh is not None else None,
@@ -412,6 +407,11 @@ def add_measurement():
         sex=sex,
         weight_kg=weight_kg,
         height_cm=height_cm,
+        muac_cm=muac_cm,
+        muac_status=muac_status,
+        edema_present=edema_present,
+        edema_status=edema_status,
+        measurement_method=measurement_method,
         z_wfa=z_wfa,
         z_hfa=z_hfa,
         z_wfh=z_wfh,
@@ -450,7 +450,8 @@ def add_measurement():
             "Current nutrition status": current_risk,
             "Weight": f"{weight_kg} kg",
             "Height": f"{height_cm} cm",
-            "MUAC": f"{muac_cm} cm" if muac_cm is not None else None,
+            "MUAC": f"{muac_cm} cm" if muac_cm is not None else "Not Recorded",
+            "Edema": edema_status,
             "Future risk prediction": predicted_risk,
         },
     )

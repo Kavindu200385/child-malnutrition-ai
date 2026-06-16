@@ -140,3 +140,42 @@ def clinical_review_summary(
 
 def prediction_time() -> datetime:
     return datetime.utcnow()
+
+
+def normalize_edema(value: Any) -> Optional[bool]:
+    if value is None or value == "":
+        return None
+    raw = str(value).strip().lower()
+    if raw in {"yes", "y", "true", "1", "present", "positive"}:
+        return True
+    if raw in {"no", "n", "false", "0", "absent", "negative"}:
+        return False
+    return None
+
+
+def muac_assessment(value: Any) -> tuple[Optional[float], str, bool, Optional[str]]:
+    """Return parsed MUAC, status, clinical flag, and validation error."""
+    if value is None or value == "":
+        return None, "Not Recorded", False, None
+    try:
+        muac = float(value)
+    except (TypeError, ValueError):
+        return None, "Invalid", True, "MUAC must be a valid number."
+    if muac < 0:
+        return None, "Invalid", True, "MUAC cannot be negative."
+    if muac < 5 or muac > 30:
+        return muac, "Unrealistic", True, "MUAC value is outside the realistic range."
+    if muac < 11.5:
+        return muac, "Severe Low", True, None
+    if muac < 12.5:
+        return muac, "Low", True, None
+    return muac, "Normal", False, None
+
+
+def edema_assessment(value: Any) -> tuple[Optional[bool], str, bool]:
+    edema_present = normalize_edema(value)
+    if edema_present is None:
+        return None, "Not Recorded", False
+    if edema_present:
+        return True, "Bilateral Pitting Edema Recorded", True
+    return False, "Not Recorded" if str(value).strip() == "" else "Not Present", False
