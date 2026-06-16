@@ -13,6 +13,13 @@ from sqlalchemy import ForeignKey, CheckConstraint, Index, Numeric, event, or_
 from sqlalchemy.orm import relationship
 
 from backend.extensions import db
+from backend.services.encryption_service import (
+    EncryptedDate,
+    EncryptedDecimal,
+    EncryptedFloat,
+    EncryptedJSON,
+    EncryptedText,
+)
 
 
 # ============================================================================
@@ -401,21 +408,21 @@ class Child(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     child_unique_id = db.Column(db.String(64), unique=True, nullable=True, index=True)  # HOS-{code}-{YYYY}-{seq}
     child_id = db.Column(db.String(64), unique=True, nullable=True, index=True)  # Legacy field, kept for compatibility (nullable for hospital registration)
-    name = db.Column(db.String(120), nullable=True)
-    dob = db.Column(db.Date, nullable=True, index=True)
+    name = db.Column(EncryptedText, nullable=True)
+    dob = db.Column(EncryptedDate, nullable=True)
     gender = db.Column(db.String(16), nullable=True)  # 'male' | 'female'
     
     # Birth measurements (for hospital registration)
-    birth_weight_kg = db.Column(db.Numeric(5, 2), nullable=True)
-    birth_height_cm = db.Column(db.Numeric(5, 1), nullable=True)
+    birth_weight_kg = db.Column(EncryptedDecimal(scale=2), nullable=True)
+    birth_height_cm = db.Column(EncryptedDecimal(scale=1), nullable=True)
     
     # Parent/Guardian details
-    guardian_name = db.Column(db.String(120), nullable=True)
-    mother_name = db.Column(db.String(120), nullable=True)  # Added for hospital
-    guardian_phone = db.Column(db.String(40), nullable=True)
-    guardian_email = db.Column(db.String(120), nullable=True, index=True)
-    guardian_nic = db.Column(db.String(20), nullable=True)
-    address = db.Column(db.Text, nullable=True)
+    guardian_name = db.Column(EncryptedText, nullable=True)
+    mother_name = db.Column(EncryptedText, nullable=True)  # Added for hospital
+    guardian_phone = db.Column(EncryptedText, nullable=True)
+    guardian_email = db.Column(EncryptedText, nullable=True)
+    guardian_nic = db.Column(EncryptedText, nullable=True)
+    address = db.Column(EncryptedText, nullable=True)
     
     # Hospital registration (REQUIRED for hospital role)
     hospital_id = db.Column(db.Integer, ForeignKey("hospitals.id"), nullable=True, index=True)
@@ -461,7 +468,7 @@ class Child(db.Model):
     status = db.Column(db.String(32), nullable=False, default="ACTIVE", index=True)  # ACTIVE, TRANSFERRED, INACTIVE
     
     # Birth registration data (JSON)
-    birth_registration = db.Column(db.JSON, nullable=True)
+    birth_registration = db.Column(EncryptedJSON, nullable=True)
     
     # Audit
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -556,25 +563,25 @@ class Measurement(db.Model):
     
     # Measurement data (collected at clinic)
     measurement_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
-    weight_kg = db.Column(Numeric(5, 2), nullable=False)
-    height_cm = db.Column(Numeric(5, 1), nullable=False)
-    muac_cm = db.Column(Numeric(4, 1), nullable=True)
+    weight_kg = db.Column(EncryptedDecimal(scale=2), nullable=False)
+    height_cm = db.Column(EncryptedDecimal(scale=1), nullable=False)
+    muac_cm = db.Column(EncryptedDecimal(scale=1), nullable=True)
     
     # Calculated Z-scores
-    z_score_wfa = db.Column(Numeric(5, 2), nullable=True)  # Weight-for-age
-    z_score_hfa = db.Column(Numeric(5, 2), nullable=True)  # Height-for-age
-    z_score_wfh = db.Column(Numeric(5, 2), nullable=True)  # Weight-for-height
+    z_score_wfa = db.Column(EncryptedDecimal(scale=2), nullable=True)  # Weight-for-age
+    z_score_hfa = db.Column(EncryptedDecimal(scale=2), nullable=True)  # Height-for-age
+    z_score_wfh = db.Column(EncryptedDecimal(scale=2), nullable=True)  # Weight-for-height
     
     # AI analysis results
     risk_level = db.Column(db.String(20), nullable=True, index=True)  # NORMAL, MAM, SAM
     predicted_risk_next_2_months = db.Column(db.String(20), nullable=True)
-    model_confidence = db.Column(Numeric(4, 2), nullable=True)
+    model_confidence = db.Column(EncryptedDecimal(scale=2), nullable=True)
     
     # Measured by (midwife who collected the clinic data)
     measured_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
     
     # Notes
-    notes = db.Column(db.Text, nullable=True)
+    notes = db.Column(EncryptedText, nullable=True)
     
     # Audit
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -624,7 +631,7 @@ class ChildEscalation(db.Model):
     moh_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=False, index=True)  # MOH area ID
     
     # Escalation reason
-    reason = db.Column(db.Text, nullable=True)
+    reason = db.Column(EncryptedText, nullable=True)
     previous_risk_level = db.Column(db.String(20), nullable=True)
     new_risk_level = db.Column(db.String(20), nullable=True)
     
@@ -632,7 +639,7 @@ class ChildEscalation(db.Model):
     status = db.Column(db.String(20), nullable=False, default=EscalationRecordStatus.PENDING.value, index=True)
     reviewed_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
-    review_notes = db.Column(db.Text, nullable=True)
+    review_notes = db.Column(EncryptedText, nullable=True)
     
     # Audit
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -851,7 +858,7 @@ class RdhsPeriodReport(db.Model):
     period_label = db.Column(db.String(80), nullable=True)
     district_name = db.Column(db.String(120), nullable=True)
 
-    payload = db.Column(db.JSON, nullable=True)  # full report: summary, moh_areas, etc.
+    payload = db.Column(EncryptedJSON, nullable=True)  # full report: summary, moh_areas, etc.
 
     sent_to_pdhs = db.Column(db.Boolean, nullable=False, default=False, index=True)
     sent_at = db.Column(db.DateTime, nullable=True)
@@ -1074,21 +1081,21 @@ class Visit(db.Model):
 
     age_months = db.Column(db.Integer, nullable=False)
     sex = db.Column(db.String(2), nullable=False)  # 'M' | 'F'
-    weight_kg = db.Column(db.Float, nullable=False)
-    height_cm = db.Column(db.Float, nullable=False)
+    weight_kg = db.Column(EncryptedFloat, nullable=False)
+    height_cm = db.Column(EncryptedFloat, nullable=False)
 
     # Z-scores
-    z_wfa = db.Column(db.Float, nullable=True)
-    z_hfa = db.Column(db.Float, nullable=True)
-    z_wfh = db.Column(db.Float, nullable=True)
+    z_wfa = db.Column(EncryptedFloat, nullable=True)
+    z_hfa = db.Column(EncryptedFloat, nullable=True)
+    z_wfh = db.Column(EncryptedFloat, nullable=True)
 
     # Risk assessment
     current_risk = db.Column(db.String(32), nullable=True)  # NORMAL/MODERATE/HIGH/CRITICAL
     predicted_risk_next_2_months = db.Column(db.String(16), nullable=True)  # Low/Moderate/High/Severe
-    model_confidence = db.Column(db.Float, nullable=True)
+    model_confidence = db.Column(EncryptedFloat, nullable=True)
 
     # Additional notes
-    notes = db.Column(db.Text, nullable=True)
+    notes = db.Column(EncryptedText, nullable=True)
 
     # Audit
     created_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
@@ -1134,7 +1141,7 @@ class ChildReferral(db.Model):
     referred_to_role = db.Column(db.String(32), nullable=False, default="nutritionist")  # Always nutritionist for now
     hospital_id = db.Column(db.Integer, ForeignKey("hospitals.id"), nullable=False, index=True)
     status = db.Column(db.String(20), nullable=False, default=ReferralStatus.PENDING.value, index=True)
-    referral_reason = db.Column(db.Text, nullable=True)
+    referral_reason = db.Column(EncryptedText, nullable=True)
     reviewed_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     
@@ -1191,14 +1198,14 @@ class ChildTransfer(db.Model):
     
     # Status and approval
     status = db.Column(db.String(32), nullable=False, default=ChildTransferStatus.PENDING.value, index=True)
-    reason = db.Column(db.Text, nullable=True)
+    reason = db.Column(EncryptedText, nullable=True)
     transfer_date = db.Column(db.DateTime, nullable=True)
     
     # Approval workflow
     requested_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
     approved_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
     approval_date = db.Column(db.DateTime, nullable=True)
-    rejection_reason = db.Column(db.Text, nullable=True)
+    rejection_reason = db.Column(EncryptedText, nullable=True)
     
     # Audit
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -1251,7 +1258,7 @@ class AreaChangeRequest(db.Model):
     # Request details
     from_area_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=False)
     to_area_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=False)
-    reason = db.Column(db.Text, nullable=True)
+    reason = db.Column(EncryptedText, nullable=True)
     
     # Status
     status = db.Column(db.String(32), nullable=False, default=AreaChangeStatus.PENDING, index=True)
@@ -1260,7 +1267,7 @@ class AreaChangeRequest(db.Model):
     requested_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
     approved_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=True, index=True)
     approval_date = db.Column(db.DateTime, nullable=True)
-    rejection_reason = db.Column(db.Text, nullable=True)
+    rejection_reason = db.Column(EncryptedText, nullable=True)
     
     # Audit
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -1443,7 +1450,7 @@ class Report(db.Model):
     end_date = db.Column(db.Date, nullable=True)
     
     # Report data (JSON)
-    report_data = db.Column(db.JSON, nullable=True)
+    report_data = db.Column(EncryptedJSON, nullable=True)
     
     # File storage (if exported)
     file_path = db.Column(db.String(500), nullable=True)

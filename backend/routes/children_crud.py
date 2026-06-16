@@ -17,6 +17,29 @@ from backend.models import Child, Visit
 bp = Blueprint("children_crud", __name__, url_prefix="/api/children")
 
 
+def _current_user():
+    from backend.models import User
+
+    user_id = get_jwt_identity()
+    try:
+        user_id_int = int(user_id) if user_id else None
+    except Exception:
+        user_id_int = None
+    return db.session.get(User, user_id_int) if user_id_int else None
+
+
+def _legacy_user_can_access_child(user, child: Child) -> bool:
+    if not user:
+        return False
+    if user.role == "admin":
+        return True
+    if user.role == "hospital":
+        return bool(user.clinic and child.registered_by_clinic == user.clinic)
+    if user.role in ("midwife", "moh_doctor", "nutritionist"):
+        return bool(user.clinic and (child.assigned_to_clinic == user.clinic or child.assigned_to_clinic is None))
+    return False
+
+
 @bp.route("", methods=["POST"])
 @hospital_required
 def create_child():
@@ -24,8 +47,6 @@ def create_child():
     Register a new child (Hospital only).
     Hospital registers children at birth, then midwife can assign them to their clinic.
     """
-    from backend.models import User
-
     data = request.get_json() or {}
 
     # Draft flag (optional) - if true, registration is saved as a draft
@@ -39,12 +60,7 @@ def create_child():
         return jsonify({"status": "error", "message": "child_id already exists"}), 409
 
     # Get current user to set registered_by_clinic
-    user_id = get_jwt_identity()
-    try:
-        user_id_int = int(user_id) if user_id else None
-    except Exception:
-        user_id_int = None
-    user = db.session.get(User, user_id_int) if user_id_int else None
+    user = _current_user()
 
     child = Child(
         child_id=child_id,
@@ -81,14 +97,7 @@ def list_children():
     - Midwife: sees unassigned children from hospitals + children assigned to their clinic
     - MOH Doctor/Nutritionist: sees children assigned to their clinic
     """
-    from backend.models import User
-    
-    user_id = get_jwt_identity()
-    try:
-        user_id_int = int(user_id) if user_id else None
-    except Exception:
-        user_id_int = None
-    user = db.session.get(User, user_id_int) if user_id_int else None
+    user = _current_user()
 
     q = request.args.get("q", "").strip()
     status = request.args.get("status", "").strip().lower()
@@ -105,7 +114,7 @@ def list_children():
             (Child.assigned_to_clinic == user.clinic) | (Child.assigned_to_clinic.is_(None))
         )
     else:
-        query = Child.query
+        query = Child.query.filter(False)
 
     # Optional status filter: ?status=draft | active
     if status == "draft":
@@ -116,8 +125,7 @@ def list_children():
     if q:
         query = query.filter(
             Child.child_id.like(f"%{q}%") |
-            Child.name.like(f"%{q}%") |
-            Child.guardian_name.like(f"%{q}%")
+            Child.child_unique_id.like(f"%{q}%")
         )
     children = query.order_by(Child.created_at.desc()).limit(200).all()
     return jsonify({"status": "success", "children": [c.to_dict() for c in children]}), 200
@@ -134,13 +142,9 @@ def get_child(child_id: str):
         return jsonify({"status": "error", "message": "Child not found"}), 404
     
     # Only show visits to roles that can create visits (not hospital)
-    from backend.models import User
-    user_id = get_jwt_identity()
-    try:
-        user_id_int = int(user_id) if user_id else None
-    except Exception:
-        user_id_int = None
-    user = db.session.get(User, user_id_int) if user_id_int else None
+    user = _current_user()
+    if not _legacy_user_can_access_child(user, child):
+        return jsonify({"status": "error", "message": "No access to this child"}), 403
     
     include_visits = user and user.role in ("admin", "midwife", "moh_doctor", "nutritionist")
     
@@ -156,6 +160,9 @@ def update_child(child_id: str):
     child = Child.query.filter_by(child_id=child_id).first()
     if not child:
         return jsonify({"status": "error", "message": "Child not found"}), 404
+    user = _current_user()
+    if not _legacy_user_can_access_child(user, child):
+        return jsonify({"status": "error", "message": "No access to this child"}), 403
     data = request.get_json() or {}
 
     for field in ["name", "gender", "guardian_name", "guardian_phone", "address"]:
@@ -284,4 +291,3 @@ def list_visits(child_id: str):
         return jsonify({"status": "error", "message": "Child not found"}), 404
     visits = Visit.query.filter_by(child_id_fk=child.id).order_by(Visit.visit_date.desc()).all()
     return jsonify({"status": "success", "visits": [v.to_dict() for v in visits]}), 200
-

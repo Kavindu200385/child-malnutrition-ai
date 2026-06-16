@@ -12,6 +12,55 @@ from backend.extensions import db
 from backend.models_hierarchical import AuditLog
 
 
+SENSITIVE_KEYS = {
+    "name",
+    "child_name",
+    "dob",
+    "date_of_birth",
+    "guardian_name",
+    "mother_name",
+    "guardian_phone",
+    "guardian_email",
+    "guardian_nic",
+    "address",
+    "birth_weight_kg",
+    "birth_height_cm",
+    "weight_kg",
+    "height_cm",
+    "muac_cm",
+    "z_score_wfa",
+    "z_score_hfa",
+    "z_score_wfh",
+    "z_wfa",
+    "z_hfa",
+    "z_wfh",
+    "model_confidence",
+    "notes",
+    "reason",
+    "review_notes",
+    "rejection_reason",
+    "referral_reason",
+    "birth_registration",
+    "report_data",
+    "payload",
+    "recipient",
+}
+
+
+def sanitize_audit_payload(value):
+    if isinstance(value, dict):
+        clean = {}
+        for key, item in value.items():
+            if str(key).lower() in SENSITIVE_KEYS:
+                clean[key] = "[REDACTED]"
+            else:
+                clean[key] = sanitize_audit_payload(item)
+        return clean
+    if isinstance(value, list):
+        return [sanitize_audit_payload(item) for item in value]
+    return value
+
+
 ENTITY_CATEGORIES = {
     "user": "USER_MANAGEMENT",
     "worker": "USER_MANAGEMENT",
@@ -133,11 +182,11 @@ class AuditLogger:
             actual_action_type = _infer_action_type(entity_type, action_type, action)
             actual_status = (status or "SUCCESS").upper()
             actual_category = _infer_category(entity_type, action_category)
-            actual_metadata = dict(metadata or {})
+            actual_metadata = sanitize_audit_payload(dict(metadata or {}))
             if old_values is not None:
-                actual_metadata["old_values"] = old_values
+                actual_metadata["old_values"] = sanitize_audit_payload(old_values)
             if new_values is not None:
-                actual_metadata["new_values"] = new_values
+                actual_metadata["new_values"] = sanitize_audit_payload(new_values)
 
             if user_id and (not username or not role):
                 from backend.models_hierarchical import User
@@ -160,8 +209,8 @@ class AuditLogger:
                 "ip_address": ip_address,
                 "user_agent": user_agent,
                 "status": actual_status,
-                "old_values": old_values,
-                "new_values": new_values,
+                "old_values": sanitize_audit_payload(old_values),
+                "new_values": sanitize_audit_payload(new_values),
                 "metadata_json": actual_metadata,
             }
 

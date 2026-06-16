@@ -247,8 +247,8 @@ def list_children():
     if search:
         search_term = f"%{search}%"
         query = query.filter(
-            (Child.name.ilike(search_term)) |
-            (Child.child_unique_id.ilike(search_term))
+            (Child.child_unique_id.ilike(search_term)) |
+            (Child.child_id.ilike(search_term))
         )
     
     # Order by registration date (newest first)

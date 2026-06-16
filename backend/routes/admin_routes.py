@@ -267,7 +267,7 @@ def update_settings():
 def list_children_missing_district():
     """
     List children who are with the nutritionist (escalation status or reviewed referral)
-    but have null district_id, so they do not appear in any RDHS list. Optional ?q= for name search.
+    but have null district_id, so they do not appear in any RDHS list. Optional ?q= for child ID search.
     """
     user = get_current_user()
     if not user or user.role != ROLE_HEALTH_MINISTRY:
@@ -290,9 +290,9 @@ def list_children_missing_district():
     query = query.filter(Child.id.in_(subq))
     if q:
         query = query.filter(
-            (Child.name.ilike(f"%{q}%")) | (Child.child_unique_id.ilike(f"%{q}%")) | (Child.guardian_name.ilike(f"%{q}%"))
+            (Child.child_unique_id.ilike(f"%{q}%")) | (Child.child_id.ilike(f"%{q}%"))
         )
-    children = query.order_by(Child.name).limit(100).all()
+    children = query.order_by(Child.created_at.desc()).limit(100).all()
     return jsonify({
         "status": "success",
         "children": [

@@ -275,8 +275,8 @@ def list_children():
     if search:
         search_term = f"%{search}%"
         query = query.filter(
-            (Child.name.ilike(search_term)) |
-            (Child.child_unique_id.ilike(search_term))
+            (Child.child_unique_id.ilike(search_term)) |
+            (Child.child_id.ilike(search_term))
         )
     
     children = query.order_by(Child.assigned_date.desc()).all()

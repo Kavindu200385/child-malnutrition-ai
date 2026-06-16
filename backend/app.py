@@ -24,6 +24,7 @@ from sqlalchemy import inspect, text
 from backend.config import Config
 from backend.extensions import db, jwt, migrate, limiter
 from backend.models import User
+from backend.services.encryption_service import validate_encryption_key
 # Dummy data seeding removed - system starts clean
 
 
@@ -215,15 +216,15 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                         id INTEGER PRIMARY KEY AUTO_INCREMENT,
                         child_id INTEGER NOT NULL,
                         measurement_date DATETIME NOT NULL,
-                        weight_kg DECIMAL(5,2) NOT NULL,
-                        height_cm DECIMAL(5,1) NOT NULL,
-                        muac_cm DECIMAL(4,1),
-                        z_score_wfa DECIMAL(5,2),
-                        z_score_hfa DECIMAL(5,2),
-                        z_score_wfh DECIMAL(5,2),
+                        weight_kg TEXT NOT NULL,
+                        height_cm TEXT NOT NULL,
+                        muac_cm TEXT,
+                        z_score_wfa TEXT,
+                        z_score_hfa TEXT,
+                        z_score_wfh TEXT,
                         risk_level VARCHAR(20),
                         predicted_risk_next_2_months VARCHAR(20),
-                        model_confidence DECIMAL(4,2),
+                        model_confidence TEXT,
                         measured_by_user_id INTEGER NOT NULL,
                         notes TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -235,15 +236,15 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         child_id INTEGER NOT NULL,
                         measurement_date DATETIME NOT NULL,
-                        weight_kg REAL NOT NULL,
-                        height_cm REAL NOT NULL,
-                        muac_cm REAL,
-                        z_score_wfa REAL,
-                        z_score_hfa REAL,
-                        z_score_wfh REAL,
+                        weight_kg TEXT NOT NULL,
+                        height_cm TEXT NOT NULL,
+                        muac_cm TEXT,
+                        z_score_wfa TEXT,
+                        z_score_hfa TEXT,
+                        z_score_wfh TEXT,
                         risk_level TEXT,
                         predicted_risk_next_2_months TEXT,
-                        model_confidence REAL,
+                        model_confidence TEXT,
                         measured_by_user_id INTEGER NOT NULL,
                         notes TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -426,9 +427,9 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
             "children",
             [
                 ("child_unique_id", "VARCHAR(64)" if is_mysql else "TEXT", None),
-                ("birth_weight_kg", "DECIMAL(5,2)" if is_mysql else "REAL", None),
-                ("birth_height_cm", "DECIMAL(5,1)" if is_mysql else "REAL", None),
-                ("mother_name", "VARCHAR(120)" if is_mysql else "TEXT", None),
+                ("birth_weight_kg", "TEXT", None),
+                ("birth_height_cm", "TEXT", None),
+                ("mother_name", "TEXT", None),
                 ("hospital_id", "INTEGER", None),
                 ("birth_risk_level", "VARCHAR(20)" if is_mysql else "TEXT", None),
                 ("transfer_status", "VARCHAR(50)" if is_mysql else "TEXT", "NOT NULL DEFAULT 'NONE'"),
@@ -439,8 +440,8 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                 ("province_id", "INTEGER", None),
                 ("assigned_date", "DATETIME", None),
                 ("escalation_status", "VARCHAR(50)" if is_mysql else "TEXT", "NOT NULL DEFAULT 'NONE'"),
-                ("guardian_nic", "VARCHAR(20)" if is_mysql else "TEXT", None),
-                ("guardian_email", "VARCHAR(120)" if is_mysql else "TEXT", None),
+                ("guardian_nic", "TEXT", None),
+                ("guardian_email", "TEXT", None),
                 ("registered_by_user_id", "INTEGER", None),
                 ("registration_date", "DATETIME", None),
                 ("current_assigned_role", "TEXT", None),
@@ -455,7 +456,7 @@ def _ensure_db_schema_compatible(app: Flask) -> None:
                 ("current_risk_level", "TEXT", None),
                 ("last_risk_update", "DATETIME", None),
                 ("status", "TEXT", None),
-                ("birth_registration", "JSON" if is_mysql else "TEXT", None),
+                ("birth_registration", "TEXT", None),
                 ("updated_at", "DATETIME", None),
             ],
         )
@@ -517,6 +518,9 @@ def create_app() -> Flask:
     # - backend/.env (if present)
     load_dotenv(find_dotenv(usecwd=True))
     load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+    node_env = os.environ.get("NODE_ENV", "development").lower()
+    flask_env = os.environ.get("FLASK_ENV", "").lower()
+    validate_encryption_key(required=node_env == "production" or flask_env == "production")
 
     app = Flask(__name__)
     app.config.from_object(Config)

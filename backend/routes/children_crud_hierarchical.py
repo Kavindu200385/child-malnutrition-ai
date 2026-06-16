@@ -439,9 +439,7 @@ def list_children():
     if q:
         query = query.filter(
             (Child.child_id.like(f"%{q}%")) |
-            (Child.name.like(f"%{q}%")) |
-            (Child.guardian_name.like(f"%{q}%")) |
-            (Child.guardian_phone.like(f"%{q}%"))
+            (Child.child_unique_id.like(f"%{q}%"))
         )
     
     children = query.order_by(Child.created_at.desc()).limit(200).all()
