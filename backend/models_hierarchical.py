@@ -5,6 +5,7 @@ Complete redesign with 5-level hierarchy and strict RBAC
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Optional, List
 from enum import Enum
 
@@ -499,19 +500,27 @@ class Child(db.Model):
     def latest_assessment_summary(self) -> dict:
         candidates = []
         for measurement in self.measurements:
-            if measurement.predicted_risk_next_2_months or measurement.future_predicted_risk:
+            if measurement.current_nutritional_status or measurement.risk_level or measurement.future_predicted_risk or measurement.predicted_risk_next_2_months:
                 candidates.append((measurement.measurement_date, measurement))
         for visit in self.visits:
-            if visit.predicted_risk_next_2_months or visit.future_predicted_risk:
+            if visit.current_nutritional_status or visit.current_risk or visit.future_predicted_risk or visit.predicted_risk_next_2_months:
                 candidates.append((visit.visit_date, visit))
         if not candidates:
             current_status = normalize_current_status(self.current_risk_level or self.birth_risk_level)
             return {
                 "current_nutritional_status": current_status,
+                "underweight_status": None,
+                "stunting_status": None,
+                "wasting_status": None,
+                "muac_status": "Not Recorded",
+                "edema_status": "Not Recorded",
+                "current_status_breakdown": None,
                 "future_predicted_risk": "NOT AVAILABLE",
                 "future_risk_confidence": None,
                 "prediction_timestamp": None,
                 "model_version": None,
+                "training_dataset_version": None,
+                "explanation_factors": None,
                 "clinical_action_required": current_status in {"SAM", "SEVERE STUNTING", "SEVERE UNDERWEIGHT", "NEEDS CLINICAL REVIEW"},
                 "clinical_review_reason": None,
             }
@@ -523,12 +532,32 @@ class Child(db.Model):
         if confidence is None:
             confidence = getattr(latest, "model_confidence", None)
         timestamp = getattr(latest, "prediction_timestamp", None) or getattr(latest, "measurement_date", None) or getattr(latest, "visit_date", None)
+        breakdown = getattr(latest, "current_status_breakdown", None)
+        if breakdown:
+            try:
+                breakdown = json.loads(breakdown) if isinstance(breakdown, str) else breakdown
+            except (TypeError, ValueError):
+                breakdown = None
+        explanation_factors = getattr(latest, "explanation_factors", None)
+        if explanation_factors:
+            try:
+                explanation_factors = json.loads(explanation_factors) if isinstance(explanation_factors, str) else explanation_factors
+            except (TypeError, ValueError):
+                explanation_factors = None
         return {
             "current_nutritional_status": normalize_current_status(current_status),
+            "underweight_status": getattr(latest, "underweight_status", None),
+            "stunting_status": getattr(latest, "stunting_status", None),
+            "wasting_status": getattr(latest, "wasting_status", None),
+            "muac_status": getattr(latest, "muac_status", None),
+            "edema_status": getattr(latest, "edema_status", None),
+            "current_status_breakdown": breakdown,
             "future_predicted_risk": normalize_future_risk(future_risk),
             "future_risk_confidence": float(confidence) if confidence is not None else None,
             "prediction_timestamp": timestamp.isoformat() if timestamp else None,
             "model_version": getattr(latest, "model_version", None),
+            "training_dataset_version": getattr(latest, "training_dataset_version", None),
+            "explanation_factors": explanation_factors,
             "clinical_action_required": bool(getattr(latest, "clinical_action_required", False)),
             "clinical_review_reason": getattr(latest, "clinical_review_reason", None),
         }
@@ -573,12 +602,20 @@ class Child(db.Model):
             "current_assigned_user_id": self.current_assigned_user_id,
             "current_risk_level": self.current_risk_level,
             "current_nutritional_status": latest_assessment["current_nutritional_status"],
+            "underweight_status": latest_assessment["underweight_status"],
+            "stunting_status": latest_assessment["stunting_status"],
+            "wasting_status": latest_assessment["wasting_status"],
+            "muac_status": latest_assessment["muac_status"],
+            "edema_status": latest_assessment["edema_status"],
+            "current_status_breakdown": latest_assessment["current_status_breakdown"],
             "predicted_risk_next_2_months": latest_predicted_risk,
             "latest_predicted_risk_next_2_months": latest_predicted_risk,
             "future_predicted_risk": latest_assessment["future_predicted_risk"],
             "future_risk_confidence": latest_assessment["future_risk_confidence"],
             "prediction_timestamp": latest_assessment["prediction_timestamp"],
             "model_version": latest_assessment["model_version"],
+            "training_dataset_version": latest_assessment["training_dataset_version"],
+            "explanation_factors": latest_assessment["explanation_factors"],
             "clinical_action_required": latest_assessment["clinical_action_required"],
             "clinical_review_reason": latest_assessment["clinical_review_reason"],
             "last_risk_update": self.last_risk_update.isoformat() if self.last_risk_update else None,
@@ -628,6 +665,10 @@ class Measurement(db.Model):
     z_score_wfa = db.Column(EncryptedDecimal(scale=2), nullable=True)  # Weight-for-age
     z_score_hfa = db.Column(EncryptedDecimal(scale=2), nullable=True)  # Height-for-age
     z_score_wfh = db.Column(EncryptedDecimal(scale=2), nullable=True)  # Weight-for-height
+    underweight_status = db.Column(db.String(40), nullable=True)
+    stunting_status = db.Column(db.String(40), nullable=True)
+    wasting_status = db.Column(db.String(40), nullable=True)
+    current_status_breakdown = db.Column(db.Text, nullable=True)
     
     # AI analysis results
     risk_level = db.Column(db.String(20), nullable=True, index=True)  # NORMAL, MAM, SAM
@@ -638,6 +679,8 @@ class Measurement(db.Model):
     future_risk_confidence = db.Column(EncryptedDecimal(scale=2), nullable=True)
     prediction_timestamp = db.Column(db.DateTime, nullable=True)
     model_version = db.Column(db.String(120), nullable=True)
+    training_dataset_version = db.Column(db.String(120), nullable=True)
+    explanation_factors = db.Column(db.Text, nullable=True)
     clinical_action_required = db.Column(db.Boolean, nullable=False, default=False, index=True)
     clinical_review_reason = db.Column(db.Text, nullable=True)
     
@@ -655,6 +698,18 @@ class Measurement(db.Model):
     measured_by = relationship("User", foreign_keys=[measured_by_user_id], back_populates="created_measurements")
 
     def to_dict(self) -> dict:
+        breakdown = None
+        if self.current_status_breakdown:
+            try:
+                breakdown = json.loads(self.current_status_breakdown)
+            except (TypeError, ValueError):
+                breakdown = None
+        explanation_factors = None
+        if self.explanation_factors:
+            try:
+                explanation_factors = json.loads(self.explanation_factors)
+            except (TypeError, ValueError):
+                explanation_factors = None
         return {
             "id": self.id,
             "child_id": self.child_id,
@@ -669,13 +724,19 @@ class Measurement(db.Model):
             "z_score_wfa": float(self.z_score_wfa) if self.z_score_wfa else None,
             "z_score_hfa": float(self.z_score_hfa) if self.z_score_hfa else None,
             "z_score_wfh": float(self.z_score_wfh) if self.z_score_wfh else None,
+            "underweight_status": self.underweight_status,
+            "stunting_status": self.stunting_status,
+            "wasting_status": self.wasting_status,
             "risk_level": self.risk_level,
             "current_nutritional_status": normalize_current_status(self.current_nutritional_status or self.risk_level),
+            "current_status_breakdown": breakdown,
             "predicted_risk_next_2_months": self.predicted_risk_next_2_months,
             "future_predicted_risk": normalize_future_risk(self.future_predicted_risk or self.predicted_risk_next_2_months),
             "future_risk_confidence": float(self.future_risk_confidence) if self.future_risk_confidence else None,
             "prediction_timestamp": self.prediction_timestamp.isoformat() if self.prediction_timestamp else None,
             "model_version": self.model_version,
+            "training_dataset_version": self.training_dataset_version,
+            "explanation_factors": explanation_factors,
             "clinical_action_required": bool(self.clinical_action_required),
             "clinical_review_reason": self.clinical_review_reason,
             "model_confidence": float(self.model_confidence) if self.model_confidence else None,
@@ -1168,6 +1229,10 @@ class Visit(db.Model):
     z_wfa = db.Column(EncryptedFloat, nullable=True)
     z_hfa = db.Column(EncryptedFloat, nullable=True)
     z_wfh = db.Column(EncryptedFloat, nullable=True)
+    underweight_status = db.Column(db.String(40), nullable=True)
+    stunting_status = db.Column(db.String(40), nullable=True)
+    wasting_status = db.Column(db.String(40), nullable=True)
+    current_status_breakdown = db.Column(db.Text, nullable=True)
 
     # Risk assessment
     current_risk = db.Column(db.String(32), nullable=True)  # NORMAL/MODERATE/HIGH/CRITICAL
@@ -1178,6 +1243,8 @@ class Visit(db.Model):
     future_risk_confidence = db.Column(EncryptedFloat, nullable=True)
     prediction_timestamp = db.Column(db.DateTime, nullable=True)
     model_version = db.Column(db.String(120), nullable=True)
+    training_dataset_version = db.Column(db.String(120), nullable=True)
+    explanation_factors = db.Column(db.Text, nullable=True)
     clinical_action_required = db.Column(db.Boolean, nullable=False, default=False, index=True)
     clinical_review_reason = db.Column(db.Text, nullable=True)
 
@@ -1192,6 +1259,18 @@ class Visit(db.Model):
     created_by_user = relationship("User", foreign_keys=[created_by_user_id], back_populates="created_visits")
 
     def to_dict(self) -> dict:
+        breakdown = None
+        if self.current_status_breakdown:
+            try:
+                breakdown = json.loads(self.current_status_breakdown)
+            except (TypeError, ValueError):
+                breakdown = None
+        explanation_factors = None
+        if self.explanation_factors:
+            try:
+                explanation_factors = json.loads(self.explanation_factors)
+            except (TypeError, ValueError):
+                explanation_factors = None
         return {
             "id": self.id,
             "child_id": self.child_id_fk,
@@ -1208,13 +1287,19 @@ class Visit(db.Model):
             "z_wfa": self.z_wfa,
             "z_hfa": self.z_hfa,
             "z_wfh": self.z_wfh,
+            "underweight_status": self.underweight_status,
+            "stunting_status": self.stunting_status,
+            "wasting_status": self.wasting_status,
             "current_risk": self.current_risk,
             "current_nutritional_status": normalize_current_status(self.current_nutritional_status or self.current_risk),
+            "current_status_breakdown": breakdown,
             "predicted_risk_next_2_months": self.predicted_risk_next_2_months,
             "future_predicted_risk": normalize_future_risk(self.future_predicted_risk or self.predicted_risk_next_2_months),
             "future_risk_confidence": self.future_risk_confidence,
             "prediction_timestamp": self.prediction_timestamp.isoformat() if self.prediction_timestamp else None,
             "model_version": self.model_version,
+            "training_dataset_version": self.training_dataset_version,
+            "explanation_factors": explanation_factors,
             "clinical_action_required": bool(self.clinical_action_required),
             "clinical_review_reason": self.clinical_review_reason,
             "model_confidence": self.model_confidence,

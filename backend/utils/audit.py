@@ -15,14 +15,22 @@ from backend.models_hierarchical import AuditLog
 SENSITIVE_KEYS = {
     "name",
     "child_name",
+    "full_name",
     "dob",
     "date_of_birth",
     "guardian_name",
+    "guardian_full_name",
     "mother_name",
     "guardian_phone",
+    "phone",
+    "phone_number",
+    "mobile",
+    "contact_number",
     "guardian_email",
     "guardian_nic",
     "address",
+    "street_address",
+    "home_address",
     "birth_weight_kg",
     "birth_height_cm",
     "weight_kg",
@@ -36,6 +44,8 @@ SENSITIVE_KEYS = {
     "z_wfh",
     "model_confidence",
     "notes",
+    "full_notes",
+    "note",
     "reason",
     "review_notes",
     "rejection_reason",
@@ -43,7 +53,25 @@ SENSITIVE_KEYS = {
     "birth_registration",
     "report_data",
     "payload",
+    "request_body",
+    "request_data",
     "recipient",
+}
+
+SAFE_CLINICAL_DECISION_FIELDS = {
+    "child_id",
+    "measurement_id",
+    "user_id",
+    "role",
+    "area_id",
+    "action",
+    "current_nutritional_status",
+    "future_predicted_risk",
+    "clinical_action_required",
+    "clinical_review_reason",
+    "model_version",
+    "prediction_timestamp",
+    "created_at",
 }
 
 
@@ -59,6 +87,14 @@ def sanitize_audit_payload(value):
     if isinstance(value, list):
         return [sanitize_audit_payload(item) for item in value]
     return value
+
+
+def build_clinical_decision_metadata(**kwargs):
+    metadata = {}
+    for key in SAFE_CLINICAL_DECISION_FIELDS:
+        if key in kwargs and kwargs[key] is not None:
+            metadata[key] = kwargs[key]
+    return metadata
 
 
 ENTITY_CATEGORIES = {
@@ -273,5 +309,48 @@ def log_audit(
         username=username,
         role=role,
         status=status,
+        metadata=metadata,
+    )
+
+
+def log_clinical_decision(
+    *,
+    child_id: int | None,
+    measurement_id: int | None,
+    user_id: int | None,
+    role: str | None,
+    area_id: int | None,
+    current_nutritional_status: str | None,
+    future_predicted_risk: str | None,
+    clinical_action_required,
+    clinical_review_reason: str | None,
+    model_version: str | None,
+    prediction_timestamp,
+    created_at=None,
+):
+    metadata = build_clinical_decision_metadata(
+        child_id=child_id,
+        measurement_id=measurement_id,
+        user_id=user_id,
+        role=role,
+        area_id=area_id,
+        action="CLINICAL_DECISION_CALCULATED",
+        current_nutritional_status=current_nutritional_status,
+        future_predicted_risk=future_predicted_risk,
+        clinical_action_required=clinical_action_required,
+        clinical_review_reason=clinical_review_reason,
+        model_version=model_version,
+        prediction_timestamp=prediction_timestamp.isoformat() if hasattr(prediction_timestamp, "isoformat") else prediction_timestamp,
+        created_at=created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+    )
+    return audit_logger.log(
+        action="CREATE",
+        action_type="CLINICAL_DECISION_CALCULATED",
+        action_category="AI_ML",
+        entity_type="measurement",
+        entity_id=measurement_id,
+        user_id=user_id,
+        role=role,
+        description="Clinical current status and future risk calculated.",
         metadata=metadata,
     )

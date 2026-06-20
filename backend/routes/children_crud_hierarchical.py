@@ -48,6 +48,7 @@ from backend.models_hierarchical import (
     WorkerAreaMapping,
 )
 from backend.utils.audit import log_audit
+from backend.utils.gender import validate_gender
 from backend.utils.midwife_helpers import get_area_hierarchy
 from backend.utils.hospital_helpers import calculate_birth_risk_level, generate_child_unique_id
 from backend.services.email_service import send_child_event_email, send_child_registered_email
@@ -93,12 +94,16 @@ def create_child():
     if existing:
         return jsonify({"status": "error", "message": "child_id already exists"}), 409
 
+    normalized_gender, gender_error = validate_gender(data.get("gender"))
+    if gender_error:
+        return jsonify({"status": "error", "message": gender_error}), 400
+
     child = Child(
         child_id=child_id,
         child_unique_id=child_unique_id,
         name=data.get("name"),
         registration_date=datetime.utcnow(),
-        gender=data.get("gender"),
+        gender=normalized_gender,
         mother_name=data.get("mother_name"),
         guardian_name=data.get("guardian_name"),
         guardian_phone=data.get("guardian_phone"),
@@ -535,7 +540,13 @@ def update_child(child_id: str):
     old_values = child.to_dict()
 
     # Update basic fields
-    for field in ["name", "gender", "guardian_name", "mother_name", "guardian_phone", "guardian_email", "guardian_nic", "address"]:
+    if "gender" in data:
+        normalized_gender, gender_error = validate_gender(data.get("gender"))
+        if gender_error:
+            return jsonify({"status": "error", "message": gender_error}), 400
+        child.gender = normalized_gender
+
+    for field in ["name", "guardian_name", "mother_name", "guardian_phone", "guardian_email", "guardian_nic", "address"]:
         if field in data:
             setattr(child, field, data[field])
 

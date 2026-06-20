@@ -118,6 +118,26 @@ The frontend will run on `http://localhost:3000`
 - ✅ RESTful API
 - ✅ React frontend (ready for Figma integration)
 
+## Clinical Logic And Production Readiness
+
+- Current nutritional status is calculated using WHO Z-score rule-based clinical logic.
+- The 2-month future predicted risk uses the existing trained AI model as an early warning tool.
+- AI future prediction must not be treated as a final clinical diagnosis or a replacement for clinical judgment.
+- MUAC is optional because stakeholder feedback from the Family Health Bureau indicated it is not mandatory in the intended ground-level workflow.
+- Edema is optional, but if present it must trigger urgent clinical review handling.
+- Before real production deployment, any trimmed or sample WHO LMS reference tables should be replaced with the full official WHO LMS tables.
+- The future risk model should later be retrained using real Sri Lankan longitudinal data reviewed with FHB/MOH clinical oversight.
+
+### Production Security Notes
+
+- Enforce HTTPS only.
+- Use production-grade key management for encryption, JWT secrets, and mail credentials.
+- Keep sensitive child-related fields encrypted at rest.
+- Use secure JWT and/or cookie handling appropriate for deployment.
+- Replace in-memory rate limiting with Redis-backed rate limiting.
+- Do not store raw child-sensitive data in logs or audit metadata.
+- Maintain tested database backup and restore procedures.
+
 ## Next Steps
 
 1. Add your Figma frontend components to `frontend/src/components/`

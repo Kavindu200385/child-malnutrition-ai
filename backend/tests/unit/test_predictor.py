@@ -10,6 +10,7 @@ import pytest
 from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock
 
+import backend.ai.predictor as predictor_module
 from backend.ai.predictor import (
     compute_z_scores,
     predict_current_risk,
@@ -72,6 +73,18 @@ class TestComputeZScores:
         z_upper = compute_z_scores(age_months=12, sex="F", weight_kg=9.0, height_cm=74.0)
         z_lower = compute_z_scores(age_months=12, sex="f", weight_kg=9.0, height_cm=74.0)
         assert z_upper == z_lower
+
+    def test_sex_aliases_are_supported(self):
+        z_male = compute_z_scores(age_months=12, sex="boy", weight_kg=9.0, height_cm=74.0)
+        z_m = compute_z_scores(age_months=12, sex="M", weight_kg=9.0, height_cm=74.0)
+        z_female = compute_z_scores(age_months=12, sex="girl", weight_kg=9.0, height_cm=74.0)
+        z_f = compute_z_scores(age_months=12, sex="F", weight_kg=9.0, height_cm=74.0)
+        assert z_male == z_m
+        assert z_female == z_f
+
+    def test_invalid_sex_raises_clear_error(self):
+        with pytest.raises(ValueError, match="Gender must be one of"):
+            compute_z_scores(age_months=12, sex="unknown", weight_kg=9.0, height_cm=74.0)
 
     def test_returns_three_floats(self):
         wfa, hfa, wfh = compute_z_scores(age_months=24, sex="M", weight_kg=12.0, height_cm=87.0)
@@ -161,6 +174,15 @@ class TestPredictCurrentRiskML:
         assert r["ok"] is True
         assert r["z_scores"]["WFA_Z"] < -3.0
 
+    def test_gender_aliases_work_for_current_prediction(self):
+        r = predict_current_risk({"age_months": 24, "sex": "boy", "weight_kg": 12.0, "height_cm": 87.0})
+        assert r["ok"] is True
+
+    def test_invalid_gender_returns_error_for_current_prediction(self):
+        r = predict_current_risk({"age_months": 24, "sex": "unknown", "weight_kg": 12.0, "height_cm": 87.0})
+        assert r["ok"] is False
+        assert "Gender must be one of" in r["error"]
+
 
 # ---------------------------------------------------------------------------
 # predict_future_risk
@@ -200,6 +222,48 @@ class TestPredictFutureRisk:
     def test_missing_age_months_returns_error(self):
         r = predict_future_risk({"sex": "M", "weight_kg": 12.0, "height_cm": 87.0})
         assert r["ok"] is False
+
+    def test_invalid_gender_returns_error(self):
+        r = predict_future_risk({"age_months": 24, "sex": "unknown", "weight_kg": 12.0, "height_cm": 87.0})
+        assert r["ok"] is False
+        assert "Gender must be one of" in r["error"]
+
+    def test_low_confidence_is_gated_to_clinical_review(self, monkeypatch):
+        class StubModel:
+            def predict(self, _X):
+                return [0]
+
+            def predict_proba(self, _X):
+                return [[0.45, 0.35, 0.20]]
+
+        encoder = MagicMock()
+        encoder.inverse_transform.return_value = ["High"]
+
+        monkeypatch.setattr(predictor_module, "prediction_model", StubModel())
+        monkeypatch.setattr(predictor_module, "future_prediction_label_encoder", encoder)
+
+        r = predict_future_risk(self._valid_input())
+        assert r["ok"] is True
+        assert r["predicted_risk_next_2_months"] == "NEEDS CLINICAL REVIEW"
+        assert r["confidence"] == 0.45
+        assert r["low_confidence"] is True
+        assert isinstance(r["explanation_factors"], list)
+
+    def test_future_prediction_works_without_predict_proba(self, monkeypatch):
+        class StubModel:
+            def predict(self, _X):
+                return [0]
+
+        encoder = MagicMock()
+        encoder.inverse_transform.return_value = ["Moderate"]
+
+        monkeypatch.setattr(predictor_module, "prediction_model", StubModel())
+        monkeypatch.setattr(predictor_module, "future_prediction_label_encoder", encoder)
+
+        r = predict_future_risk(self._valid_input())
+        assert r["ok"] is True
+        assert r["predicted_risk_next_2_months"] == "Moderate"
+        assert r["confidence"] is None
 
 
 # ---------------------------------------------------------------------------

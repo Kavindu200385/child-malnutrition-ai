@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Optional
 
+from backend.utils.gender import normalize_gender_to_sex
 from backend.utils.risk_status import muac_assessment, normalize_edema
 
 
@@ -43,15 +44,6 @@ def _parse_measurement_date(value: Any) -> tuple[Optional[datetime], Optional[st
         return None, "Measurement date must be a valid date."
 
 
-def normalize_gender_for_growth(value: Any) -> Optional[str]:
-    raw = str(value or "").strip().lower()
-    if raw in {"male", "m", "boy"}:
-        return "M"
-    if raw in {"female", "f", "girl"}:
-        return "F"
-    return None
-
-
 def edema_assessment_strict(value: Any) -> tuple[Optional[bool], str, bool, Optional[str]]:
     """Return edema value, display status, clinical flag, and validation error."""
     if value in (None, ""):
@@ -60,8 +52,8 @@ def edema_assessment_strict(value: Any) -> tuple[Optional[bool], str, bool, Opti
     if edema_present is None:
         return None, "Invalid", False, "Edema must be yes/no or true/false."
     if edema_present:
-        return True, "Bilateral Pitting Edema Recorded", True, None
-    return False, "Not Present", False, None
+        return True, "Edema Present", True, None
+    return False, "No Edema", False, None
 
 
 def validate_measurement_payload(data: dict[str, Any], child: Any) -> dict[str, Any]:
@@ -92,7 +84,7 @@ def validate_measurement_payload(data: dict[str, Any], child: Any) -> dict[str, 
         errors.append("Age cannot be negative.")
     age_months = max(0, age_days // 30) if age_days is not None else None
 
-    sex = normalize_gender_for_growth(getattr(child, "gender", None))
+    sex = normalize_gender_to_sex(getattr(child, "gender", None))
     if sex is None:
         errors.append("Gender must be Male or Female for WHO Z-score calculation.")
 

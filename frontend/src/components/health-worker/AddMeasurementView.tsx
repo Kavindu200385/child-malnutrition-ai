@@ -3,6 +3,7 @@ import { calculateRiskLevel, getRiskColor, getRiskLabel } from '../../types';
 import { ArrowLeft, Save, CheckCircle, AlertTriangle, Brain, TrendingUp, Calendar, FileText, TrendingDown, Activity } from 'lucide-react';
 import { nutritionistAPI, midwifeAPI, mohAPI, childrenAPI } from '../../services/api';
 import { validateMeasurementForm } from '../../utils/measurementValidation';
+import { STATUS_HELPER_TEXT } from '../../utils/statusDisplay';
 
 interface AddMeasurementViewProps {
   user?: { role?: string } | null;
@@ -424,9 +425,13 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Nutritional Status Assessment</h3>
 
+          <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
+            <p className="text-sm leading-6 text-blue-900">{STATUS_HELPER_TEXT}</p>
+          </div>
+
           <div className="mb-6 p-4 bg-gray-50 rounded-lg">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700">Overall Classification:</span>
+              <span className="text-sm font-medium text-gray-700">Current Nutritional Status:</span>
               <span
                 className="px-4 py-2 rounded-full text-sm font-bold text-white"
                 style={{ backgroundColor: getRiskColor(aiResults.riskLevel) }}
@@ -462,7 +467,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-bold text-gray-900">Early Risk Prediction (Next 1-2 Months)</h4>
+                    <h4 className="font-bold text-gray-900">2-Month Predicted Risk</h4>
                     {aiResults.prediction.actionRequired && (
                       <span className="px-3 py-1 bg-orange-600 text-white text-xs font-bold rounded-full">
                         Early Warning
@@ -481,7 +486,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                   </div>
                   <div className="grid grid-cols-2 gap-4 mb-3">
                     <div>
-                      <p className="text-xs text-gray-600 mb-1">Predicted Risk Level:</p>
+                      <p className="text-xs text-gray-600 mb-1">2-Month Predicted Risk:</p>
                       <span
                         className="inline-block px-3 py-1 rounded-full text-xs font-bold text-white"
                         style={{ backgroundColor: getRiskColor(aiResults.prediction.predictedRiskLevel) }}
@@ -596,7 +601,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h4 className="font-medium text-gray-900 mb-2">Recorded Measurements</h4>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
               <div>
                 <span className="text-gray-600">Weight:</span>
                 <span className="ml-2 font-medium text-gray-900">{aiResults.weight} kg</span>
@@ -607,13 +612,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
               </div>
               <div>
                 <span className="text-gray-600">MUAC:</span>
-                <span className="ml-2 font-medium text-gray-900">
-                  {aiResults.muac != null ? `${aiResults.muac} cm` : aiResults.muacStatus || 'Not Recorded'}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-600">Edema:</span>
-                <span className="ml-2 font-medium text-gray-900">{aiResults.edemaStatus || 'Not Recorded'}</span>
+                <span className="ml-2 font-medium text-gray-900">{aiResults.muac} cm</span>
               </div>
               <div>
                 <span className="text-gray-600">Date:</span>
@@ -727,16 +726,6 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
             {nutError}
           </div>
         )}
-        {measurementWarnings.length > 0 && (
-          <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
-            <div className="font-semibold mb-1">Clinical review warning</div>
-            <ul className="space-y-1">
-              {measurementWarnings.map((warning) => (
-                <li key={warning}>• {warning}</li>
-              ))}
-            </ul>
-          </div>
-        )}
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Child Selection — searchable combobox (hidden when coming from a child profile) */}
           {!selectedChildId ? (
@@ -840,7 +829,6 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                 id="weight"
                 type="number"
                 step="0.1"
-                min="0"
                 value={weight}
                 onChange={(e) => setWeight(e.target.value)}
                 placeholder="e.g., 10.5"
@@ -858,7 +846,6 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
                 id="height"
                 type="number"
                 step="0.1"
-                min="0"
                 value={height}
                 onChange={(e) => setHeight(e.target.value)}
                 placeholder="e.g., 85.5"
@@ -870,55 +857,19 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
 
             <div>
               <label htmlFor="muac" className="block text-sm font-medium text-gray-700 mb-2">
-                MUAC (cm)
+                MUAC (cm){!isNutritionist ? ' *' : ''}
               </label>
               <input
                 id="muac"
                 type="number"
                 step="0.1"
-                min="0"
                 value={muac}
                 onChange={(e) => setMuac(e.target.value)}
                 placeholder="e.g., 13.5"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required={!isNutritionist}
               />
-              <p className="mt-1 text-xs text-gray-500">MUAC is optional and not required for routine ground-level assessment.</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="edema" className="block text-sm font-medium text-gray-700 mb-2">
-                Edema
-              </label>
-              <select
-                id="edema"
-                value={edema}
-                onChange={(e) => setEdema(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">Not recorded</option>
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
-              </select>
-              <p className="mt-1 text-xs text-gray-500">Optional. Select yes only if bilateral pitting edema is recorded.</p>
-            </div>
-
-            <div>
-              <label htmlFor="measurement-method" className="block text-sm font-medium text-gray-700 mb-2">
-                Measurement Method
-              </label>
-              <select
-                id="measurement-method"
-                value={measurementMethod}
-                onChange={(e) => setMeasurementMethod(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">Not specified</option>
-                <option value="recumbent_length">Recumbent length</option>
-                <option value="standing_height">Standing height</option>
-              </select>
-              <p className="mt-1 text-xs text-gray-500">Optional height/length method for the recorded measurement.</p>
+              <p className="mt-1 text-xs text-gray-500">Mid-Upper Arm Circumference</p>
             </div>
           </div>
 
@@ -969,7 +920,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
             </button>
             <button
               type="submit"
-              disabled={nutLoading || midwifeLoading || !childId || !weight || !height}
+              disabled={nutLoading || midwifeLoading || !childId || !weight || !height || (!isNutritionist && !muac)}
               className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
             >
               <Save className="w-4 h-4" />

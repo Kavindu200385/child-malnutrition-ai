@@ -15,6 +15,13 @@ import {
   ReferenceArea,
   LabelList,
 } from 'recharts';
+import {
+  getClinicalActionDisplay,
+  getCurrentNutritionalStatusLabel,
+  getCurrentStatusToneClass,
+  getFuturePredictedRiskLabel,
+  getFutureRiskToneClass,
+} from '../../utils/statusDisplay';
 
 interface Measurement {
   ageMonths: number;
@@ -25,6 +32,10 @@ interface Measurement {
   heightForAge?: number;
   weightForHeight?: number;
   riskLevel: 'normal' | 'mam' | 'sam';
+  current_nutritional_status?: string | null;
+  future_predicted_risk?: string | null;
+  clinical_action_required?: boolean | number | null;
+  clinical_review_reason?: string | null;
 }
 
 interface WHOGrowthChartsProps {
@@ -192,6 +203,15 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
     if (delta > 0.3) growthTrend = 'improving';
     else if (delta < -0.3) growthTrend = 'declining';
   }
+  const currentStatusLabel = latestMeasurement
+    ? getCurrentNutritionalStatusLabel(latestMeasurement, latestMeasurement.riskLevel.toUpperCase())
+    : 'NOT AVAILABLE';
+  const futureRiskLabel = latestMeasurement
+    ? getFuturePredictedRiskLabel(latestMeasurement)
+    : 'NOT AVAILABLE';
+  const clinicalAction = latestMeasurement
+    ? getClinicalActionDisplay(latestMeasurement)
+    : { label: 'NOT AVAILABLE', className: 'border-gray-200 bg-gray-50 text-gray-600' };
 
   // ── Custom Tooltip ────────────────────────────────────────────────────────
   const CustomTooltip = ({ active, payload }: any) => {
@@ -669,9 +689,8 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
             {/* Current Status */}
             <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6 border-2 border-blue-200">
               <h4 className="text-sm font-bold text-gray-700 mb-3">Current Nutritional Status</h4>
-              <div className="text-center py-4 rounded-lg text-white font-bold text-xl shadow-md"
-                style={{ backgroundColor: latestMeasurement ? dotColor(latestMeasurement.riskLevel) : '#6B7280' }}>
-                {latestMeasurement ? latestMeasurement.riskLevel.toUpperCase() : 'No Data'}
+              <div className={`text-center py-4 rounded-lg border text-sm font-bold shadow-md ${getCurrentStatusToneClass(currentStatusLabel)}`}>
+                Current Nutritional Status: {currentStatusLabel}
               </div>
               <div className="mt-4 text-xs text-gray-600 space-y-1">
                 <div className="flex justify-between"><span>Last Visit:</span><span className="font-medium">{latestMeasurement?.date?.slice(0, 10) || 'N/A'}</span></div>
@@ -683,14 +702,14 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
 
             {/* Growth Trend */}
             <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border-2 border-green-200">
-              <h4 className="text-sm font-bold text-gray-700 mb-3">Growth Trend</h4>
-              <div className={`text-center py-4 rounded-lg text-white font-bold text-xl shadow-md
-                ${growthTrend === 'improving' ? 'bg-green-500' : growthTrend === 'declining' ? 'bg-red-500' : 'bg-yellow-500'}`}>
-                {growthTrend === 'improving' ? '↑ IMPROVING' : growthTrend === 'declining' ? '↓ DECLINING' : '→ STABLE'}
+              <h4 className="text-sm font-bold text-gray-700 mb-3">2-Month Predicted Risk</h4>
+              <div className={`text-center py-4 rounded-lg border text-sm font-bold shadow-md ${getFutureRiskToneClass(futureRiskLabel)}`}>
+                2-Month Predicted Risk: {futureRiskLabel}
               </div>
               <div className="mt-4 text-xs text-gray-600 space-y-1">
-                <div className="flex justify-between"><span>Direction:</span><span className="font-medium capitalize">{growthTrend}</span></div>
+                <div className="flex justify-between"><span>Growth Trend:</span><span className="font-medium capitalize">{growthTrend}</span></div>
                 <div className="flex justify-between"><span>Total Visits:</span><span className="font-medium">{sorted.length}</span></div>
+                <div className="flex justify-between"><span>Clinical Action:</span><span className="font-medium">{clinicalAction.label}</span></div>
               </div>
             </div>
 

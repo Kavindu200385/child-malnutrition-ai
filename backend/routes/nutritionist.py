@@ -9,6 +9,7 @@ Strict specialist-level clinical reviewer:
 from datetime import datetime, timedelta
 from decimal import Decimal
 from collections import defaultdict
+import json
 
 from flask import Blueprint, jsonify, request
 
@@ -29,8 +30,8 @@ from backend.models_hierarchical import (
     EscalationStatus,
     ReferralStatus,
 )
-from backend.ai.predictor import build_future_prediction_payload, predict_current_risk, predict_future_risk, compute_z_scores
-from backend.utils.audit import log_audit
+from backend.ai.predictor import build_future_prediction_payload, predict_future_risk, compute_z_scores
+from backend.utils.audit import log_audit, log_clinical_decision
 from backend.utils.risk_status import (
     COMBINED_MODEL_VERSION,
     clinical_review_summary,
@@ -39,6 +40,7 @@ from backend.utils.risk_status import (
     prediction_time,
 )
 from backend.utils.measurement_validation import validate_measurement_payload
+from backend.utils.current_status import assess_current_nutritional_status
 from backend.services.notification_service import (
     PRIORITY_HIGH,
     PRIORITY_NORMAL,
@@ -313,20 +315,15 @@ def add_measurement():
     except Exception:
         z_wfa = z_hfa = z_wfh = None
 
-    try:
-        ai_result = predict_current_risk({
-            "age_months": age_months,
-            "sex": sex,
-            "weight_kg": weight_kg,
-            "height_cm": height_cm,
-        })
-        if not ai_result.get("ok"):
-            return jsonify({"status": "error", "message": ai_result.get("error", "AI analysis failed")}), 500
-        raw_label = ai_result.get("model_prediction", "")
-        current_risk = _map_ai_risk(raw_label)
-        confidence = ai_result.get("confidence") or 0.0
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    current_assessment = assess_current_nutritional_status(
+        z_score_wfa=float(z_wfa) if z_wfa is not None else None,
+        z_score_hfa=float(z_hfa) if z_hfa is not None else None,
+        z_score_wfh=float(z_wfh) if z_wfh is not None else None,
+        muac_status=muac_status,
+        edema_status=edema_status,
+    )
+    current_status = current_assessment["current_nutritional_status"]
+    current_risk = current_assessment["legacy_risk_level"]
 
     prediction_warning = None
     prediction_history_source = None
@@ -341,18 +338,40 @@ def add_measurement():
         prediction_warning = future_payload.get("warning")
         prediction_history_source = future_payload.get("history_source")
         if future_payload.get("ok"):
+            future_payload["payload"].update(
+                {
+                    "z_score_wfa": float(z_wfa) if z_wfa is not None else None,
+                    "z_score_wfh": float(z_wfh) if z_wfh is not None else None,
+                    "muac_status": muac_status,
+                    "edema_status": edema_status,
+                }
+            )
             future_result = predict_future_risk(future_payload["payload"])
             predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
             future_confidence = future_result.get("confidence") if future_result.get("ok") else None
+            future_model_version = future_result.get("model_version") if future_result.get("ok") else None
+            future_training_dataset_version = future_result.get("training_dataset_version") if future_result.get("ok") else None
+            future_explanation_factors = future_result.get("explanation_factors") if future_result.get("ok") else None
+            future_prediction_timestamp = future_result.get("prediction_timestamp") if future_result.get("ok") else None
+            future_low_confidence = bool(future_result.get("low_confidence")) if future_result.get("ok") else False
         else:
             predicted_risk = None
             future_confidence = None
+            future_model_version = None
+            future_training_dataset_version = None
+            future_explanation_factors = None
+            future_prediction_timestamp = None
+            future_low_confidence = False
     except Exception:
         prediction_warning = "Future prediction could not be generated from child history."
         predicted_risk = None
         future_confidence = None
+        future_model_version = None
+        future_training_dataset_version = None
+        future_explanation_factors = None
+        future_prediction_timestamp = None
+        future_low_confidence = False
 
-    current_status = normalize_current_status(raw_label)
     future_predicted_risk = normalize_future_risk(predicted_risk)
     clinical_action_required, clinical_review_reason = clinical_review_summary(
         current_status=current_status,
@@ -361,11 +380,25 @@ def add_measurement():
         prediction_warning=prediction_warning,
     )
     review_reasons = [clinical_review_reason] if clinical_review_reason else []
+    if current_assessment["clinical_action_required"]:
+        clinical_action_required = True
+    if current_assessment["clinical_review_reason"]:
+        review_reasons.insert(0, current_assessment["clinical_review_reason"])
+    if future_low_confidence:
+        clinical_action_required = True
+        review_reasons.append("Low model confidence.")
     if validation["clinical_review_required"]:
         clinical_action_required = True
         review_reasons.extend(validation["clinical_review_reasons"])
     clinical_review_reason = " ".join(dict.fromkeys(review_reasons))
-    pred_timestamp = prediction_time() if future_predicted_risk != "NOT AVAILABLE" else None
+    pred_timestamp = None
+    if future_prediction_timestamp:
+        try:
+            pred_timestamp = datetime.fromisoformat(str(future_prediction_timestamp))
+        except ValueError:
+            pred_timestamp = prediction_time()
+    elif future_predicted_risk != "NOT AVAILABLE":
+        pred_timestamp = prediction_time()
 
     measurement = Measurement(
         child_id=child.id,
@@ -380,14 +413,20 @@ def add_measurement():
         z_score_wfa=Decimal(str(z_wfa)) if z_wfa is not None else None,
         z_score_hfa=Decimal(str(z_hfa)) if z_hfa is not None else None,
         z_score_wfh=Decimal(str(z_wfh)) if z_wfh is not None else None,
+        underweight_status=current_assessment["underweight_status"],
+        stunting_status=current_assessment["stunting_status"],
+        wasting_status=current_assessment["wasting_status"],
+        current_status_breakdown=json.dumps(current_assessment["current_status_breakdown"]),
         risk_level=current_risk,
         predicted_risk_next_2_months=predicted_risk,
-        model_confidence=Decimal(str(confidence)),
+        model_confidence=Decimal(str(future_confidence)) if future_confidence is not None else None,
         current_nutritional_status=current_status,
         future_predicted_risk=future_predicted_risk,
         future_risk_confidence=Decimal(str(future_confidence)) if future_confidence is not None else None,
         prediction_timestamp=pred_timestamp,
-        model_version=COMBINED_MODEL_VERSION,
+        model_version=future_model_version,
+        training_dataset_version=future_training_dataset_version,
+        explanation_factors=json.dumps(future_explanation_factors) if future_explanation_factors is not None else None,
         clinical_action_required=clinical_action_required,
         clinical_review_reason=clinical_review_reason,
         measured_by_user_id=user.id,
@@ -415,14 +454,20 @@ def add_measurement():
         z_wfa=z_wfa,
         z_hfa=z_hfa,
         z_wfh=z_wfh,
+        underweight_status=current_assessment["underweight_status"],
+        stunting_status=current_assessment["stunting_status"],
+        wasting_status=current_assessment["wasting_status"],
+        current_status_breakdown=json.dumps(current_assessment["current_status_breakdown"]),
         current_risk=current_risk,
         predicted_risk_next_2_months=predicted_risk,
-        model_confidence=float(confidence) if confidence else None,
+        model_confidence=float(future_confidence) if future_confidence is not None else None,
         current_nutritional_status=current_status,
         future_predicted_risk=future_predicted_risk,
         future_risk_confidence=float(future_confidence) if future_confidence is not None else None,
         prediction_timestamp=pred_timestamp,
-        model_version=COMBINED_MODEL_VERSION,
+        model_version=future_model_version,
+        training_dataset_version=future_training_dataset_version,
+        explanation_factors=json.dumps(future_explanation_factors) if future_explanation_factors is not None else None,
         clinical_action_required=clinical_action_required,
         clinical_review_reason=clinical_review_reason,
         notes=specialist_notes,
@@ -439,6 +484,20 @@ def add_measurement():
         user_id=user.id,
         description=f"Nutritionist added measurement for child {child.id}",
     )
+    log_clinical_decision(
+        child_id=child.id,
+        measurement_id=measurement.id,
+        user_id=user.id,
+        role=user.role,
+        area_id=child.current_assigned_area_id or child.moh_area_id or child.phm_area_id,
+        current_nutritional_status=current_status,
+        future_predicted_risk=future_predicted_risk,
+        clinical_action_required=clinical_action_required,
+        clinical_review_reason=clinical_review_reason,
+        model_version=future_model_version,
+        prediction_timestamp=pred_timestamp,
+        created_at=datetime.utcnow(),
+    )
     send_child_event_email(
         child.guardian_email,
         child_name=child.name,
@@ -447,7 +506,7 @@ def add_measurement():
         event_title="Nutritionist Measurement Recorded",
         event_summary="A nutritionist recorded a new growth measurement for your child.",
         details={
-            "Current nutrition status": current_risk,
+            "Current nutrition status": current_status,
             "Weight": f"{weight_kg} kg",
             "Height": f"{height_cm} cm",
             "MUAC": f"{muac_cm} cm" if muac_cm is not None else "Not Recorded",

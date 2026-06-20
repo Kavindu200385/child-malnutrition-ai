@@ -28,8 +28,9 @@ FUTURE_RISK_VALUES = {
     "NOT AVAILABLE",
 }
 
-CURRENT_MODEL_VERSION = os.environ.get("CURRENT_RISK_MODEL_VERSION", "current_risk_model:v1")
+CURRENT_MODEL_VERSION = os.environ.get("CURRENT_RISK_MODEL_VERSION", "who_rule_based_current:v1")
 FUTURE_MODEL_VERSION = os.environ.get("FUTURE_RISK_MODEL_VERSION", "future_prediction_model:v1")
+FUTURE_TRAINING_DATASET_VERSION = os.environ.get("FUTURE_TRAINING_DATASET_VERSION", "future_training_dataset:v1")
 COMBINED_MODEL_VERSION = f"{CURRENT_MODEL_VERSION};{FUTURE_MODEL_VERSION}"
 
 
@@ -163,13 +164,17 @@ def muac_assessment(value: Any) -> tuple[Optional[float], str, bool, Optional[st
         return None, "Invalid", True, "MUAC must be a valid number."
     if muac < 0:
         return None, "Invalid", True, "MUAC cannot be negative."
-    if muac < 5 or muac > 30:
-        return muac, "Unrealistic", True, "MUAC value is outside the realistic range."
     if muac < 11.5:
-        return muac, "Severe Low", True, None
+        return muac, "SAM Warning", muac < 5 or muac > 30, (
+            "MUAC value is outside the realistic range." if muac < 5 or muac > 30 else None
+        )
     if muac < 12.5:
-        return muac, "Low", True, None
-    return muac, "Normal", False, None
+        return muac, "MAM Warning", muac < 5 or muac > 30, (
+            "MUAC value is outside the realistic range." if muac < 5 or muac > 30 else None
+        )
+    if muac > 30:
+        return muac, "NORMAL", True, "MUAC value is outside the realistic range."
+    return muac, "NORMAL", False, None
 
 
 def edema_assessment(value: Any) -> tuple[Optional[bool], str, bool]:
@@ -177,5 +182,5 @@ def edema_assessment(value: Any) -> tuple[Optional[bool], str, bool]:
     if edema_present is None:
         return None, "Not Recorded", False
     if edema_present:
-        return True, "Bilateral Pitting Edema Recorded", True
-    return False, "Not Recorded" if str(value).strip() == "" else "Not Present", False
+        return True, "Edema Present", True
+    return False, "Not Recorded" if str(value).strip() == "" else "No Edema", False

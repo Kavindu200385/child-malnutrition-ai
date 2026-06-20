@@ -9,6 +9,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 
+from backend.utils.gender import normalize_gender_to_sex
+from backend.utils.risk_status import FUTURE_MODEL_VERSION, FUTURE_TRAINING_DATASET_VERSION
+
 from .model_loader import (
     current_label_encoder,
     current_risk_model,
@@ -219,8 +222,8 @@ def _child_age_months(child: Any, reference_date: datetime) -> Optional[int]:
 
 
 def _child_sex(child: Any) -> str:
-    gender = str(getattr(child, "gender", "") or "").strip().lower()
-    return "M" if gender in ("m", "male") else "F"
+    sex = normalize_gender_to_sex(getattr(child, "gender", None))
+    return sex or "F"
 
 
 def _candidate_from_measurement(measurement: Any) -> Optional[Dict[str, Any]]:
@@ -463,7 +466,9 @@ def _interpolate_lms(point: float, table: Mapping[float, Tuple[float, float, flo
 
 
 def compute_z_scores(*, age_months: int, sex: str, weight_kg: float, height_cm: float) -> Tuple[float, float, float]:
-    sex_u = str(sex).upper()
+    sex_u = normalize_gender_to_sex(sex)
+    if sex_u is None:
+        raise ValueError("Gender must be one of: male, female, M, F, boy, or girl.")
 
     # Weight-for-age
     L, M, S = _interpolate_lms(int(age_months), WFA_BOYS if sex_u == "M" else WFA_GIRLS)
@@ -488,7 +493,10 @@ def compute_z_scores(*, age_months: int, sex: str, weight_kg: float, height_cm: 
 
 
 def _encode_sex(sex: str) -> int:
-    return 1 if str(sex).upper() == "M" else 0
+    normalized = normalize_gender_to_sex(sex)
+    if normalized is None:
+        raise ValueError("Gender must be one of: male, female, M, F, boy, or girl.")
+    return 1 if normalized == "M" else 0
 
 
 def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -503,7 +511,9 @@ def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         age = int(data["age_months"])
-        sex = str(data["sex"])
+        sex = normalize_gender_to_sex(data["sex"])
+        if sex is None:
+            return {"ok": False, "error": "Gender must be one of: male, female, M, F, boy, or girl."}
         weight = float(data["weight_kg"])
         height = float(data["height_cm"])
 
@@ -523,7 +533,7 @@ def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
             return {
                 "ok": True,
                 "age_months": age,
-                "sex": sex.upper(),
+                "sex": sex,
                 "weight_kg": weight,
                 "height_cm": height,
                 "z_scores": {"WFA_Z": wfa, "HFA_Z": hfa, "WFH_Z": wfh},
@@ -564,7 +574,7 @@ def predict_current_risk(data: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "ok": True,
             "age_months": age,
-            "sex": sex.upper(),
+            "sex": sex,
             "weight_kg": weight,
             "height_cm": height,
             "z_scores": {"WFA_Z": wfa, "HFA_Z": hfa, "WFH_Z": wfh},
@@ -602,7 +612,9 @@ def predict_future_risk(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         age = int(data["age_months"])
-        sex = str(data["sex"])
+        sex = normalize_gender_to_sex(data["sex"])
+        if sex is None:
+            return {"ok": False, "error": "Gender must be one of: male, female, M, F, boy, or girl."}
         weight = float(data["weight_kg"])
         height = float(data["height_cm"])
 
@@ -615,6 +627,35 @@ def predict_future_risk(data: Dict[str, Any]) -> Dict[str, Any]:
         height_change = data.get("height_change")
         weight_change = float(weight - prev_weight if weight_change is None else weight_change)
         height_change = float(height - prev_height if height_change is None else height_change)
+
+        def _explanation_factors() -> list[str]:
+            factors: list[str] = []
+            wfh_z = data.get("z_score_wfh")
+            wfa_z = data.get("z_score_wfa")
+            muac_status = str(data.get("muac_status") or "")
+            edema_status = str(data.get("edema_status") or "")
+
+            try:
+                if wfh_z is not None and float(wfh_z) < -2:
+                    factors.append("low WFH/WFL Z-score")
+            except (TypeError, ValueError):
+                pass
+            try:
+                if wfa_z is not None and float(wfa_z) < -2:
+                    factors.append("low WFA Z-score")
+            except (TypeError, ValueError):
+                pass
+            if weight_change < 0.1:
+                factors.append("poor weight gain")
+            if weight_change < 0:
+                factors.append("previous decline")
+            if weight < 8:
+                factors.append("low current weight")
+            if muac_status in {"SAM Warning", "MAM Warning"}:
+                factors.append("MUAC concern if MUAC is provided")
+            if edema_status == "Edema Present":
+                factors.append("edema present if edema is provided")
+            return list(dict.fromkeys(factors))
 
         row = {
             "age_months": age,
@@ -639,11 +680,17 @@ def predict_future_risk(data: Dict[str, Any]) -> Dict[str, Any]:
         pred_label = str(future_prediction_label_encoder.inverse_transform([pred])[0])
 
         confidence_val = round(conf, 3) if conf is not None else None
+        gated_label = "NEEDS CLINICAL REVIEW" if confidence_val is not None and confidence_val < 0.70 else pred_label
         return {
             "ok": True,
-            "predicted_risk_next_2_months": pred_label,
+            "predicted_risk_next_2_months": gated_label,
             "confidence": confidence_val,
-            "low_confidence": (confidence_val is not None and confidence_val < 0.60),
+            "low_confidence": (confidence_val is not None and confidence_val < 0.70),
+            "prediction_timestamp": datetime.utcnow().isoformat(),
+            "model_version": FUTURE_MODEL_VERSION,
+            "training_dataset_version": FUTURE_TRAINING_DATASET_VERSION,
+            "explanation_factors": _explanation_factors(),
+            "raw_predicted_risk_next_2_months": pred_label,
         }
     except Exception as e:
         return {"ok": False, "error": str(e)}
