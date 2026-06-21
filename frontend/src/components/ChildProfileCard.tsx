@@ -1,14 +1,13 @@
 import { ReactNode } from 'react';
 import { AlertTriangle, Baby, CircleUserRound, Eye, UserRound } from 'lucide-react';
-import { getDisplayRiskLevel, getDisplayRiskLevelTyped, getRiskLabel } from '../types';
+import { getDisplayRiskLevelTyped, getRiskLabel } from '../types';
 import {
   getClinicalActionDisplay,
   getCurrentNutritionalStatusLabel,
   getCurrentStatusToneClass,
   getFuturePredictedRiskLabel,
   getFutureRiskToneClass,
-  getStatusBreakdown,
-  STATUS_HELPER_TEXT,
+  getStatusDisplayLabel,
 } from '../utils/statusDisplay';
 import boyAvatar from '../../boy.png';
 import girlAvatar from '../../girl.png';
@@ -100,13 +99,12 @@ export function ChildProfileCard({
   const riskLabel = getCurrentNutritionalStatusLabel(child, risk || getRiskLabel(getDisplayRiskLevelTyped(child)));
   const predictedRiskLabel = getFuturePredictedRiskLabel(child);
   const clinicalAction = getClinicalActionDisplay(child);
-  const breakdown = getStatusBreakdown(child);
   const genderKey = getGenderKey(child);
   const AvatarIcon = genderKey === 'female' ? CircleUserRound : genderKey === 'male' ? UserRound : Baby;
   const avatarSrc = genderKey === 'female' ? girlAvatar : genderKey === 'male' ? boyAvatar : null;
 
   return (
-    <article className="flex h-full min-h-[390px] flex-col justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+    <article className="flex h-full min-h-[390px] flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex-1">
         <div className="mb-4 flex items-start justify-between gap-3">
           <h4 className="min-w-0 truncate text-sm font-bold text-gray-900">
@@ -167,30 +165,20 @@ export function ChildProfileCard({
         </dl>
       </div>
 
-      <div className="mt-4 flex flex-col items-center space-y-4">
+      <div className="mt-4 flex flex-col items-center gap-3">
         <div className="w-full space-y-2">
-          <div className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold ${getCurrentStatusToneClass(riskLabel)}`}>
+          <div className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${getCurrentStatusToneClass(riskLabel)}`}>
             <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden />
-            <span>Current Nutritional Status: {riskLabel.toUpperCase()}</span>
+            <span className="flex-1 text-gray-600">Current Status</span>
+            <span className="text-right font-bold">{getStatusDisplayLabel(riskLabel)}</span>
           </div>
-          <div className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[11px] font-semibold ${getFutureRiskToneClass(predictedRiskLabel)}`}>
-            <span className="text-gray-600">2-Month Predicted Risk:</span>
-            <span className="text-right font-bold">{predictedRiskLabel}</span>
+          <div className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${getFutureRiskToneClass(predictedRiskLabel)}`}>
+            <span className="text-gray-600">Future Risk</span>
+            <span className="text-right font-bold">{getStatusDisplayLabel(predictedRiskLabel)}</span>
           </div>
-          <div className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[11px] font-semibold ${clinicalAction.className}`}>
-            <span className="text-gray-600">Clinical Action Required:</span>
-            <span className="text-right font-bold">{clinicalAction.label}</span>
-          </div>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            <p className="text-[11px] leading-5 text-gray-600">{STATUS_HELPER_TEXT}</p>
-          </div>
-          <div className="grid grid-cols-1 gap-1 rounded-lg border border-gray-200 bg-white px-3 py-3 text-[11px] text-gray-700">
-            {breakdown.map((item) => (
-              <div key={item.label} className="flex items-start justify-between gap-3">
-                <span className="font-medium text-gray-600">{item.label}</span>
-                <span className="text-right font-semibold text-gray-900">{item.value || 'Not Available'}</span>
-              </div>
-            ))}
+          <div className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${clinicalAction.className}`}>
+            <span className="text-gray-600">Action Required</span>
+            <span className="text-right font-bold">{getStatusDisplayLabel(clinicalAction.label)}</span>
           </div>
         </div>
         {onViewProfile && (

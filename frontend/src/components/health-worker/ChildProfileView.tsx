@@ -12,6 +12,7 @@ import {
   getCurrentStatusToneClass,
   getFuturePredictedRiskLabel,
   getFutureRiskToneClass,
+  getStatusDisplayLabel,
   getStatusBreakdown,
   STATUS_HELPER_TEXT,
 } from '../../utils/statusDisplay';
@@ -1281,7 +1282,18 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Measurement History</h3>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[1080px]">
+                <colgroup>
+                  <col className="w-[120px]" />
+                  <col className="w-[70px]" />
+                  <col className="w-[90px]" />
+                  <col className="w-[90px]" />
+                  <col className="w-[110px]" />
+                  <col className="w-[180px]" />
+                  <col className="w-[220px]" />
+                  <col className="w-[170px]" />
+                  <col />
+                </colgroup>
                 <thead>
                   <tr className="border-b border-gray-200">
                     <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Date</th>
@@ -1289,8 +1301,8 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                     <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Weight</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Height</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">MUAC</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Current Status</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">2-Month Predicted Risk</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left text-sm font-medium text-gray-700">Current Status</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left text-sm font-medium text-gray-700">2-Month Predicted Risk</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Recorded by</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Notes</th>
                   </tr>
@@ -1313,13 +1325,13 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                         ) : '—'}
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getCurrentStatusToneClass(measurement.current_nutritional_status || getRiskLabel(measurement.riskLevel))}`}>
-                          {measurement.current_nutritional_status || getRiskLabel(measurement.riskLevel)}
+                        <span className={`inline-flex min-w-[110px] items-center justify-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold ${getCurrentStatusToneClass(measurement.current_nutritional_status || getRiskLabel(measurement.riskLevel))}`}>
+                          {getStatusDisplayLabel(measurement.current_nutritional_status || getRiskLabel(measurement.riskLevel))}
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getFutureRiskToneClass(measurement.future_predicted_risk || 'NOT AVAILABLE')}`}>
-                          {measurement.future_predicted_risk || 'NOT AVAILABLE'}
+                        <span className={`inline-flex min-w-[140px] items-center justify-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold ${getFutureRiskToneClass(measurement.future_predicted_risk || 'NOT AVAILABLE')}`}>
+                          {getStatusDisplayLabel(measurement.future_predicted_risk || 'NOT AVAILABLE')}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-sm text-gray-600">{(measurement as any).measuredBy || '—'}</td>

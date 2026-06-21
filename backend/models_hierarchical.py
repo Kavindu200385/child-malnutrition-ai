@@ -21,7 +21,8 @@ from backend.services.encryption_service import (
     EncryptedJSON,
     EncryptedText,
 )
-from backend.utils.risk_status import normalize_current_status, normalize_future_risk
+from backend.utils.current_status import assess_current_nutritional_status
+from backend.utils.risk_status import muac_assessment, normalize_current_status, normalize_future_risk
 
 
 # ============================================================================
@@ -544,13 +545,74 @@ class Child(db.Model):
                 explanation_factors = json.loads(explanation_factors) if isinstance(explanation_factors, str) else explanation_factors
             except (TypeError, ValueError):
                 explanation_factors = None
+
+        underweight_status = getattr(latest, "underweight_status", None)
+        stunting_status = getattr(latest, "stunting_status", None)
+        wasting_status = getattr(latest, "wasting_status", None)
+        muac_status = getattr(latest, "muac_status", None)
+        edema_status = getattr(latest, "edema_status", None)
+        derived_assessment = None
+
+        # Legacy rows may contain only risk_level/current_risk. Reconstruct the
+        # WHO rule-based breakdown from stored Z-scores or the raw measurement.
+        if not breakdown or not all((underweight_status, stunting_status, wasting_status)):
+            z_wfa = getattr(latest, "z_score_wfa", None)
+            z_hfa = getattr(latest, "z_score_hfa", None)
+            z_wfh = getattr(latest, "z_score_wfh", None)
+            if z_wfa is None:
+                z_wfa = getattr(latest, "z_wfa", None)
+            if z_hfa is None:
+                z_hfa = getattr(latest, "z_hfa", None)
+            if z_wfh is None:
+                z_wfh = getattr(latest, "z_wfh", None)
+
+            if z_wfa is None or z_hfa is None or z_wfh is None:
+                measurement_date = getattr(latest, "measurement_date", None) or getattr(latest, "visit_date", None)
+                weight_kg = getattr(latest, "weight_kg", None)
+                height_cm = getattr(latest, "height_cm", None)
+                if self.dob and measurement_date and weight_kg is not None and height_cm is not None:
+                    try:
+                        from backend.ai.predictor import compute_z_scores
+
+                        age_months = max(0, (measurement_date.date() - self.dob).days // 30)
+                        z_wfa, z_hfa, z_wfh = compute_z_scores(
+                            age_months=age_months,
+                            sex=self.gender,
+                            weight_kg=float(weight_kg),
+                            height_cm=float(height_cm),
+                        )
+                    except Exception:
+                        pass
+
+            if muac_status is None:
+                _, muac_status, _, _ = muac_assessment(getattr(latest, "muac_cm", None))
+            if edema_status is None:
+                edema_present = getattr(latest, "edema_present", None)
+                edema_status = "Edema Present" if edema_present is True else "No Edema" if edema_present is False else "Not Recorded"
+
+            if any(value is not None for value in (z_wfa, z_hfa, z_wfh)):
+                derived_assessment = assess_current_nutritional_status(
+                    z_score_wfa=float(z_wfa) if z_wfa is not None else None,
+                    z_score_hfa=float(z_hfa) if z_hfa is not None else None,
+                    z_score_wfh=float(z_wfh) if z_wfh is not None else None,
+                    muac_status=muac_status,
+                    edema_status=edema_status,
+                )
+                current_status = derived_assessment["current_nutritional_status"]
+                underweight_status = derived_assessment["underweight_status"]
+                stunting_status = derived_assessment["stunting_status"]
+                wasting_status = derived_assessment["wasting_status"]
+                muac_status = derived_assessment["muac_status"]
+                edema_status = derived_assessment["edema_status"]
+                breakdown = derived_assessment["current_status_breakdown"]
+
         return {
             "current_nutritional_status": normalize_current_status(current_status),
-            "underweight_status": getattr(latest, "underweight_status", None),
-            "stunting_status": getattr(latest, "stunting_status", None),
-            "wasting_status": getattr(latest, "wasting_status", None),
-            "muac_status": getattr(latest, "muac_status", None),
-            "edema_status": getattr(latest, "edema_status", None),
+            "underweight_status": underweight_status,
+            "stunting_status": stunting_status,
+            "wasting_status": wasting_status,
+            "muac_status": muac_status or "Not Recorded",
+            "edema_status": edema_status or "Not Recorded",
             "current_status_breakdown": breakdown,
             "future_predicted_risk": normalize_future_risk(future_risk),
             "future_risk_confidence": float(confidence) if confidence is not None else None,
@@ -558,8 +620,14 @@ class Child(db.Model):
             "model_version": getattr(latest, "model_version", None),
             "training_dataset_version": getattr(latest, "training_dataset_version", None),
             "explanation_factors": explanation_factors,
-            "clinical_action_required": bool(getattr(latest, "clinical_action_required", False)),
-            "clinical_review_reason": getattr(latest, "clinical_review_reason", None),
+            "clinical_action_required": bool(
+                getattr(latest, "clinical_action_required", False)
+                or (derived_assessment and derived_assessment["clinical_action_required"])
+            ),
+            "clinical_review_reason": (
+                getattr(latest, "clinical_review_reason", None)
+                or (derived_assessment and derived_assessment["clinical_review_reason"])
+            ),
         }
 
     def to_dict(self, include_visits: bool = False, include_transfers: bool = False, include_referrals: bool = False, include_escalations: bool = False) -> dict:

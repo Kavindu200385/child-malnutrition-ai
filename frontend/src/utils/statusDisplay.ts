@@ -5,6 +5,13 @@ function upperClean(value: unknown): string {
   return String(value || '').replace(/_/g, ' ').trim().toUpperCase();
 }
 
+export function getStatusDisplayLabel(value: unknown): string {
+  const normalized = upperClean(value);
+  if (!normalized || normalized === 'NOT AVAILABLE') return 'NOT AVAILABLE';
+  if (normalized === 'NOT RECORDED') return 'NOT RECORDED';
+  return normalized;
+}
+
 function findLatestRecord(child: any): any | null {
   const items = [...(child?.measurements || []), ...(child?.visits || [])]
     .filter(Boolean)
@@ -73,6 +80,9 @@ export function getClinicalActionDisplay(child: any): { label: string; className
 
 export function getCurrentStatusToneClass(label: string): string {
   const value = upperClean(label);
+  if (!value || value.includes('NOT AVAILABLE') || value.includes('NOT RECORDED')) {
+    return 'border-gray-200 bg-gray-50 text-gray-600';
+  }
   if (value.includes('NORMAL')) return 'border-green-200 bg-green-50 text-green-700';
   if (value.includes('SAM') || value.includes('SEVERE STUNTING') || value.includes('SEVERE RISK')) return 'border-red-200 bg-red-50 text-red-700';
   if (value.includes('HIGH RISK') || value.includes('DECLINING')) return 'border-orange-200 bg-orange-50 text-orange-700';
@@ -83,7 +93,18 @@ export function getCurrentStatusToneClass(label: string): string {
 }
 
 export function getFutureRiskToneClass(label: string): string {
-  return getCurrentStatusToneClass(label);
+  const value = upperClean(label);
+  if (!value || value.includes('NOT AVAILABLE') || value.includes('NOT RECORDED')) {
+    return 'border-gray-200 bg-gray-50 text-gray-600';
+  }
+  if (value === 'NO RISK') return 'border-green-200 bg-green-50 text-green-700';
+  if (value.includes('LOW RISK')) return 'border-sky-200 bg-sky-50 text-sky-700';
+  if (value.includes('MODERATE RISK')) return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (value.includes('HIGH RISK') || value.includes('DECLINING') || value.includes('NEEDS CLINICAL REVIEW')) {
+    return 'border-orange-300 bg-orange-50 text-orange-700';
+  }
+  if (value.includes('SEVERE RISK')) return 'border-red-200 bg-red-50 text-red-700';
+  return 'border-gray-200 bg-gray-50 text-gray-700';
 }
 
 export function getStatusBreakdown(child: any): Array<{ label: string; value: string }> {

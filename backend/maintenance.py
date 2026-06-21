@@ -9,6 +9,7 @@ from backend.models import Visit
 from backend.models_hierarchical import Child, Measurement
 from backend.utils.gender import normalize_gender
 from backend.utils.current_status import assess_current_nutritional_status
+from backend.utils.risk_status import clinical_review_summary, muac_assessment, normalize_future_risk
 
 from backend.ai.predictor import build_future_prediction_payload, predict_future_risk, compute_z_scores
 import json
@@ -68,14 +69,20 @@ def recompute_all_visits(batch_size: int = 500) -> dict:
                 z_score_wfa=float(z_wfa),
                 z_score_hfa=float(z_hfa),
                 z_score_wfh=float(z_wfh),
-                muac_status=getattr(v, "muac_status", None),
-                edema_status=getattr(v, "edema_status", None),
+                muac_status=getattr(v, "muac_status", None) or muac_assessment(getattr(v, "muac_cm", None))[1],
+                edema_status=getattr(v, "edema_status", None) or (
+                    "Edema Present" if getattr(v, "edema_present", None) is True
+                    else "No Edema" if getattr(v, "edema_present", None) is False
+                    else "Not Recorded"
+                ),
             )
             v.current_risk = current["legacy_risk_level"]
             v.current_nutritional_status = current["current_nutritional_status"]
             v.underweight_status = current["underweight_status"]
             v.stunting_status = current["stunting_status"]
             v.wasting_status = current["wasting_status"]
+            v.muac_status = current["muac_status"]
+            v.edema_status = current["edema_status"]
             v.current_status_breakdown = json.dumps(current["current_status_breakdown"])
 
             child = db.session.get(Child, v.child_id_fk)
@@ -100,7 +107,7 @@ def recompute_all_visits(batch_size: int = 500) -> dict:
                 if future.get("ok"):
                     v.predicted_risk_next_2_months = str(future.get("predicted_risk_next_2_months"))
                     v.model_confidence = float(future.get("confidence")) if future.get("confidence") is not None else None
-                    v.future_predicted_risk = str(future.get("predicted_risk_next_2_months"))
+                    v.future_predicted_risk = normalize_future_risk(future.get("predicted_risk_next_2_months"))
                     v.future_risk_confidence = float(future.get("confidence")) if future.get("confidence") is not None else None
                     v.model_version = future.get("model_version")
                     v.training_dataset_version = future.get("training_dataset_version")
@@ -112,6 +119,14 @@ def recompute_all_visits(batch_size: int = 500) -> dict:
                 v.model_confidence = None
                 v.future_predicted_risk = None
                 v.future_risk_confidence = None
+
+            action_required, review_reason = clinical_review_summary(
+                current_status=v.current_nutritional_status,
+                future_risk=v.future_predicted_risk,
+                future_confidence=v.future_risk_confidence,
+            )
+            v.clinical_action_required = bool(action_required or current["clinical_action_required"])
+            v.clinical_review_reason = current["clinical_review_reason"] or review_reason
 
             updated += 1
 
@@ -171,14 +186,20 @@ def recompute_all_measurements(batch_size: int = 200) -> dict:
                     z_score_wfa=z_wfa,
                     z_score_hfa=z_hfa,
                     z_score_wfh=z_wfh,
-                    muac_status=getattr(m, "muac_status", None),
-                    edema_status=getattr(m, "edema_status", None),
+                    muac_status=getattr(m, "muac_status", None) or muac_assessment(getattr(m, "muac_cm", None))[1],
+                    edema_status=getattr(m, "edema_status", None) or (
+                        "Edema Present" if getattr(m, "edema_present", None) is True
+                        else "No Edema" if getattr(m, "edema_present", None) is False
+                        else "Not Recorded"
+                    ),
                 )
                 m.risk_level = current["legacy_risk_level"]
                 m.current_nutritional_status = current["current_nutritional_status"]
                 m.underweight_status = current["underweight_status"]
                 m.stunting_status = current["stunting_status"]
                 m.wasting_status = current["wasting_status"]
+                m.muac_status = current["muac_status"]
+                m.edema_status = current["edema_status"]
                 m.current_status_breakdown = json.dumps(current["current_status_breakdown"])
 
                 future_payload = build_future_prediction_payload(
@@ -203,7 +224,7 @@ def recompute_all_measurements(batch_size: int = 200) -> dict:
                         m.predicted_risk_next_2_months = str(future.get("predicted_risk_next_2_months"))
                         conf = future.get("confidence")
                         m.model_confidence = float(conf) if conf is not None else None
-                        m.future_predicted_risk = str(future.get("predicted_risk_next_2_months"))
+                        m.future_predicted_risk = normalize_future_risk(future.get("predicted_risk_next_2_months"))
                         m.future_risk_confidence = float(conf) if conf is not None else None
                         m.model_version = future.get("model_version")
                         m.training_dataset_version = future.get("training_dataset_version")
@@ -215,6 +236,14 @@ def recompute_all_measurements(batch_size: int = 200) -> dict:
                     m.model_confidence = None
                     m.future_predicted_risk = None
                     m.future_risk_confidence = None
+
+                action_required, review_reason = clinical_review_summary(
+                    current_status=m.current_nutritional_status,
+                    future_risk=m.future_predicted_risk,
+                    future_confidence=m.future_risk_confidence,
+                )
+                m.clinical_action_required = bool(action_required or current["clinical_action_required"])
+                m.clinical_review_reason = current["clinical_review_reason"] or review_reason
 
                 updated += 1
             except Exception:

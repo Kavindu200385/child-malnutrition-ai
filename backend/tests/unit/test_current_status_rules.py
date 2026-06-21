@@ -1,3 +1,6 @@
+from datetime import datetime
+
+from backend.models_hierarchical import Measurement
 from backend.utils.current_status import assess_current_nutritional_status
 from backend.utils.risk_status import normalize_current_status
 
@@ -78,3 +81,59 @@ def test_missing_muac_and_edema_stay_not_recorded():
 
 def test_declining_is_never_a_current_status():
     assert normalize_current_status("DECLINING") == "NEEDS CLINICAL REVIEW"
+
+
+def test_legacy_measurement_breakdown_is_reconstructed_from_saved_z_scores(
+    db,
+    assigned_child,
+    midwife_user,
+):
+    measurement = Measurement(
+        child_id=assigned_child.id,
+        measurement_date=datetime(2026, 6, 16),
+        weight_kg=8.0,
+        height_cm=75.0,
+        z_score_wfa=-2.4,
+        z_score_hfa=-1.0,
+        z_score_wfh=-3.2,
+        risk_level="SAM",
+        current_nutritional_status="SAM",
+        measured_by_user_id=midwife_user.id,
+    )
+    db.session.add(measurement)
+    db.session.flush()
+
+    summary = assigned_child.latest_assessment_summary()
+
+    assert summary["current_nutritional_status"] == "SAM"
+    assert summary["underweight_status"] == "UNDERWEIGHT"
+    assert summary["stunting_status"] == "NORMAL"
+    assert summary["wasting_status"] == "SAM"
+    assert summary["muac_status"] == "Not Recorded"
+    assert summary["edema_status"] == "Not Recorded"
+    assert summary["current_status_breakdown"]["wasting_status"] == "SAM"
+
+
+def test_legacy_measurement_breakdown_can_be_reconstructed_from_raw_measurements(
+    db,
+    assigned_child,
+    midwife_user,
+):
+    measurement = Measurement(
+        child_id=assigned_child.id,
+        measurement_date=datetime(2023, 1, 1),
+        weight_kg=10.5,
+        height_cm=80.0,
+        risk_level="SAM",
+        current_nutritional_status="SAM",
+        measured_by_user_id=midwife_user.id,
+    )
+    db.session.add(measurement)
+    db.session.flush()
+
+    summary = assigned_child.latest_assessment_summary()
+
+    assert summary["underweight_status"] != "NOT AVAILABLE"
+    assert summary["stunting_status"] != "NOT AVAILABLE"
+    assert summary["wasting_status"] != "NOT AVAILABLE"
+    assert summary["current_status_breakdown"] is not None
