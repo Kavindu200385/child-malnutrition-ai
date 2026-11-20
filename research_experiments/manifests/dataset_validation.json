@@ -1,0 +1,591 @@
+{
+  "datasets": [
+    {
+      "chronology_flags": 0,
+      "class_distribution": {
+        "MAM": 667,
+        "Mild Underweight": 212,
+        "Moderate Underweight": 39,
+        "Normal": 721,
+        "SAM": 327,
+        "Severe Stunting": 8,
+        "Severe Underweight": 1
+      },
+      "columns": [
+        "age_months",
+        "weight_kg",
+        "height_cm",
+        "muac_cm",
+        "bmi",
+        "nutrition_status",
+        "Sex",
+        "WFA_Z",
+        "HFA_Z",
+        "WFH_Z",
+        "Underweight",
+        "Stunting",
+        "Wasting",
+        "Final_Decision"
+      ],
+      "conflicting_target_feature_combinations": 0,
+      "date_column": null,
+      "duplicate_rows": 0,
+      "exists": true,
+      "flags": [
+        "unknown provenance: not eligible for independent clinical-evaluation claims"
+      ],
+      "id_column": null,
+      "implausible_measurement_flags": {
+        "age": 0,
+        "height": 0,
+        "weight": 0
+      },
+      "missing_by_column": {
+        "Final_Decision": 0,
+        "HFA_Z": 0,
+        "Sex": 0,
+        "Stunting": 0,
+        "Underweight": 0,
+        "WFA_Z": 0,
+        "WFH_Z": 0,
+        "Wasting": 0,
+        "age_months": 0,
+        "bmi": 0,
+        "height_cm": 0,
+        "muac_cm": 0,
+        "nutrition_status": 0,
+        "weight_kg": 0
+      },
+      "numeric_summary": {
+        "age": {
+          "column": "age_months",
+          "invalid_count": 0,
+          "max": 23.9794317992428,
+          "min": 1.0006864505666022
+        },
+        "height": {
+          "column": "height_cm",
+          "invalid_count": 0,
+          "max": 74.87391773870951,
+          "min": 45.0
+        },
+        "weight": {
+          "column": "weight_kg",
+          "invalid_count": 0,
+          "max": 4.3950025295622,
+          "min": 3.0
+        }
+      },
+      "path": "dataset/birth_to_2_years_adjusted.csv",
+      "provenance_status": "unverified",
+      "repeated_group_count": null,
+      "row_count": 1975,
+      "sha256": "b13d8b6f0232fa7a13e017588d5ebfe4b4230513c2738f27e10432a46cc87fbe",
+      "source_class": "unverified",
+      "target_candidates": [
+        "Final_Decision"
+      ],
+      "target_column": "Final_Decision",
+      "unique_group_count": null,
+      "unit_assumption": "Values are inspected as months, kilograms, and centimetres from column names; units are not independently verified."
+    },
+    {
+      "chronology_flags": 0,
+      "class_distribution": {
+        "MAM": 1128,
+        "Mild Underweight": 222,
+        "Moderate Underweight": 79,
+        "Normal": 470,
+        "SAM": 1081,
+        "Severe Chronic Malnutrition": 1,
+        "Severe Stunting": 33,
+        "Severe Underweight": 11
+      },
+      "columns": [
+        "age_months",
+        "weight_kg",
+        "height_cm",
+        "muac_cm",
+        "bmi",
+        "nutrition_status",
+        "Sex",
+        "WFA_Z",
+        "HFA_Z",
+        "WFH_Z",
+        "Underweight",
+        "Stunting",
+        "Wasting",
+        "Final_Decision",
+        "Age_Year:Month"
+      ],
+      "conflicting_target_feature_combinations": 0,
+      "date_column": null,
+      "duplicate_rows": 0,
+      "exists": true,
+      "flags": [
+        "unknown provenance: not eligible for independent clinical-evaluation claims"
+      ],
+      "id_column": null,
+      "implausible_measurement_flags": {
+        "age": 0,
+        "height": 0,
+        "weight": 0
+      },
+      "missing_by_column": {
+        "Age_Year:Month": 0,
+        "Final_Decision": 0,
+        "HFA_Z": 0,
+        "Sex": 0,
+        "Stunting": 0,
+        "Underweight": 0,
+        "WFA_Z": 0,
+        "WFH_Z": 0,
+        "Wasting": 0,
+        "age_months": 0,
+        "bmi": 0,
+        "height_cm": 0,
+        "muac_cm": 0,
+        "nutrition_status": 0,
+        "weight_kg": 0
+      },
+      "numeric_summary": {
+        "age": {
+          "column": "age_months",
+          "invalid_count": 0,
+          "max": 59.98960126161487,
+          "min": 24.014581148274903
+        },
+        "height": {
+          "column": "height_cm",
+          "invalid_count": 0,
+          "max": 105.0,
+          "min": 60.73705343742383
+        },
+        "weight": {
+          "column": "weight_kg",
+          "invalid_count": 0,
+          "max": 10.726919352835855,
+          "min": 3.0
+        }
+      },
+      "path": "dataset/age_2_to_5_years_adjusted.csv",
+      "provenance_status": "unverified",
+      "repeated_group_count": null,
+      "row_count": 3025,
+      "sha256": "12b8f764d18b8527948a3c2d8c625477847f93f5feb5d62407eaff2dbf96c86c",
+      "source_class": "unverified",
+      "target_candidates": [
+        "Final_Decision"
+      ],
+      "target_column": "Final_Decision",
+      "unique_group_count": null,
+      "unit_assumption": "Values are inspected as months, kilograms, and centimetres from column names; units are not independently verified."
+    },
+    {
+      "chronology_flags": 0,
+      "class_distribution": {
+        "High": 2088,
+        "Low": 3744,
+        "Moderate": 2465,
+        "Severe": 1303
+      },
+      "columns": [
+        "child_id",
+        "visit_number",
+        "visit_date",
+        "age_months",
+        "weight_kg",
+        "height_cm",
+        "z_score",
+        "previous_z_score",
+        "delta_z_score",
+        "current_risk",
+        "predicted_risk_next_2_months"
+      ],
+      "conflicting_target_feature_combinations": 0,
+      "date_column": "visit_date",
+      "duplicate_rows": 0,
+      "exists": true,
+      "flags": [
+        "unknown provenance: not eligible for independent clinical-evaluation claims"
+      ],
+      "id_column": "child_id",
+      "implausible_measurement_flags": {
+        "age": 0,
+        "height": 0,
+        "weight": 0
+      },
+      "missing_by_column": {
+        "age_months": 0,
+        "child_id": 0,
+        "current_risk": 0,
+        "delta_z_score": 0,
+        "height_cm": 0,
+        "predicted_risk_next_2_months": 0,
+        "previous_z_score": 0,
+        "visit_date": 0,
+        "visit_number": 0,
+        "weight_kg": 0,
+        "z_score": 0
+      },
+      "numeric_summary": {
+        "age": {
+          "column": "age_months",
+          "invalid_count": 0,
+          "max": 22.0,
+          "min": 0.0
+        },
+        "height": {
+          "column": "height_cm",
+          "invalid_count": 0,
+          "max": 87.64,
+          "min": 56.91
+        },
+        "weight": {
+          "column": "weight_kg",
+          "invalid_count": 0,
+          "max": 13.2,
+          "min": 4.2
+        }
+      },
+      "path": "dataset/birth_to_2_years_longitudinal_improved.csv",
+      "provenance_status": "unverified",
+      "repeated_group_count": 1200,
+      "row_count": 9600,
+      "sha256": "f6d21fde2f47ee876e82e4e805dcd87ac2ea674beee9c30879f2f2459dd19696",
+      "source_class": "unverified",
+      "target_candidates": [
+        "predicted_risk_next_2_months"
+      ],
+      "target_column": "predicted_risk_next_2_months",
+      "unique_group_count": 1200,
+      "unit_assumption": "Values are inspected as months, kilograms, and centimetres from column names; units are not independently verified."
+    },
+    {
+      "chronology_flags": 0,
+      "class_distribution": {
+        "High": 2228,
+        "Low": 3451,
+        "Moderate": 2552,
+        "Severe": 1369
+      },
+      "columns": [
+        "child_id",
+        "visit_number",
+        "visit_date",
+        "age_months",
+        "weight_kg",
+        "height_cm",
+        "z_score",
+        "previous_z_score",
+        "delta_z_score",
+        "current_risk",
+        "predicted_risk_next_2_months"
+      ],
+      "conflicting_target_feature_combinations": 3,
+      "date_column": "visit_date",
+      "duplicate_rows": 0,
+      "exists": true,
+      "flags": [
+        "unknown provenance: not eligible for independent clinical-evaluation claims"
+      ],
+      "id_column": "child_id",
+      "implausible_measurement_flags": {
+        "age": 1276,
+        "height": 0,
+        "weight": 0
+      },
+      "missing_by_column": {
+        "age_months": 0,
+        "child_id": 0,
+        "current_risk": 0,
+        "delta_z_score": 0,
+        "height_cm": 0,
+        "predicted_risk_next_2_months": 0,
+        "previous_z_score": 0,
+        "visit_date": 0,
+        "visit_number": 0,
+        "weight_kg": 0,
+        "z_score": 0
+      },
+      "numeric_summary": {
+        "age": {
+          "column": "age_months",
+          "invalid_count": 0,
+          "max": 72.0,
+          "min": 24.0
+        },
+        "height": {
+          "column": "height_cm",
+          "invalid_count": 0,
+          "max": 106.38,
+          "min": 76.86
+        },
+        "weight": {
+          "column": "weight_kg",
+          "invalid_count": 0,
+          "max": 16.79,
+          "min": 8.77
+        }
+      },
+      "path": "dataset/age_2_to_5_years_longitudinal_improved.csv",
+      "provenance_status": "unverified",
+      "repeated_group_count": 1200,
+      "row_count": 9600,
+      "sha256": "ec7421638c895248a30c62290dfc6a27438b24df724144621edcd2bdfacbf5d3",
+      "source_class": "unverified",
+      "target_candidates": [
+        "predicted_risk_next_2_months"
+      ],
+      "target_column": "predicted_risk_next_2_months",
+      "unique_group_count": 1200,
+      "unit_assumption": "Values are inspected as months, kilograms, and centimetres from column names; units are not independently verified."
+    },
+    {
+      "chronology_flags": 0,
+      "class_distribution": {
+        "MAM": 1890,
+        "Normal": 7290,
+        "SAM": 605,
+        "Severe_Stunting": 213
+      },
+      "columns": [
+        "Child_ID",
+        "Age_months",
+        "Sex_enc",
+        "Weight_kg",
+        "Length_cm",
+        "WFA_Z",
+        "HFA_Z",
+        "WFH_Z",
+        "Target"
+      ],
+      "conflicting_target_feature_combinations": 0,
+      "date_column": null,
+      "duplicate_rows": 0,
+      "exists": true,
+      "flags": [
+        "unknown provenance: not eligible for independent clinical-evaluation claims"
+      ],
+      "id_column": "Child_ID",
+      "implausible_measurement_flags": {
+        "age": 0,
+        "height": 0,
+        "weight": 0
+      },
+      "missing_by_column": {
+        "Age_months": 0,
+        "Child_ID": 0,
+        "HFA_Z": 0,
+        "Length_cm": 0,
+        "Sex_enc": 0,
+        "Target": 0,
+        "WFA_Z": 0,
+        "WFH_Z": 0,
+        "Weight_kg": 0
+      },
+      "numeric_summary": {
+        "age": {
+          "column": "Age_months",
+          "invalid_count": 0,
+          "max": 24.0,
+          "min": 0.0
+        },
+        "height": {
+          "column": "Length_cm",
+          "invalid_count": 0,
+          "max": 96.03,
+          "min": 42.57
+        },
+        "weight": {
+          "column": "Weight_kg",
+          "invalid_count": 0,
+          "max": 15.819,
+          "min": 0.584
+        }
+      },
+      "path": "research_audit/recovered/f23476e/Dataset/birth_to_2_cleaned.csv",
+      "provenance_status": "unverified_derived",
+      "repeated_group_count": 0,
+      "row_count": 9998,
+      "sha256": "a8bb130d9b1c8a942f6dcb6f023c3bf4dd173f7180b5ed5843c4bfe9de7c1547",
+      "source_class": "unverified_derived",
+      "target_candidates": [
+        "Target"
+      ],
+      "target_column": "Target",
+      "unique_group_count": 9998,
+      "unit_assumption": "Values are inspected as months, kilograms, and centimetres from column names; units are not independently verified."
+    },
+    {
+      "chronology_flags": 0,
+      "class_distribution": {
+        "MAM": 1924,
+        "Normal": 7246,
+        "SAM": 607,
+        "Severe_Stunting": 223
+      },
+      "columns": [
+        "Child_ID",
+        "Age_Year:Month",
+        "Age_months",
+        "Sex_enc",
+        "Weight_kg",
+        "Length_cm",
+        "WFA_Z",
+        "HFA_Z",
+        "WFH_Z",
+        "Target"
+      ],
+      "conflicting_target_feature_combinations": 0,
+      "date_column": null,
+      "duplicate_rows": 0,
+      "exists": true,
+      "flags": [
+        "unknown provenance: not eligible for independent clinical-evaluation claims"
+      ],
+      "id_column": "Child_ID",
+      "implausible_measurement_flags": {
+        "age": 0,
+        "height": 0,
+        "weight": 0
+      },
+      "missing_by_column": {
+        "Age_Year:Month": 0,
+        "Age_months": 0,
+        "Child_ID": 0,
+        "HFA_Z": 0,
+        "Length_cm": 0,
+        "Sex_enc": 0,
+        "Target": 0,
+        "WFA_Z": 0,
+        "WFH_Z": 0,
+        "Weight_kg": 0
+      },
+      "numeric_summary": {
+        "age": {
+          "column": "Age_months",
+          "invalid_count": 0,
+          "max": 60.0,
+          "min": 24.0
+        },
+        "height": {
+          "column": "Length_cm",
+          "invalid_count": 0,
+          "max": 123.76,
+          "min": 75.7
+        },
+        "weight": {
+          "column": "Weight_kg",
+          "invalid_count": 0,
+          "max": 25.668,
+          "min": 3.628
+        }
+      },
+      "path": "research_audit/recovered/f23476e/Dataset/age_2_to_5_cleaned.csv",
+      "provenance_status": "unverified_derived",
+      "repeated_group_count": 0,
+      "row_count": 10000,
+      "sha256": "87d44657bde6fd015f0057c93ac47d66b308ea1678de47456ad0ed8138af8485",
+      "source_class": "unverified_derived",
+      "target_candidates": [
+        "Target"
+      ],
+      "target_column": "Target",
+      "unique_group_count": 10000,
+      "unit_assumption": "Values are inspected as months, kilograms, and centimetres from column names; units are not independently verified."
+    },
+    {
+      "chronology_flags": 0,
+      "class_distribution": {
+        "SAM": 3
+      },
+      "columns": [
+        "Child_ID",
+        "Age_months",
+        "Sex",
+        "Weight_kg",
+        "Height_cm",
+        "WFA_Z",
+        "HFA_Z",
+        "WFH_Z",
+        "Underweight",
+        "Stunting",
+        "Wasting",
+        "Model_Prediction",
+        "Final_Decision",
+        "Confidence",
+        "Risk_Level"
+      ],
+      "conflicting_target_feature_combinations": 0,
+      "date_column": null,
+      "duplicate_rows": 0,
+      "exists": true,
+      "flags": [
+        "unknown provenance: not eligible for independent clinical-evaluation claims"
+      ],
+      "id_column": "Child_ID",
+      "implausible_measurement_flags": {
+        "age": 0,
+        "height": 0,
+        "weight": 0
+      },
+      "missing_by_column": {
+        "Age_months": 0,
+        "Child_ID": 0,
+        "Confidence": 0,
+        "Final_Decision": 0,
+        "HFA_Z": 0,
+        "Height_cm": 0,
+        "Model_Prediction": 0,
+        "Risk_Level": 2,
+        "Sex": 0,
+        "Stunting": 0,
+        "Underweight": 0,
+        "WFA_Z": 0,
+        "WFH_Z": 0,
+        "Wasting": 0,
+        "Weight_kg": 0
+      },
+      "numeric_summary": {
+        "age": {
+          "column": "Age_months",
+          "invalid_count": 0,
+          "max": 20.0,
+          "min": 20.0
+        },
+        "height": {
+          "column": "Height_cm",
+          "invalid_count": 0,
+          "max": 75.0,
+          "min": 75.0
+        },
+        "weight": {
+          "column": "Weight_kg",
+          "invalid_count": 0,
+          "max": 8.2,
+          "min": 8.2
+        }
+      },
+      "path": "research_audit/recovered/f23476e/Data/children_records.csv",
+      "provenance_status": "unverified_demo_artifact",
+      "repeated_group_count": 1,
+      "row_count": 3,
+      "sha256": "003ea8857eae43494678e9a4846d93d7e40789d3428c0d08993fac237dc84ee2",
+      "source_class": "demo_artifact",
+      "target_candidates": [
+        "Final_Decision"
+      ],
+      "target_column": "Final_Decision",
+      "unique_group_count": 1,
+      "unit_assumption": "Values are inspected as months, kilograms, and centimetres from column names; units are not independently verified."
+    }
+  ],
+  "runtime": {
+    "dependencies": "Python standard library only; no ML package imported",
+    "generated_at_utc": "2026-11-20T00:05:55.211797+00:00",
+    "git_revision": "180897bb952655753acdb285be347bac05251029",
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "python_version": "3.14.0 (v3.14.0:ebf955df7a8, Oct  7 2025, 08:20:14) [Clang 16.0.0 (clang-1600.0.26.6)]"
+  }
+}

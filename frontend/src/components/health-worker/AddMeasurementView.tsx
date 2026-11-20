@@ -212,7 +212,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
     }
     setMidwifeLoading(false);
 
-    // Use actual AI result from server — client-side formulas use wrong baselines
+    // Use the server assessment result — client-side formulas use wrong baselines
     const serverRiskRaw = (apiRes?.data?.new_risk || 'NORMAL').toUpperCase();
     const riskLevel: 'normal' | 'mam' | 'sam' = serverRiskRaw === 'SAM' ? 'sam' : serverRiskRaw === 'MAM' ? 'mam' : 'normal';
     const serverMeas = apiRes?.data?.measurement;
@@ -246,7 +246,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
       };
     })() : undefined;
 
-    // Generate AI-powered recommendations
+    // Generate clinical recommendations
     const recommendations: string[] = [];
     const nutritionalGuidance: string[] = [];
     const alerts: string[] = [];
@@ -310,7 +310,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
       recommendations.push('Early intervention may prevent progression to more severe malnutrition');
     }
 
-    // Set AI results
+    // Set assessment results
     setAiResults({
       childName: selectedChild?.name || '',
       childId: childId,
@@ -366,20 +366,20 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
               <CheckCircle className="w-8 h-8 text-green-600" />
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">Measurement Saved Successfully</h2>
-                <p className="text-gray-600">AI-powered analysis and recommendations generated</p>
+                <p className="text-gray-600">WHO assessment and recommendations generated</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* AI Analysis Header */}
+        {/* WHO assessment header */}
         <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg shadow-lg p-6 border-2 border-purple-200">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-12 h-12 bg-purple-600 rounded-lg flex items-center justify-center">
               <Brain className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-gray-900">AI Nutritional Assessment</h3>
+              <h3 className="text-xl font-bold text-gray-900">WHO Nutritional Assessment</h3>
               <p className="text-sm text-gray-600">WHO-based automated analysis for {aiResults.childName}</p>
             </div>
           </div>
@@ -622,11 +622,11 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
           </div>
         </div>
 
-        {/* AI Recommendations */}
+        {/* Clinical recommendations */}
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="w-5 h-5 text-purple-600" />
-            <h3 className="text-lg font-bold text-gray-900">AI-Generated Clinical Recommendations</h3>
+            <h3 className="text-lg font-bold text-gray-900">Clinical Recommendations</h3>
           </div>
           <ul className="space-y-3">
             {aiResults.recommendations.map((rec, index) => (
@@ -893,7 +893,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
             <div className="flex items-start gap-3">
               <Brain className="w-5 h-5 text-purple-600 flex-shrink-0 mt-0.5" />
               <div>
-                <h4 className="font-medium text-gray-900 mb-2">AI-Powered Assessment</h4>
+                <h4 className="font-medium text-gray-900 mb-2">WHO Assessment</h4>
                 <p className="text-sm text-gray-700 mb-2">
                   After saving, the system will automatically:
                 </p>
@@ -924,7 +924,7 @@ export function AddMeasurementView({ user, selectedChildId, onBack, onSuccess }:
               className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
             >
               <Save className="w-4 h-4" />
-              {(nutLoading || midwifeLoading) ? 'Saving...' : isNutritionist ? 'Save measurement' : 'Save & Get AI Analysis'}
+              {(nutLoading || midwifeLoading) ? 'Saving...' : 'Save measurement'}
             </button>
           </div>
         </form>

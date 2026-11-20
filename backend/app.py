@@ -1,12 +1,4 @@
-"""
-Flask Backend Application for Child Malnutrition AI
-
-Backend stack:
-- Flask
-- MySQL (via SQLAlchemy + PyMySQL)
-- JWT auth (role-based)
-- ML model inference (joblib)
-"""
+"""Flask backend for the Child Malnutrition Monitoring System."""
 
 import os
 import sys
@@ -578,7 +570,6 @@ def create_app() -> Flask:
     # Blueprints - Legacy (for backward compatibility)
     from backend.routes.auth_jwt import bp as auth_bp
     from backend.routes.children_crud import bp as children_bp_legacy
-    from backend.routes.analysis_jwt import bp as analysis_bp
     from backend.routes.admin_tools import bp as admin_bp
 
     # Blueprints - Hierarchical System
@@ -602,7 +593,6 @@ def create_app() -> Flask:
     app.register_blueprint(auth_bp)
     app.register_blueprint(children_bp)  # New hierarchical version
     app.register_blueprint(children_bp_legacy)  # Legacy (can be removed later)
-    app.register_blueprint(analysis_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(areas_hierarchical_bp)  # New hierarchical version
     app.register_blueprint(child_transfers_bp)
@@ -627,7 +617,7 @@ def create_app() -> Flask:
     def index():
         return {
             "status": "success",
-            "message": "Child Malnutrition AI API is running",
+            "message": "Child Malnutrition Monitoring API is running",
             "version": "2.0.0",
         }
 

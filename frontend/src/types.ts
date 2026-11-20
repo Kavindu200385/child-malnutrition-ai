@@ -134,7 +134,7 @@ export function getRiskTextColor(riskLevel: RiskLevel): string {
 
 /**
  * Calculate risk level based on Z-scores
- * This is a simplified version - in production, use the actual AI model
+ * This is a simplified version; use the server's WHO assessment data in production.
  */
 export function calculateRiskLevel(wfa?: number | null, hfa?: number | null, wfh?: number | null): RiskLevel {
   const scores = [wfa, hfa, wfh].filter((z): z is number => z != null && isFinite(z));

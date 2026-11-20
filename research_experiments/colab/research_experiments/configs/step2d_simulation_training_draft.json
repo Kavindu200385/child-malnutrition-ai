@@ -1,0 +1,70 @@
+{
+  "class_order": [
+    "Low",
+    "Moderate",
+    "High",
+    "Severe"
+  ],
+  "experiment_type": "grouped_simulation_label_experiment",
+  "feature_schema": {
+    "ablation_without_current_risk": [
+      "age_months",
+      "weight_kg",
+      "height_cm",
+      "z_score"
+    ],
+    "primary": [
+      "age_months",
+      "weight_kg",
+      "height_cm",
+      "z_score",
+      "current_risk"
+    ]
+  },
+  "metrics": [
+    "per-class precision",
+    "per-class recall",
+    "per-class F1",
+    "macro F1",
+    "balanced accuracy",
+    "confusion matrix",
+    "probability/calibration metrics when supported"
+  ],
+  "models": {
+    "logistic_regression": {
+      "C": 1.0,
+      "max_iter": 1000,
+      "multi_class": "multinomial",
+      "random_state": 42,
+      "solver": "lbfgs"
+    },
+    "random_forest": {
+      "max_depth": 12,
+      "n_estimators": 300,
+      "random_state": 42
+    },
+    "xgboost": {
+      "colsample_bytree": 0.8,
+      "learning_rate": 0.05,
+      "max_depth": 5,
+      "n_estimators": 300,
+      "num_class": 4,
+      "objective": "multi:softprob",
+      "random_state": 42,
+      "subsample": 0.8
+    }
+  },
+  "preprocessing": "Fit encoders/scalers and any balancing only on training data; never balance validation/test.",
+  "seed": 42,
+  "source_hashes": {
+    "dataset/age_2_to_5_years_longitudinal_improved.csv": "ec7421638c895248a30c62290dfc6a27438b24df724144621edcd2bdfacbf5d3",
+    "dataset/birth_to_2_years_longitudinal_improved.csv": "f6d21fde2f47ee876e82e4e805dcd87ac2ea674beee9c30879f2f2459dd19696"
+  },
+  "split_membership_hashes": {
+    "dataset/age_2_to_5_years_longitudinal_improved.csv": "d300323b1e8032cd43179ed7e1c6936637dcc9ec36e295546b00b9763c6606ea",
+    "dataset/birth_to_2_years_longitudinal_improved.csv": "4aec6adff7708c534700b8cfd6c8594aa89cb8a579e9a15074435700e0650989"
+  },
+  "split_strategy": "frozen grouped simulation split; group_id is dataset-prefixed",
+  "status": "draft_do_not_train",
+  "target": "predicted_risk_next_2_months"
+}

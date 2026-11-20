@@ -102,7 +102,7 @@ const CAT: Record<string, {
   color: string;
 }> = {
   clinical:       { label: 'Clinical',      icon: Heart,          color: '#059669' },
-  ai_prediction:  { label: 'AI Prediction', icon: Brain,          color: '#7c3aed' },
+  clinical_assessment:  { label: 'Clinical Assessment', icon: Brain, color: '#7c3aed' },
   escalation:     { label: 'Escalation',    icon: AlertTriangle,  color: '#d97706' },
   referral:       { label: 'Referral',      icon: ArrowRightLeft, color: '#2563eb' },
   reports:        { label: 'Reports',       icon: FileText,       color: '#475569' },
@@ -119,7 +119,7 @@ function deriveCategory(n: NotificationItem): string {
   if (t.includes('referral'))  return 'referral';
   if (t.includes('transfer'))  return 'transfers';
   if (t.includes('report'))    return 'reports';
-  if (t.startsWith('ai_') || t.includes('confidence') || t.includes('prediction')) return 'ai_prediction';
+  if (t.includes('assessment') || t.includes('clinical')) return 'clinical_assessment';
   if (t.includes('system') || t.includes('announcement')) return 'system';
   if (t.includes('admin') || t.includes('user_approval')) return 'administrative';
   return 'clinical';
@@ -138,7 +138,7 @@ const TABS: { id: FilterTab; label: string }[] = [
   { id: 'unread',         label: 'Unread'     },
   { id: 'escalation',     label: 'Escalation' },
   { id: 'clinical',       label: 'Clinical'   },
-  { id: 'ai_prediction',  label: 'AI'         },
+  { id: 'clinical_assessment', label: 'Clinical' },
   { id: 'referral',       label: 'Referral'   },
   { id: 'reports',        label: 'Reports'    },
   { id: 'transfers',      label: 'Transfers'  },

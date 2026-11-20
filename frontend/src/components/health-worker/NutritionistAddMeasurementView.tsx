@@ -59,7 +59,7 @@ export function NutritionistAddMeasurementView({ selectedChildId, onBack, onSucc
 
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-bold text-gray-900 mb-4">Add specialist measurement</h2>
-        <p className="text-sm text-gray-600 mb-6">Add measurement for a referred child. Z-scores and AI risk will be calculated by the system.</p>
+        <p className="text-sm text-gray-600 mb-6">Add measurement for a referred child. WHO Z-scores and nutritional status will be calculated by the system.</p>
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">

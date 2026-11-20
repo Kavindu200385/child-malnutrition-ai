@@ -1,0 +1,3 @@
+# Scientific Claims and Limitations
+
+Permitted claim: the selected Logistic Regression achieved verified frozen-test macro-F1 `0.8880` against unverified simulated labels. Prohibited claims: clinical prediction, observed two-month outcome prediction, external or temporal validation, real-world generalization, or statistical superiority. Remaining blockers: unverified provenance, missing exact generator lineage, no observed follow-up outcomes, no external cohort, and no clinician-approved future-risk outcome. The results are ready for manuscript writing only with these limitations stated prominently.

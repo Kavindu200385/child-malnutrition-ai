@@ -4,7 +4,7 @@ Strict midwife-only functionality:
 - Search children by Child ID
 - Assign children to PHM area
 - Record measurements
-- Run AI analysis
+- Record WHO nutritional assessment
 - Escalate to MOH
 - Generate reports
 """
@@ -29,13 +29,6 @@ from backend.utils.midwife_helpers import (
     can_midwife_access_child
 )
 from backend.utils.audit import log_audit, log_clinical_decision
-from backend.utils.risk_status import (
-    COMBINED_MODEL_VERSION,
-    clinical_review_summary,
-    normalize_current_status,
-    normalize_future_risk,
-    prediction_time,
-)
 from backend.utils.measurement_validation import validate_measurement_payload
 from backend.utils.current_status import assess_current_nutritional_status
 from backend.services.notification_service import (
@@ -46,28 +39,10 @@ from backend.services.notification_service import (
     notify_phm_area,
 )
 from backend.services.email_service import send_child_event_email
-from backend.ai.predictor import (
-    build_future_prediction_payload,
-    predict_future_risk,
-    compute_z_scores as ai_compute_z_scores,
-)
+from backend.utils.who_growth import compute_z_scores
 
 bp = Blueprint("midwife", __name__, url_prefix="/api/midwife")
 
-
-def _normalize_ai_risk(label: str) -> str:
-    """
-    Map raw AI model output labels to standard DB risk strings.
-    Model outputs: 'Normal', 'MAM', 'SAM', 'Severe_Stunting'  →  'NORMAL', 'MAM', 'SAM'
-    """
-    s = str(label).strip().lower()
-    if s == 'normal':
-        return RiskLevel.NORMAL.value
-    if s in ('mam', 'underweight'):
-        return RiskLevel.MAM.value
-    if s in ('sam', 'severe_stunting', 'severe stunting'):
-        return RiskLevel.SAM.value
-    return RiskLevel.NORMAL.value
 
 
 def midwife_required(f):
@@ -303,7 +278,7 @@ def list_children():
 def add_measurement():
     """
     Add measurement for child in midwife's area.
-    Calculates Z-scores, runs AI analysis, updates risk level.
+    Calculates WHO Z-scores and updates nutritional status.
     """
     user = get_current_user()
     data = request.get_json() or {}
@@ -352,9 +327,9 @@ def add_measurement():
     age_months = validation["age_months"]
     sex = validation["sex"]
 
-    # Use real WHO Z-score computation from AI module
+    # Calculate WHO growth-reference Z-scores
     try:
-        wfa_z, hfa_z, wfh_z = ai_compute_z_scores(
+        wfa_z, hfa_z, wfh_z = compute_z_scores(
             age_months=age_months, sex=sex,
             weight_kg=float(weight_kg), height_cm=float(height_cm)
         )
@@ -371,80 +346,12 @@ def add_measurement():
     current_status = current_assessment["current_nutritional_status"]
     current_risk = current_assessment["legacy_risk_level"]
 
-    prediction_warning = None
-    prediction_history_source = None
-    try:
-        future_payload = build_future_prediction_payload(
-            child=child,
-            weight_kg=weight_kg,
-            height_cm=height_cm,
-            measurement_date=m_date,
-            history_source="measurements",
-        )
-        prediction_warning = future_payload.get("warning")
-        prediction_history_source = future_payload.get("history_source")
-        if future_payload.get("ok"):
-            future_payload["payload"].update(
-                {
-                    "z_score_wfa": float(wfa_z) if wfa_z is not None else None,
-                    "z_score_wfh": float(wfh_z) if wfh_z is not None else None,
-                    "muac_status": muac_status,
-                    "edema_status": edema_status,
-                }
-            )
-            future_result = predict_future_risk(future_payload["payload"])
-            predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
-            future_confidence = future_result.get("confidence") if future_result.get("ok") else None
-            future_model_version = future_result.get("model_version") if future_result.get("ok") else None
-            future_training_dataset_version = future_result.get("training_dataset_version") if future_result.get("ok") else None
-            future_explanation_factors = future_result.get("explanation_factors") if future_result.get("ok") else None
-            future_prediction_timestamp = future_result.get("prediction_timestamp") if future_result.get("ok") else None
-            future_low_confidence = bool(future_result.get("low_confidence")) if future_result.get("ok") else False
-        else:
-            predicted_risk = None
-            future_confidence = None
-            future_model_version = None
-            future_training_dataset_version = None
-            future_explanation_factors = None
-            future_prediction_timestamp = None
-            future_low_confidence = False
-    except Exception:
-        prediction_warning = "Future prediction could not be generated from child history."
-        predicted_risk = None
-        future_confidence = None
-        future_model_version = None
-        future_training_dataset_version = None
-        future_explanation_factors = None
-        future_prediction_timestamp = None
-        future_low_confidence = False
-
-    future_predicted_risk = normalize_future_risk(predicted_risk)
-    clinical_action_required, clinical_review_reason = clinical_review_summary(
-        current_status=current_status,
-        future_risk=future_predicted_risk,
-        future_confidence=future_confidence,
-        prediction_warning=prediction_warning,
-    )
-    review_reasons = [clinical_review_reason] if clinical_review_reason else []
-    if current_assessment["clinical_action_required"]:
-        clinical_action_required = True
-    if current_assessment["clinical_review_reason"]:
-        review_reasons.insert(0, current_assessment["clinical_review_reason"])
-    if future_low_confidence:
-        clinical_action_required = True
-        review_reasons.append("Low model confidence.")
+    clinical_action_required = bool(current_assessment["clinical_action_required"])
+    review_reasons = [current_assessment["clinical_review_reason"]] if current_assessment["clinical_review_reason"] else []
     if validation["clinical_review_required"]:
         clinical_action_required = True
         review_reasons.extend(validation["clinical_review_reasons"])
     clinical_review_reason = " ".join(dict.fromkeys(review_reasons))
-    pred_timestamp = None
-    if future_prediction_timestamp:
-        try:
-            pred_timestamp = datetime.fromisoformat(str(future_prediction_timestamp))
-        except ValueError:
-            pred_timestamp = prediction_time()
-    elif future_predicted_risk != "NOT AVAILABLE":
-        pred_timestamp = prediction_time()
 
     # Get previous risk level for escalation check
     previous_risk = child.current_risk_level
@@ -468,15 +375,7 @@ def add_measurement():
         wasting_status=current_assessment["wasting_status"],
         current_status_breakdown=json.dumps(current_assessment["current_status_breakdown"]),
         risk_level=current_risk,
-        predicted_risk_next_2_months=predicted_risk,
-        model_confidence=Decimal(str(future_confidence)) if future_confidence is not None else None,
         current_nutritional_status=current_status,
-        future_predicted_risk=future_predicted_risk,
-        future_risk_confidence=Decimal(str(future_confidence)) if future_confidence is not None else None,
-        prediction_timestamp=pred_timestamp,
-        model_version=future_model_version,
-        training_dataset_version=future_training_dataset_version,
-        explanation_factors=json.dumps(future_explanation_factors) if future_explanation_factors is not None else None,
         clinical_action_required=clinical_action_required,
         clinical_review_reason=clinical_review_reason,
         measured_by_user_id=user.id,
@@ -491,7 +390,7 @@ def add_measurement():
             child.phm_area_id,
             title="High-risk child follow-up",
             message=f"{child.child_unique_id or child.child_id} is now classified as {current_risk}.",
-            type="ai_high_risk",
+            type="high_risk",
             priority=PRIORITY_CRITICAL if current_risk == RiskLevel.SAM.value else PRIORITY_HIGH,
             actor_user_id=user.id,
             related_child_id=child.id,
@@ -519,15 +418,7 @@ def add_measurement():
         wasting_status=current_assessment["wasting_status"],
         current_status_breakdown=json.dumps(current_assessment["current_status_breakdown"]),
         current_risk=current_risk,
-        predicted_risk_next_2_months=predicted_risk,
-        model_confidence=float(future_confidence) if future_confidence is not None else None,
         current_nutritional_status=current_status,
-        future_predicted_risk=future_predicted_risk,
-        future_risk_confidence=float(future_confidence) if future_confidence is not None else None,
-        prediction_timestamp=pred_timestamp,
-        model_version=future_model_version,
-        training_dataset_version=future_training_dataset_version,
-        explanation_factors=json.dumps(future_explanation_factors) if future_explanation_factors is not None else None,
         clinical_action_required=clinical_action_required,
         clinical_review_reason=clinical_review_reason,
         notes=data.get("notes"),
@@ -558,11 +449,8 @@ def add_measurement():
         role=user.role,
         area_id=child.phm_area_id or child.current_assigned_area_id or child.moh_area_id,
         current_nutritional_status=current_status,
-        future_predicted_risk=future_predicted_risk,
         clinical_action_required=clinical_action_required,
         clinical_review_reason=clinical_review_reason,
-        model_version=future_model_version,
-        prediction_timestamp=pred_timestamp,
         created_at=datetime.utcnow(),
     )
     send_child_event_email(
@@ -579,7 +467,6 @@ def add_measurement():
             "Height": f"{height_cm} cm",
             "MUAC": f"{muac_value} cm" if muac_value is not None else "Not Recorded",
             "Edema": edema_status,
-            "Future risk prediction": predicted_risk,
         },
     )
 
@@ -593,8 +480,6 @@ def add_measurement():
         "escalation_needed": escalation_needed,
         "previous_risk": previous_risk,
         "new_risk": current_risk,
-        "future_prediction_warning": prediction_warning,
-        "future_prediction_history_source": prediction_history_source,
     }), 201
 
 
@@ -980,3 +865,4 @@ def get_dashboard_stats():
         "phm_area_name": phm_area_name,
         "phm_area_full_path": phm_area_full_path,
     }), 200
+

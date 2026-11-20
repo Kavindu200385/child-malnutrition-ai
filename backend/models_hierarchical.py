@@ -572,7 +572,7 @@ class Child(db.Model):
                 height_cm = getattr(latest, "height_cm", None)
                 if self.dob and measurement_date and weight_kg is not None and height_cm is not None:
                     try:
-                        from backend.ai.predictor import compute_z_scores
+                        from backend.utils.who_growth import compute_z_scores
 
                         age_months = max(0, (measurement_date.date() - self.dob).days // 30)
                         z_wfa, z_hfa, z_wfh = compute_z_scores(
@@ -676,14 +676,6 @@ class Child(db.Model):
             "muac_status": latest_assessment["muac_status"],
             "edema_status": latest_assessment["edema_status"],
             "current_status_breakdown": latest_assessment["current_status_breakdown"],
-            "predicted_risk_next_2_months": latest_predicted_risk,
-            "latest_predicted_risk_next_2_months": latest_predicted_risk,
-            "future_predicted_risk": latest_assessment["future_predicted_risk"],
-            "future_risk_confidence": latest_assessment["future_risk_confidence"],
-            "prediction_timestamp": latest_assessment["prediction_timestamp"],
-            "model_version": latest_assessment["model_version"],
-            "training_dataset_version": latest_assessment["training_dataset_version"],
-            "explanation_factors": latest_assessment["explanation_factors"],
             "clinical_action_required": latest_assessment["clinical_action_required"],
             "clinical_review_reason": latest_assessment["clinical_review_reason"],
             "last_risk_update": self.last_risk_update.isoformat() if self.last_risk_update else None,
@@ -738,7 +730,7 @@ class Measurement(db.Model):
     wasting_status = db.Column(db.String(40), nullable=True)
     current_status_breakdown = db.Column(db.Text, nullable=True)
     
-    # AI analysis results
+    # Nutritional assessment results
     risk_level = db.Column(db.String(20), nullable=True, index=True)  # NORMAL, MAM, SAM
     predicted_risk_next_2_months = db.Column(db.String(20), nullable=True)
     model_confidence = db.Column(EncryptedDecimal(scale=2), nullable=True)
@@ -798,16 +790,8 @@ class Measurement(db.Model):
             "risk_level": self.risk_level,
             "current_nutritional_status": normalize_current_status(self.current_nutritional_status or self.risk_level),
             "current_status_breakdown": breakdown,
-            "predicted_risk_next_2_months": self.predicted_risk_next_2_months,
-            "future_predicted_risk": normalize_future_risk(self.future_predicted_risk or self.predicted_risk_next_2_months),
-            "future_risk_confidence": float(self.future_risk_confidence) if self.future_risk_confidence else None,
-            "prediction_timestamp": self.prediction_timestamp.isoformat() if self.prediction_timestamp else None,
-            "model_version": self.model_version,
-            "training_dataset_version": self.training_dataset_version,
-            "explanation_factors": explanation_factors,
             "clinical_action_required": bool(self.clinical_action_required),
             "clinical_review_reason": self.clinical_review_reason,
-            "model_confidence": float(self.model_confidence) if self.model_confidence else None,
             "measured_by_user_id": self.measured_by_user_id,
             "measured_by": self.measured_by.to_dict() if self.measured_by else None,
             "notes": self.notes,
@@ -1361,16 +1345,8 @@ class Visit(db.Model):
             "current_risk": self.current_risk,
             "current_nutritional_status": normalize_current_status(self.current_nutritional_status or self.current_risk),
             "current_status_breakdown": breakdown,
-            "predicted_risk_next_2_months": self.predicted_risk_next_2_months,
-            "future_predicted_risk": normalize_future_risk(self.future_predicted_risk or self.predicted_risk_next_2_months),
-            "future_risk_confidence": self.future_risk_confidence,
-            "prediction_timestamp": self.prediction_timestamp.isoformat() if self.prediction_timestamp else None,
-            "model_version": self.model_version,
-            "training_dataset_version": self.training_dataset_version,
-            "explanation_factors": explanation_factors,
             "clinical_action_required": bool(self.clinical_action_required),
             "clinical_review_reason": self.clinical_review_reason,
-            "model_confidence": self.model_confidence,
             "notes": self.notes,
             "created_by_user_id": self.created_by_user_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,

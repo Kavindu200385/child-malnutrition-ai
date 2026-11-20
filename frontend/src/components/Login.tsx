@@ -30,7 +30,7 @@ const CONTENT_VARIATIONS = [
       {
         icon: Heart,
         title: "Early Risk Prediction",
-        description: "AI-powered forecasting to prevent malnutrition progression"
+        description: "WHO growth assessment for early clinical follow-up"
       },
       {
         icon: Users,

@@ -1,0 +1,61 @@
+{
+  "datasets": [
+    {
+      "independent_clinical_evaluation": "blocked_missing_provenance_and_observed_outcomes",
+      "path": "dataset/birth_to_2_years_adjusted.csv",
+      "reason": "stable repeated-child IDs with timestamps are not established",
+      "rule_agreement_benchmark": "blocked_pending_clinician_target_definition",
+      "status": "blocked"
+    },
+    {
+      "independent_clinical_evaluation": "blocked_missing_provenance_and_observed_outcomes",
+      "path": "dataset/age_2_to_5_years_adjusted.csv",
+      "reason": "stable repeated-child IDs with timestamps are not established",
+      "rule_agreement_benchmark": "blocked_pending_clinician_target_definition",
+      "status": "blocked"
+    },
+    {
+      "independent_clinical_evaluation": "blocked_missing_provenance_and_observed_outcomes",
+      "path": "dataset/birth_to_2_years_longitudinal_improved.csv",
+      "reason": "unverified provenance prevents independent clinical-evaluation claims",
+      "rule_agreement_benchmark": "blocked_pending_clinician_target_definition",
+      "status": "simulation_only_ready"
+    },
+    {
+      "independent_clinical_evaluation": "blocked_missing_provenance_and_observed_outcomes",
+      "path": "dataset/age_2_to_5_years_longitudinal_improved.csv",
+      "reason": "unverified provenance prevents independent clinical-evaluation claims",
+      "rule_agreement_benchmark": "blocked_pending_clinician_target_definition",
+      "status": "simulation_only_ready"
+    },
+    {
+      "independent_clinical_evaluation": "blocked_missing_provenance_and_observed_outcomes",
+      "path": "research_audit/recovered/f23476e/Dataset/birth_to_2_cleaned.csv",
+      "reason": "stable repeated-child IDs with timestamps are not established",
+      "rule_agreement_benchmark": "blocked_pending_clinician_target_definition",
+      "status": "blocked"
+    },
+    {
+      "independent_clinical_evaluation": "blocked_missing_provenance_and_observed_outcomes",
+      "path": "research_audit/recovered/f23476e/Dataset/age_2_to_5_cleaned.csv",
+      "reason": "stable repeated-child IDs with timestamps are not established",
+      "rule_agreement_benchmark": "blocked_pending_clinician_target_definition",
+      "status": "blocked"
+    },
+    {
+      "independent_clinical_evaluation": "blocked_missing_provenance_and_observed_outcomes",
+      "path": "research_audit/recovered/f23476e/Data/children_records.csv",
+      "reason": "stable repeated-child IDs with timestamps are not established",
+      "rule_agreement_benchmark": "blocked_pending_clinician_target_definition",
+      "status": "blocked"
+    }
+  ],
+  "runtime": {
+    "dependencies": "Python standard library only; no ML package imported",
+    "generated_at_utc": "2026-11-20T00:05:55.546433+00:00",
+    "git_revision": "180897bb952655753acdb285be347bac05251029",
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "python_version": "3.14.0 (v3.14.0:ebf955df7a8, Oct  7 2025, 08:20:14) [Clang 16.0.0 (clang-1600.0.26.6)]"
+  },
+  "who_reference_status": "incomplete_without_independently_sourced_official_cases"
+}

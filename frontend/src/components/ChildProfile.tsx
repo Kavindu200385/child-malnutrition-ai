@@ -160,7 +160,7 @@ export function ChildProfile({ child }: ChildProfileProps) {
             <RiskBadge classification={child.currentStatus.classification} size="large" />
             <div>
               <p className="text-gray-700">
-                AI Model Confidence: <span className="text-gray-900">{child.currentStatus.confidence}%</span>
+                Assessment Confidence: <span className="text-gray-900">{child.currentStatus.confidence}%</span>
               </p>
             </div>
           </div>

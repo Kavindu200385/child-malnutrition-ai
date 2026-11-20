@@ -195,7 +195,7 @@ export function AdminOverview() {
         </div>
       )}
 
-      {/* AI Predicted Cases */}
+      {/* Clinical assessment cases */}
       <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg shadow p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

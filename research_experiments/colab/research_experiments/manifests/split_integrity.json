@@ -1,0 +1,82 @@
+{
+  "datasets": [
+    {
+      "grouping_column": null,
+      "path": "dataset/birth_to_2_years_adjusted.csv",
+      "reason": "stable repeated-child IDs with timestamps are not established",
+      "seed": 42,
+      "status": "blocked"
+    },
+    {
+      "grouping_column": null,
+      "path": "dataset/age_2_to_5_years_adjusted.csv",
+      "reason": "stable repeated-child IDs with timestamps are not established",
+      "seed": 42,
+      "status": "blocked"
+    },
+    {
+      "group_count": 1200,
+      "grouping_column": "child_id",
+      "membership_file": "splits/07b8f37c9694_membership.csv",
+      "overlap_count": 0,
+      "partition_groups": {
+        "test": 174,
+        "train": 836,
+        "validation": 190
+      },
+      "path": "dataset/birth_to_2_years_longitudinal_improved.csv",
+      "reason": "unverified provenance prevents independent clinical-evaluation claims",
+      "row_count": 9600,
+      "seed": 42,
+      "status": "created_simulation_only",
+      "temporal_validation": false
+    },
+    {
+      "group_count": 1200,
+      "grouping_column": "child_id",
+      "membership_file": "splits/5e6f73824d60_membership.csv",
+      "overlap_count": 0,
+      "partition_groups": {
+        "test": 174,
+        "train": 836,
+        "validation": 190
+      },
+      "path": "dataset/age_2_to_5_years_longitudinal_improved.csv",
+      "reason": "unverified provenance prevents independent clinical-evaluation claims",
+      "row_count": 9600,
+      "seed": 42,
+      "status": "created_simulation_only",
+      "temporal_validation": false
+    },
+    {
+      "grouping_column": "Child_ID",
+      "path": "research_audit/recovered/f23476e/Dataset/birth_to_2_cleaned.csv",
+      "reason": "stable repeated-child IDs with timestamps are not established",
+      "seed": 42,
+      "status": "blocked"
+    },
+    {
+      "grouping_column": "Child_ID",
+      "path": "research_audit/recovered/f23476e/Dataset/age_2_to_5_cleaned.csv",
+      "reason": "stable repeated-child IDs with timestamps are not established",
+      "seed": 42,
+      "status": "blocked"
+    },
+    {
+      "grouping_column": "Child_ID",
+      "path": "research_audit/recovered/f23476e/Data/children_records.csv",
+      "reason": "stable repeated-child IDs with timestamps are not established",
+      "seed": 42,
+      "status": "blocked"
+    }
+  ],
+  "policy": "No split is claimed independent or temporal unless source lineage/temporal evidence is available.",
+  "runtime": {
+    "dependencies": "Python standard library only; no ML package imported",
+    "generated_at_utc": "2026-11-20T00:05:55.485968+00:00",
+    "git_revision": "180897bb952655753acdb285be347bac05251029",
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "python_version": "3.14.0 (v3.14.0:ebf955df7a8, Oct  7 2025, 08:20:14) [Clang 16.0.0 (clang-1600.0.26.6)]"
+  },
+  "seed": 42
+}

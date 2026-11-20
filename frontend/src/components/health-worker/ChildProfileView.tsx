@@ -320,7 +320,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
       return 'normal' as RiskLevel;
     })(),
     measurements: (() => {
-      // Deduplicate: measurements (rich, has Z-scores + AI) take priority.
+      // Deduplicate: measurements with Z-scores take priority.
       // Only include a visit if no measurement already covers that calendar day.
       const measDates = new Set(
         (apiChild.measurements || []).map((m: any) => (m.measurement_date || '').slice(0, 10))

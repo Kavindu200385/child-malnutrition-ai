@@ -1,0 +1,57 @@
+{
+  "overlap_example": {
+    "clinical_action_required": true,
+    "clinical_review_reason": "WFH/WFL Z-score indicates MAM. HFA Z-score indicates severe stunting. WFA Z-score indicates underweight.",
+    "current_nutritional_status": "MAM",
+    "current_status_breakdown": {
+      "edema_status": "Not Recorded",
+      "muac_status": "Not Recorded",
+      "stunting_status": "SEVERE STUNTING",
+      "underweight_status": "UNDERWEIGHT",
+      "wasting_status": "MAM",
+      "z_scores": {
+        "hfa": -3.5,
+        "wfa": -2.5,
+        "wfh": -2.5
+      }
+    },
+    "edema_status": "Not Recorded",
+    "legacy_risk_level": "MAM",
+    "muac_status": "Not Recorded",
+    "stunting_status": "SEVERE STUNTING",
+    "underweight_status": "UNDERWEIGHT",
+    "wasting_status": "MAM"
+  },
+  "thresholds": [
+    {
+      "stunting": "SEVERE STUNTING",
+      "underweight": "SEVERE UNDERWEIGHT",
+      "wasting": "SAM",
+      "z": -3.001
+    },
+    {
+      "stunting": "STUNTING",
+      "underweight": "UNDERWEIGHT",
+      "wasting": "MAM",
+      "z": -3.0
+    },
+    {
+      "stunting": "STUNTING",
+      "underweight": "UNDERWEIGHT",
+      "wasting": "MAM",
+      "z": -2.001
+    },
+    {
+      "stunting": "NORMAL",
+      "underweight": "NORMAL",
+      "wasting": "NORMAL",
+      "z": -2.0
+    },
+    {
+      "stunting": "NOT AVAILABLE",
+      "underweight": "NOT AVAILABLE",
+      "wasting": "NOT AVAILABLE",
+      "z": null
+    }
+  ]
+}

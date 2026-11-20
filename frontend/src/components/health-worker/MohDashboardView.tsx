@@ -220,7 +220,7 @@ export function MohDashboardView() {
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <h3 className="text-lg font-bold text-gray-900">Future Risk Prediction</h3>
-                      <p className="text-sm text-gray-500">AI forecast for next 2 months</p>
+                      <p className="text-sm text-gray-500">Current WHO assessment</p>
                     </div>
                     <button onClick={() => setShowPredictedChart(false)} className="text-gray-400 hover:text-gray-600">
                       <X className="w-5 h-5" />

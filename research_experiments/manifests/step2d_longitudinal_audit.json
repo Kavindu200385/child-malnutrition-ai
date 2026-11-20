@@ -1,0 +1,309 @@
+{
+  "datasets": [
+    {
+      "cohort": "birth_to_2_as_recorded",
+      "counts": {
+        "children": 1200,
+        "current": {
+          "High": 2075,
+          "Low": 4163,
+          "Moderate": 2351,
+          "Severe": 1011
+        },
+        "rows": 9600,
+        "target": {
+          "High": 2088,
+          "Low": 3744,
+          "Moderate": 2465,
+          "Severe": 1303
+        },
+        "transitions": [
+          {
+            "current_risk": "High",
+            "rows": 1716,
+            "target_risk": "High"
+          },
+          {
+            "current_risk": "High",
+            "rows": 46,
+            "target_risk": "Moderate"
+          },
+          {
+            "current_risk": "High",
+            "rows": 313,
+            "target_risk": "Severe"
+          },
+          {
+            "current_risk": "Low",
+            "rows": 3690,
+            "target_risk": "Low"
+          },
+          {
+            "current_risk": "Low",
+            "rows": 473,
+            "target_risk": "Moderate"
+          },
+          {
+            "current_risk": "Moderate",
+            "rows": 351,
+            "target_risk": "High"
+          },
+          {
+            "current_risk": "Moderate",
+            "rows": 54,
+            "target_risk": "Low"
+          },
+          {
+            "current_risk": "Moderate",
+            "rows": 1946,
+            "target_risk": "Moderate"
+          },
+          {
+            "current_risk": "Severe",
+            "rows": 21,
+            "target_risk": "High"
+          },
+          {
+            "current_risk": "Severe",
+            "rows": 990,
+            "target_risk": "Severe"
+          }
+        ],
+        "visits_per_child": {
+          "8": 1200
+        }
+      },
+      "flag_reasons": {},
+      "headers": [
+        "child_id",
+        "visit_number",
+        "visit_date",
+        "age_months",
+        "weight_kg",
+        "height_cm",
+        "z_score",
+        "previous_z_score",
+        "delta_z_score",
+        "current_risk",
+        "predicted_risk_next_2_months"
+      ],
+      "integrity": {
+        "age_steps": {
+          "1": 8400
+        },
+        "chronology_bad": 0,
+        "delta_rounding_only": 8710,
+        "delta_substantive": 0,
+        "height_change_range": [
+          0.25,
+          1.1000000000000085
+        ],
+        "interval_days": {
+          "30": 8400
+        },
+        "next_visit_target_agreement": [
+          7278,
+          8400
+        ],
+        "not_eight_visit_children": 0,
+        "previous_z_mismatches": 0,
+        "visit_number_bad_children": 0,
+        "weight_change_range": [
+          0.07000000000000028,
+          0.41999999999999993
+        ]
+      },
+      "membership_issues": {
+        "duplicate_membership_rows": 0,
+        "extra_membership_groups": [],
+        "invalid_partitions": [],
+        "missing_source_groups": []
+      },
+      "membership_sha256": "4aec6adff7708c534700b8cfd6c8594aa89cb8a579e9a15074435700e0650989",
+      "partitions": {
+        "test": 1392,
+        "train": 6688,
+        "validation": 1520
+      },
+      "path": "dataset/birth_to_2_years_longitudinal_improved.csv",
+      "ranges": {
+        "age_months": [
+          0.0,
+          22.0
+        ],
+        "height_cm": [
+          56.91,
+          87.64
+        ],
+        "weight_kg": [
+          4.2,
+          13.2
+        ],
+        "z_score": [
+          -5.17,
+          1.54
+        ]
+      },
+      "source_hash_matches_config": true,
+      "source_sha256": "f6d21fde2f47ee876e82e4e805dcd87ac2ea674beee9c30879f2f2459dd19696"
+    },
+    {
+      "cohort": "older_as_recorded_24_to_72_months",
+      "counts": {
+        "children": 1200,
+        "current": {
+          "High": 2135,
+          "Low": 3847,
+          "Moderate": 2559,
+          "Severe": 1059
+        },
+        "rows": 9600,
+        "target": {
+          "High": 2228,
+          "Low": 3451,
+          "Moderate": 2552,
+          "Severe": 1369
+        },
+        "transitions": [
+          {
+            "current_risk": "High",
+            "rows": 1761,
+            "target_risk": "High"
+          },
+          {
+            "current_risk": "High",
+            "rows": 45,
+            "target_risk": "Moderate"
+          },
+          {
+            "current_risk": "High",
+            "rows": 329,
+            "target_risk": "Severe"
+          },
+          {
+            "current_risk": "Low",
+            "rows": 3399,
+            "target_risk": "Low"
+          },
+          {
+            "current_risk": "Low",
+            "rows": 448,
+            "target_risk": "Moderate"
+          },
+          {
+            "current_risk": "Moderate",
+            "rows": 448,
+            "target_risk": "High"
+          },
+          {
+            "current_risk": "Moderate",
+            "rows": 52,
+            "target_risk": "Low"
+          },
+          {
+            "current_risk": "Moderate",
+            "rows": 2059,
+            "target_risk": "Moderate"
+          },
+          {
+            "current_risk": "Severe",
+            "rows": 19,
+            "target_risk": "High"
+          },
+          {
+            "current_risk": "Severe",
+            "rows": 1040,
+            "target_risk": "Severe"
+          }
+        ],
+        "visits_per_child": {
+          "8": 1200
+        }
+      },
+      "flag_reasons": {
+        "exceeds_prior_generic_60_month_validator_limit": 1276
+      },
+      "headers": [
+        "child_id",
+        "visit_number",
+        "visit_date",
+        "age_months",
+        "weight_kg",
+        "height_cm",
+        "z_score",
+        "previous_z_score",
+        "delta_z_score",
+        "current_risk",
+        "predicted_risk_next_2_months"
+      ],
+      "integrity": {
+        "age_steps": {
+          "3": 8400
+        },
+        "chronology_bad": 0,
+        "delta_rounding_only": 8699,
+        "delta_substantive": 0,
+        "height_change_range": [
+          0.12000000000000455,
+          0.8300000000000125
+        ],
+        "interval_days": {
+          "90": 8400
+        },
+        "next_visit_target_agreement": [
+          7224,
+          8400
+        ],
+        "not_eight_visit_children": 0,
+        "previous_z_mismatches": 0,
+        "visit_number_bad_children": 0,
+        "weight_change_range": [
+          0.0,
+          0.379999999999999
+        ]
+      },
+      "membership_issues": {
+        "duplicate_membership_rows": 0,
+        "extra_membership_groups": [],
+        "invalid_partitions": [],
+        "missing_source_groups": []
+      },
+      "membership_sha256": "d300323b1e8032cd43179ed7e1c6936637dcc9ec36e295546b00b9763c6606ea",
+      "partitions": {
+        "test": 1392,
+        "train": 6688,
+        "validation": 1520
+      },
+      "path": "dataset/age_2_to_5_years_longitudinal_improved.csv",
+      "ranges": {
+        "age_months": [
+          24.0,
+          72.0
+        ],
+        "height_cm": [
+          76.86,
+          106.38
+        ],
+        "weight_kg": [
+          8.77,
+          16.79
+        ],
+        "z_score": [
+          -5.32,
+          1.49
+        ]
+      },
+      "source_hash_matches_config": true,
+      "source_sha256": "ec7421638c895248a30c62290dfc6a27438b24df724144621edcd2bdfacbf5d3"
+    }
+  ],
+  "flagged_index_path": "research_experiments/manifests/step2d_flagged_record_index.csv",
+  "prepared_metadata_path": "research_experiments/manifests/step2d_prepared_dataset_metadata.json",
+  "runtime": {
+    "dependencies": "Python standard library only; no ML package imported",
+    "generated_at_utc": "2026-11-20T15:14:33.627269+00:00",
+    "git_revision": "180897bb952655753acdb285be347bac05251029",
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "python_version": "3.14.0 (v3.14.0:ebf955df7a8, Oct  7 2025, 08:20:14) [Clang 16.0.0 (clang-1600.0.26.6)]"
+  }
+}

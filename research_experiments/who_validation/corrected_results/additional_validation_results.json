@@ -1,0 +1,91 @@
+{
+  "classifications": {
+    "stunting": "severe_stunting",
+    "underweight": "underweight",
+    "wasting": "wasting"
+  },
+  "extreme_z": [
+    {
+      "absolute_difference": 0.0,
+      "calculated_z": -3.625,
+      "case": "extended z below -3",
+      "expected_z": -3.625,
+      "status": "PASS"
+    }
+  ],
+  "method_and_invalid": [
+    {
+      "absolute_difference": 0.0,
+      "actual_adjusted_cm": 65.0,
+      "actual_indicator": "WFL",
+      "calculated_z": -1.999927133850667,
+      "case": "standing height converted to length at 730 days",
+      "expected_adjusted_cm": 65.0,
+      "expected_indicator": "WFL",
+      "expected_z": -1.999927133850667,
+      "input": {
+        "age_days": 730,
+        "age_months": 24,
+        "length_height_cm": 64.3,
+        "measurement_method": "standing_height",
+        "sex": "M",
+        "weight_kg": 6.193
+      },
+      "status": "PASS"
+    },
+    {
+      "absolute_difference": 0.0,
+      "actual_adjusted_cm": 90.0,
+      "actual_indicator": "WFH",
+      "calculated_z": -2.0002350771994513,
+      "case": "recumbent length converted to height at 731 days",
+      "expected_adjusted_cm": 90.0,
+      "expected_indicator": "WFH",
+      "expected_z": -2.0002350771994513,
+      "input": {
+        "age_days": 731,
+        "age_months": 24,
+        "length_height_cm": 90.7,
+        "measurement_method": "recumbent_length",
+        "sex": "M",
+        "weight_kg": 11.022
+      },
+      "status": "PASS"
+    },
+    {
+      "case": "invalid sex",
+      "message": "sex must be one of: M, F, male, female, boy, or girl",
+      "raises_expected_error": true
+    },
+    {
+      "case": "age over 60-month reference",
+      "message": "age_days must be an integer in [0, 1856]",
+      "raises_expected_error": true
+    },
+    {
+      "case": "zero weight",
+      "message": "weight_kg must be finite and greater than zero",
+      "raises_expected_error": true
+    },
+    {
+      "case": "WFL below official boundary",
+      "message": "WFL reference is unavailable at 44.9; supported exact keys are within [45.0, 110.0]",
+      "raises_expected_error": true
+    },
+    {
+      "case": "WFH above official boundary",
+      "message": "WFH reference is unavailable at 120.1; supported exact keys are within [65.0, 120.0]",
+      "raises_expected_error": true
+    },
+    {
+      "case": "standing measurement under nine months",
+      "message": "standing_height is unsupported for children younger than 9 months",
+      "raises_expected_error": true
+    },
+    {
+      "case": "unknown method",
+      "message": "measurement_method must be recumbent_length or standing_height",
+      "raises_expected_error": true
+    }
+  ]
+}

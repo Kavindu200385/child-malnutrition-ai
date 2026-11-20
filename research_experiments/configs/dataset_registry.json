@@ -1,0 +1,11 @@
+{
+  "datasets": [
+    {"path": "dataset/birth_to_2_years_adjusted.csv", "provenance_status": "unverified", "source_class": "unverified", "target_candidates": ["Final_Decision"], "id_column": null, "date_column": null},
+    {"path": "dataset/age_2_to_5_years_adjusted.csv", "provenance_status": "unverified", "source_class": "unverified", "target_candidates": ["Final_Decision"], "id_column": null, "date_column": null},
+    {"path": "dataset/birth_to_2_years_longitudinal_improved.csv", "provenance_status": "unverified", "source_class": "unverified", "target_candidates": ["predicted_risk_next_2_months"], "id_column": "child_id", "date_column": "visit_date"},
+    {"path": "dataset/age_2_to_5_years_longitudinal_improved.csv", "provenance_status": "unverified", "source_class": "unverified", "target_candidates": ["predicted_risk_next_2_months"], "id_column": "child_id", "date_column": "visit_date"},
+    {"path": "research_audit/recovered/f23476e/Dataset/birth_to_2_cleaned.csv", "provenance_status": "unverified_derived", "source_class": "unverified_derived", "target_candidates": ["Target"], "id_column": "Child_ID", "date_column": null},
+    {"path": "research_audit/recovered/f23476e/Dataset/age_2_to_5_cleaned.csv", "provenance_status": "unverified_derived", "source_class": "unverified_derived", "target_candidates": ["Target"], "id_column": "Child_ID", "date_column": null},
+    {"path": "research_audit/recovered/f23476e/Data/children_records.csv", "provenance_status": "unverified_demo_artifact", "source_class": "demo_artifact", "target_candidates": ["Final_Decision"], "id_column": "Child_ID", "date_column": null}
+  ]
+}

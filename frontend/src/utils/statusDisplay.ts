@@ -1,5 +1,5 @@
 export const STATUS_HELPER_TEXT =
-  'Current nutritional status is calculated using WHO growth assessment rules. The 2-month predicted risk is an AI-based early warning and should not replace clinical judgment.';
+  'Current nutritional status is calculated using WHO growth assessment rules and should be reviewed alongside clinical judgment.';
 
 function upperClean(value: unknown): string {
   return String(value || '').replace(/_/g, ' ').trim().toUpperCase();

@@ -53,14 +53,6 @@ dist/
 build/
 *.egg-info/
 
-# ML model files (too large for git)
-*.joblib
-*.pkl
-*.h5
-*.onnx
-New models/
-backend/models/
-models_backup/
 
 # Credential and secret files — never commit these
 ROLE_CREDENTIALS.md
