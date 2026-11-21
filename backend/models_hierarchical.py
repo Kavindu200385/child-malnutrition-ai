@@ -575,7 +575,8 @@ class Child(db.Model):
             # scores because their original method/date provenance may be absent.
 
             if muac_status is None:
-                _, muac_status, _, _ = muac_assessment(getattr(latest, "muac_cm", None))
+                muac_value = getattr(latest, "muac_cm", None)
+                muac_status = muac_assessment(muac_value)[1] if muac_value is not None else "Not Recorded"
             if edema_status is None:
                 edema_present = getattr(latest, "edema_present", None)
                 edema_status = "Edema Present" if edema_present is True else "No Edema" if edema_present is False else "Not Recorded"
@@ -766,8 +767,8 @@ class Measurement(db.Model):
             "measurement_date": self.measurement_date.isoformat() if self.measurement_date else None,
             "weight_kg": float(self.weight_kg) if self.weight_kg else None,
             "height_cm": float(self.height_cm) if self.height_cm else None,
-            "muac_cm": float(self.muac_cm) if self.muac_cm else None,
-            "muac_status": self.muac_status or ("Not Recorded" if self.muac_cm is None else None),
+            "muac_cm": float(self.muac_cm) if self.muac_cm is not None else None,
+            "muac_status": self.muac_status or (muac_assessment(self.muac_cm)[1] if self.muac_cm is not None else "Not Recorded"),
             "edema_present": self.edema_present,
             "edema_status": self.edema_status or "Not Recorded",
             "measurement_method": self.measurement_method,
@@ -1322,7 +1323,7 @@ class Visit(db.Model):
             "weight_kg": self.weight_kg,
             "height_cm": self.height_cm,
             "muac_cm": self.muac_cm,
-            "muac_status": self.muac_status or ("Not Recorded" if self.muac_cm is None else None),
+            "muac_status": self.muac_status or (muac_assessment(self.muac_cm)[1] if self.muac_cm is not None else "Not Recorded"),
             "edema_present": self.edema_present,
             "edema_status": self.edema_status or "Not Recorded",
             "measurement_method": self.measurement_method,

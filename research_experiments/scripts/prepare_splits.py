@@ -23,8 +23,8 @@ def partition(group_id: str) -> str:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
-    parser.add_argument("--config", type=Path, default=Path("research_experiments/configs/dataset_registry.json"))
-    parser.add_argument("--output-root", type=Path, default=Path("research_experiments"))
+    parser.add_argument("--config", type=Path, default=Path("datasets/manifests/dataset_registry.json"))
+    parser.add_argument("--output-root", type=Path, default=Path("datasets"))
     args = parser.parse_args()
     root = args.project_root.resolve()
     entries = json.loads((root / args.config).read_text(encoding="utf-8"))["datasets"]
@@ -65,7 +65,7 @@ def main():
                         name = hashlib.sha256(entry["path"].encode()).hexdigest()[:12] + "_membership.csv"
                         with (split_dir / name).open("w", newline="", encoding="utf-8") as handle:
                             writer = csv.writer(handle); writer.writerow(["dataset_path", "group_id", "partition"]); writer.writerows(membership)
-                        item["membership_file"] = str(Path("splits") / name)
+                        item["membership_file"] = str(args.output_root / "splits" / name)
         outcomes.append(item)
         report_rows.append([item["path"], item["status"], item.get("grouping_column") or "none", item.get("group_count", "n/a"), item["reason"] or "none"])
     payload = {"runtime": runtime_metadata(root), "seed": SEED, "policy": "No split is claimed independent or temporal unless source lineage/temporal evidence is available.", "datasets": outcomes}

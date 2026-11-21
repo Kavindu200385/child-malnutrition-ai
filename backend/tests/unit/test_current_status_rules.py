@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from backend.models_hierarchical import Measurement
+from backend.models_hierarchical import Measurement, Visit
 from backend.utils.current_status import assess_current_nutritional_status
 from backend.utils.risk_status import normalize_current_status
 
@@ -81,6 +81,36 @@ def test_missing_muac_and_edema_stay_not_recorded():
 
 def test_declining_is_never_a_current_status():
     assert normalize_current_status("DECLINING") == "NEEDS CLINICAL REVIEW"
+
+
+def test_measurement_serialization_derives_missing_muac_status():
+    measurement = Measurement(muac_cm=12.0)
+
+    payload = measurement.to_dict()
+
+    assert payload["muac_cm"] == 12.0
+    assert payload["muac_status"] == "MAM Warning"
+
+
+def test_visit_serialization_derives_missing_muac_status():
+    visit = Visit(muac_cm=11.0)
+
+    assert visit.to_dict()["muac_status"] == "SAM Warning"
+
+
+def test_measurement_serialization_keeps_zero_muac_visible():
+    measurement = Measurement(muac_cm=0)
+
+    payload = measurement.to_dict()
+
+    assert payload["muac_cm"] == 0.0
+    assert payload["muac_status"] == "SAM Warning"
+
+
+def test_measurement_serialization_does_not_assess_missing_muac():
+    measurement = Measurement(muac_cm=None)
+
+    assert measurement.to_dict()["muac_status"] == "Not Recorded"
 
 
 def test_legacy_measurement_breakdown_is_reconstructed_from_saved_z_scores(

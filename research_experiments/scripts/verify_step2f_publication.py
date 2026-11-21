@@ -21,6 +21,15 @@ def sha(path):
     with path.open("rb") as f:
         for b in iter(lambda:f.read(1<<20), b""): h.update(b)
     return h.hexdigest()
+def canonical_data_path(value):
+    replacements = {
+        "dataset/birth_to_2_years_longitudinal_improved.csv": "datasets/simulated/longitudinal/birth_to_2_years_longitudinal_improved.csv",
+        "dataset/age_2_to_5_years_longitudinal_improved.csv": "datasets/simulated/longitudinal/age_2_to_5_years_longitudinal_improved.csv",
+        "research_experiments/prepared_data/simulation_train.csv": "datasets/simulated/prepared/simulation_train.csv",
+        "research_experiments/prepared_data/simulation_validation.csv": "datasets/simulated/prepared/simulation_validation.csv",
+        "research_experiments/prepared_data/simulation_test.csv": "datasets/simulated/prepared/simulation_test.csv",
+    }
+    return replacements.get(value, value)
 def dump(path, value):
     path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps(value, indent=2, sort_keys=True, default=str)+"\n", encoding="utf-8")
 def table(headers, rows):
@@ -40,17 +49,17 @@ def main():
     args=ap.parse_args(); root=args.project_root.resolve(); source=root/"research_experiments/outputs"/args.source_run; artifacts=root/"research_experiments/artifacts"/args.source_run
     run=args.run_id or "step2f_"+datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"); out=root/"research_experiments/outputs"/run
     if out.exists(): raise RuntimeError(f"Output already exists: {run}")
-    for d in [out,out/"tables",out/"figures",out/"verification"]: d.mkdir(parents=True)
+    for d in [out, out/"tables", out/"figures", out/"reports", out/"verification"]: d.mkdir(parents=True)
     config=json.loads((source/"experiment_config.json").read_text()); manifest=json.loads((source/"dataset_manifest.json").read_text()); saved_validation=json.loads((source/"validation_metrics.json").read_text()); saved_test=json.loads((source/"test_metrics.json").read_text()); artifact_manifest=json.loads((artifacts/"artifact_manifest.json").read_text())
     # Immutable input / artifact evidence.
     integrity={"source_run":args.source_run,"class_order_matches":config["class_order"]==CLASSES,"target_matches":config["target"]=="predicted_risk_next_2_months","seed":config["seed"],"simulation_only":config["simulation_only"],"prepared_files":{},"artifacts":{},"split_hashes":{},"documented_test_after_selection":saved_test.get("test_opened_after_selection",False)}
     for partition,item in manifest["prepared_files"].items():
-        p=root/item["path"]; integrity["prepared_files"][partition]={"expected_sha256":item["sha256"],"actual_sha256":sha(p),"matches":sha(p)==item["sha256"],"rows":item["rows"]}
-    split_manifest=json.loads((root/"research_experiments/manifests/split_integrity.json").read_text())
-    split_by_path={item["path"]:item for item in split_manifest["datasets"]}
+        p=root/canonical_data_path(item["path"]); integrity["prepared_files"][partition]={"expected_sha256":item["sha256"],"actual_sha256":sha(p),"matches":sha(p)==item["sha256"],"rows":item["rows"]}
+    split_manifest=json.loads((root/"datasets/manifests/split_integrity.json").read_text())
+    split_by_path={canonical_data_path(item["path"]):item for item in split_manifest["datasets"]}
     integrity["source_datasets"]={}
     for item in manifest["source_datasets"]:
-        source_path=root/item["path"]; split=split_by_path[item["path"]]; membership=root/"research_experiments"/split["membership_file"]
+        canonical_path=canonical_data_path(item["path"]); source_path=root/canonical_path; split=split_by_path[canonical_path]; membership=root/split["membership_file"]
         integrity["source_datasets"][item["path"]]={"expected_source_sha256":item["sha256"],"actual_source_sha256":sha(source_path),"source_matches":sha(source_path)==item["sha256"],"expected_membership_sha256":item["membership_sha256"],"actual_membership_sha256":sha(membership),"membership_matches":sha(membership)==item["membership_sha256"]}
         integrity["split_hashes"][item["path"]]=item["membership_sha256"]
     for key,item in artifact_manifest["artifacts"].items():
@@ -59,7 +68,7 @@ def main():
     # Verify group partitions from prepared data (fully namespaced IDs); no source mutation.
     groups={}; partition_summary=[]
     for partition,item in manifest["prepared_files"].items():
-        frame=pd.read_csv(root/item["path"]); ids=set(frame.group_id)
+        frame=pd.read_csv(root/canonical_data_path(item["path"])); ids=set(frame.group_id)
         groups[partition]=ids; partition_summary.append([partition,len(frame),len(ids),item["sha256"]])
     integrity["group_overlap"]={f"{a}_{b}":len(groups[a]&groups[b]) for i,a in enumerate(groups) for b in list(groups)[i+1:]}
     integrity["namespaced_groups"] = all(":" in value for s in groups.values() for value in s)
@@ -90,7 +99,7 @@ def main():
     fig,ax=plt.subplots(figsize=(9,4)); labels=[f"{r.schema}\n{r.model}" for r in comparison.itertuples()]; ax.bar(range(len(comparison)),comparison.macro_f1,color="#1f77b4"); ax.set(xticks=range(len(comparison)),xticklabels=labels,ylabel="Validation macro-F1",ylim=(0,1),title="Validation comparison (simulated/unverified labels)"); plt.setp(ax.get_xticklabels(),rotation=35,ha="right"); fig.tight_layout(); fig.savefig(out/"figures"/"figure2_validation_model_comparison.png",dpi=300); plt.close(fig)
     fig,ax=plt.subplots(figsize=(6,4)); x=np.arange(len(ablation)); width=.35; ax.bar(x-width/2,ablation.no_current_risk,width,label="Without current risk"); ax.bar(x+width/2,ablation.with_current_risk,width,label="With current risk"); ax.set(xticks=x,xticklabels=ablation.model,ylabel="Validation macro-F1",ylim=(0,1),title="Current-risk ablation (simulated labels)"); ax.legend(); fig.tight_layout(); fig.savefig(out/"figures"/"figure3_current_risk_ablation.png",dpi=300); plt.close(fig)
     # Reports.
-    reports=root/"research_experiments/reports"; max_delta=max((x["absolute_difference"] for x in discrepancy),default=0); status="PASS" if max_delta<1e-12 and all(x["saved_matrix_matches"] and x["row_recalls_match"] for x in cm_checks) else "FAIL"
+    reports=out/"reports"; max_delta=max((x["absolute_difference"] for x in discrepancy),default=0); status="PASS" if max_delta<1e-12 and all(x["saved_matrix_matches"] and x["row_recalls_match"] for x in cm_checks) else "FAIL"
     (reports/"18_metric_verification.md").write_text("# Metric Verification\n\n"+f"**Status: {status}.** Independently recalculated metrics from all available saved prediction files match saved metrics; maximum absolute difference: `{max_delta:.12g}`. Current-risk persistence is **NOT VERIFIED** at raw-prediction level because its prediction file was not saved.\n\n"+table(["Experiment","Partition","Rows","Status"],[[k,v.get("partition"),v.get("rows","n/a"),v["status"]] for k,v in recalc.items()])+"\n",encoding="utf-8")
     selected_cm=cm_checks[[x["experiment"] for x in cm_checks].index(test_key)]
     errors=[]

@@ -2,14 +2,14 @@
   "datasets": [
     {
       "grouping_column": null,
-      "path": "dataset/birth_to_2_years_adjusted.csv",
+      "path": "datasets/processed/unverified_static/birth_to_2_years_adjusted.csv",
       "reason": "stable repeated-child IDs with timestamps are not established",
       "seed": 42,
       "status": "blocked"
     },
     {
       "grouping_column": null,
-      "path": "dataset/age_2_to_5_years_adjusted.csv",
+      "path": "datasets/processed/unverified_static/age_2_to_5_years_adjusted.csv",
       "reason": "stable repeated-child IDs with timestamps are not established",
       "seed": 42,
       "status": "blocked"
@@ -17,14 +17,14 @@
     {
       "group_count": 1200,
       "grouping_column": "child_id",
-      "membership_file": "splits/07b8f37c9694_membership.csv",
+      "membership_file": "datasets/splits/07b8f37c9694_membership.csv",
       "overlap_count": 0,
       "partition_groups": {
         "test": 174,
         "train": 836,
         "validation": 190
       },
-      "path": "dataset/birth_to_2_years_longitudinal_improved.csv",
+      "path": "datasets/simulated/longitudinal/birth_to_2_years_longitudinal_improved.csv",
       "reason": "unverified provenance prevents independent clinical-evaluation claims",
       "row_count": 9600,
       "seed": 42,
@@ -34,14 +34,14 @@
     {
       "group_count": 1200,
       "grouping_column": "child_id",
-      "membership_file": "splits/5e6f73824d60_membership.csv",
+      "membership_file": "datasets/splits/5e6f73824d60_membership.csv",
       "overlap_count": 0,
       "partition_groups": {
         "test": 174,
         "train": 836,
         "validation": 190
       },
-      "path": "dataset/age_2_to_5_years_longitudinal_improved.csv",
+      "path": "datasets/simulated/longitudinal/age_2_to_5_years_longitudinal_improved.csv",
       "reason": "unverified provenance prevents independent clinical-evaluation claims",
       "row_count": 9600,
       "seed": 42,

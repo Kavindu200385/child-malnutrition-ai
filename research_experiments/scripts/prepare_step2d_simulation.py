@@ -162,7 +162,7 @@ def main():
     root = args.project_root.resolve()
     config = json.loads((root / args.config).read_text(encoding="utf-8"))
     results = [analyse_dataset(root, spec, config) for spec in config["datasets"]]
-    reports = root / "research_experiments/reports"; manifests = root / "research_experiments/manifests"; prepared = root / "research_experiments/prepared_data"; configs = root / "research_experiments/configs"
+    reports = root / "research_experiments/reports"; manifests = root / "datasets/manifests"; prepared = root / "datasets/simulated/prepared"; configs = root / "research_experiments/configs"
     for directory in (reports, manifests, prepared): directory.mkdir(parents=True, exist_ok=True)
 
     # Audit index does not carry source child IDs.
@@ -233,7 +233,7 @@ def main():
             "integrity": {key: dict(value) if isinstance(value, collections.Counter) else value for key, value in r["integrity"].items()},
             "partitions": dict(r["partitions"]), "membership_issues": r["membership_issues"],
         })
-    write_json(manifests / "step2d_longitudinal_audit.json", {"runtime": runtime_metadata(root), "datasets": audit_datasets, "flagged_index_path": "research_experiments/manifests/step2d_flagged_record_index.csv", "prepared_metadata_path": "research_experiments/manifests/step2d_prepared_dataset_metadata.json"})
+    write_json(manifests / "step2d_longitudinal_audit.json", {"runtime": runtime_metadata(root), "datasets": audit_datasets, "flagged_index_path": "datasets/manifests/step2d_flagged_record_index.csv", "prepared_metadata_path": "datasets/manifests/step2d_prepared_dataset_metadata.json"})
 
 
 if __name__ == "__main__":

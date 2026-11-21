@@ -2,6 +2,13 @@ import os
 import re
 from datetime import timedelta
 
+from dotenv import load_dotenv
+
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
 # Default SQLite fallback location (works without MySQL for local dev)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")

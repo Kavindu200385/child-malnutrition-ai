@@ -15,8 +15,9 @@ TARGET_NAMES = {"Final_Decision", "Target", "predicted_risk_next_2_months", "Was
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
-    parser.add_argument("--config", type=Path, default=Path("research_experiments/configs/dataset_registry.json"))
-    parser.add_argument("--output-root", type=Path, default=Path("research_experiments"))
+    parser.add_argument("--config", type=Path, default=Path("datasets/manifests/dataset_registry.json"))
+    parser.add_argument("--manifest-root", type=Path, default=Path("datasets/manifests"))
+    parser.add_argument("--report-root", type=Path, default=Path("research_experiments/reports"))
     args = parser.parse_args()
     root = args.project_root.resolve()
     registry = json.loads((root / args.config).read_text(encoding="utf-8"))["datasets"]
@@ -46,10 +47,10 @@ def main():
         class_summary = "; ".join(f"{name}: {', '.join(distributions[name])}" for name in present)
         rows_for_report.append([entry["path"], ", ".join(present) or "none", class_summary or "none", "yes" if overlap else "no", "possible" if rule_derived_indicator else "not established", "; ".join(findings) or "none"])
     payload = {"runtime": runtime_metadata(root), "datasets": audit, "policy": "No target labels were changed or treated as clinical ground truth."}
-    write_json(root / args.output_root / "manifests" / "target_label_audit.json", payload)
+    write_json(root / args.manifest_root / "target_label_audit.json", payload)
     report = "# Target Label Audit\n\n" + markdown_table(["Dataset", "Target/status columns", "Observed classes", "Condition overlap", "Rule-derived indicator", "Findings"], rows_for_report)
     report += "\n\nNo documented label mapping was recovered. Co-occurrence and rule-derived indicators are audit findings, not proof of a clinical label definition.\n"
-    out = root / args.output_root / "reports" / "03_target_label_audit.md"
+    out = root / args.report_root / "03_target_label_audit.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report, encoding="utf-8")
 

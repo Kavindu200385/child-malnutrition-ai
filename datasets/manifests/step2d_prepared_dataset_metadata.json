@@ -17,17 +17,17 @@
   "flagged_records": 1276,
   "prepared_files": {
     "test": {
-      "path": "research_experiments/prepared_data/simulation_test.csv",
+      "path": "datasets/simulated/prepared/simulation_test.csv",
       "rows": 2784,
       "sha256": "6c4f3ad9eeb534250b9fa0ea98958029146423781939aa9629c6d01333458233"
     },
     "train": {
-      "path": "research_experiments/prepared_data/simulation_train.csv",
+      "path": "datasets/simulated/prepared/simulation_train.csv",
       "rows": 13376,
       "sha256": "564dfbc8008fc3bd8cd9c351ce30768613e0107e859f4bb4eaca6dcbf1cb3d08"
     },
     "validation": {
-      "path": "research_experiments/prepared_data/simulation_validation.csv",
+      "path": "datasets/simulated/prepared/simulation_validation.csv",
       "rows": 3040,
       "sha256": "a58f3bcfe4a36f3368bbe5b2ed8fa3a4d322232eef6371381d526afe0e90f83f"
     }
@@ -44,7 +44,7 @@
       "cohort": "birth_to_2_as_recorded",
       "flagged": 0,
       "membership_sha256": "4aec6adff7708c534700b8cfd6c8594aa89cb8a579e9a15074435700e0650989",
-      "path": "dataset/birth_to_2_years_longitudinal_improved.csv",
+      "path": "datasets/simulated/longitudinal/birth_to_2_years_longitudinal_improved.csv",
       "provenance": "unverified",
       "rows": 9600,
       "sha256": "f6d21fde2f47ee876e82e4e805dcd87ac2ea674beee9c30879f2f2459dd19696"
@@ -53,7 +53,7 @@
       "cohort": "older_as_recorded_24_to_72_months",
       "flagged": 1276,
       "membership_sha256": "d300323b1e8032cd43179ed7e1c6936637dcc9ec36e295546b00b9763c6606ea",
-      "path": "dataset/age_2_to_5_years_longitudinal_improved.csv",
+      "path": "datasets/simulated/longitudinal/age_2_to_5_years_longitudinal_improved.csv",
       "provenance": "unverified",
       "rows": 9600,
       "sha256": "ec7421638c895248a30c62290dfc6a27438b24df724144621edcd2bdfacbf5d3"

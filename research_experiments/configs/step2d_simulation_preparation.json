@@ -14,17 +14,17 @@
   },
   "datasets": [
     {
-      "path": "dataset/birth_to_2_years_longitudinal_improved.csv",
+      "path": "datasets/simulated/longitudinal/birth_to_2_years_longitudinal_improved.csv",
       "cohort": "birth_to_2_as_recorded",
       "recorded_age_range_months": [0, 24],
-      "membership_file": "research_experiments/splits/07b8f37c9694_membership.csv",
+      "membership_file": "datasets/splits/07b8f37c9694_membership.csv",
       "expected_source_sha256": "f6d21fde2f47ee876e82e4e805dcd87ac2ea674beee9c30879f2f2459dd19696"
     },
     {
-      "path": "dataset/age_2_to_5_years_longitudinal_improved.csv",
+      "path": "datasets/simulated/longitudinal/age_2_to_5_years_longitudinal_improved.csv",
       "cohort": "older_as_recorded_24_to_72_months",
       "recorded_age_range_months": [24, 72],
-      "membership_file": "research_experiments/splits/5e6f73824d60_membership.csv",
+      "membership_file": "datasets/splits/5e6f73824d60_membership.csv",
       "expected_source_sha256": "ec7421638c895248a30c62290dfc6a27438b24df724144621edcd2bdfacbf5d3"
     }
   ]

@@ -149,7 +149,7 @@ def environment(root: Path):
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("--project-root", type=Path, default=Path.cwd()); parser.add_argument("--run-id")
     args = parser.parse_args(); root = args.project_root.resolve()
-    metadata = json.loads((root / "research_experiments/manifests/step2d_prepared_dataset_metadata.json").read_text())
+    metadata = json.loads((root / "datasets/manifests/step2d_prepared_dataset_metadata.json").read_text())
     integrity_gate(root, metadata)
     run_id = args.run_id or "step2e_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out = root / "research_experiments/outputs" / run_id; art = root / "research_experiments/artifacts" / run_id

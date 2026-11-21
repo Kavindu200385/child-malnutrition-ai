@@ -71,7 +71,7 @@
         "Z-score and target columns coexist; label derivation requires verification",
         "target provenance is unverified"
       ],
-      "path": "dataset/birth_to_2_years_adjusted.csv",
+      "path": "datasets/processed/unverified_static/birth_to_2_years_adjusted.csv",
       "rule_derived_indicator": true,
       "target_columns": [
         "Final_Decision",
@@ -159,7 +159,7 @@
         "Z-score and target columns coexist; label derivation requires verification",
         "target provenance is unverified"
       ],
-      "path": "dataset/age_2_to_5_years_adjusted.csv",
+      "path": "datasets/processed/unverified_static/age_2_to_5_years_adjusted.csv",
       "rule_derived_indicator": true,
       "target_columns": [
         "Final_Decision",
@@ -189,7 +189,7 @@
       "findings": [
         "target provenance is unverified"
       ],
-      "path": "dataset/birth_to_2_years_longitudinal_improved.csv",
+      "path": "datasets/simulated/longitudinal/birth_to_2_years_longitudinal_improved.csv",
       "rule_derived_indicator": false,
       "target_columns": [
         "current_risk",
@@ -216,7 +216,7 @@
       "findings": [
         "target provenance is unverified"
       ],
-      "path": "dataset/age_2_to_5_years_longitudinal_improved.csv",
+      "path": "datasets/simulated/longitudinal/age_2_to_5_years_longitudinal_improved.csv",
       "rule_derived_indicator": false,
       "target_columns": [
         "current_risk",
@@ -312,8 +312,8 @@
   "policy": "No target labels were changed or treated as clinical ground truth.",
   "runtime": {
     "dependencies": "Python standard library only; no ML package imported",
-    "generated_at_utc": "2026-11-20T00:05:55.335901+00:00",
-    "git_revision": "180897bb952655753acdb285be347bac05251029",
+    "generated_at_utc": "2026-11-21T05:33:37.001379+00:00",
+    "git_revision": "418e951766aef74703d26f9cc7a7eed2798601c2",
     "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
     "python_version": "3.14.0 (v3.14.0:ebf955df7a8, Oct  7 2025, 08:20:14) [Clang 16.0.0 (clang-1600.0.26.6)]"
   }

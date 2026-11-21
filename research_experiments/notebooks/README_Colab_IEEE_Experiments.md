@@ -8,10 +8,10 @@ From the repository root, create an archive that preserves paths beginning with 
 
 ```bash
 zip -r CMRAS_Colab_Input.zip \
-  research_experiments/prepared_data \
-  research_experiments/manifests/step2d_prepared_dataset_metadata.json \
-  research_experiments/manifests/split_integrity.json \
-  research_experiments/splits \
+  datasets/simulated/prepared \
+  datasets/manifests/step2d_prepared_dataset_metadata.json \
+  datasets/manifests/split_integrity.json \
+  datasets/splits \
   research_experiments/configs/step2d_simulation_training_draft.json \
   research_experiments/outputs/step2e_20261120T154822Z/experiment_config.json \
   research_experiments/outputs/step2e_20261120T154822Z/validation_metrics.json \

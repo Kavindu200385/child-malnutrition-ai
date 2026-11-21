@@ -103,18 +103,19 @@ def validate(entry: dict, root: Path) -> dict:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
-    parser.add_argument("--config", type=Path, default=Path("research_experiments/configs/dataset_registry.json"))
-    parser.add_argument("--output-root", type=Path, default=Path("research_experiments"))
+    parser.add_argument("--config", type=Path, default=Path("datasets/manifests/dataset_registry.json"))
+    parser.add_argument("--manifest-root", type=Path, default=Path("datasets/manifests"))
+    parser.add_argument("--report-root", type=Path, default=Path("research_experiments/reports"))
     args = parser.parse_args()
     root = args.project_root.resolve()
     config = json.loads((root / args.config).read_text(encoding="utf-8"))
     datasets = [validate(entry, root) for entry in config["datasets"]]
     payload = {"runtime": runtime_metadata(root), "datasets": datasets}
-    write_json(root / args.output_root / "manifests" / "dataset_validation.json", payload)
+    write_json(root / args.manifest_root / "dataset_validation.json", payload)
     rows = [[d["path"], d.get("row_count", "n/a"), d.get("target_column") or "none", d["provenance_status"], d["duplicate_rows"] if d["exists"] else "n/a", sum(d.get("implausible_measurement_flags", {}).values()), d.get("chronology_flags", "n/a"), "; ".join(d["flags"]) or "none"] for d in datasets]
     report = "# Dataset Validation Results\n\n" + markdown_table(["Dataset", "Rows", "Target", "Provenance", "Exact duplicates", "Plausibility flags", "Chronology flags", "Flags"], rows)
     report += "\n\nAll suspicious values are flags only; no input record was modified, removed, imputed, or relabelled. Units are inferred from column names and remain unverified.\n"
-    target = root / args.output_root / "reports" / "01_dataset_validation_results.md"
+    target = root / args.report_root / "01_dataset_validation_results.md"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(report, encoding="utf-8")
 

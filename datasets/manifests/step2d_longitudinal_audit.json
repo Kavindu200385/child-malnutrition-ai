@@ -125,7 +125,7 @@
         "train": 6688,
         "validation": 1520
       },
-      "path": "dataset/birth_to_2_years_longitudinal_improved.csv",
+      "path": "datasets/simulated/longitudinal/birth_to_2_years_longitudinal_improved.csv",
       "ranges": {
         "age_months": [
           0.0,
@@ -274,7 +274,7 @@
         "train": 6688,
         "validation": 1520
       },
-      "path": "dataset/age_2_to_5_years_longitudinal_improved.csv",
+      "path": "datasets/simulated/longitudinal/age_2_to_5_years_longitudinal_improved.csv",
       "ranges": {
         "age_months": [
           24.0,
@@ -297,8 +297,8 @@
       "source_sha256": "ec7421638c895248a30c62290dfc6a27438b24df724144621edcd2bdfacbf5d3"
     }
   ],
-  "flagged_index_path": "research_experiments/manifests/step2d_flagged_record_index.csv",
-  "prepared_metadata_path": "research_experiments/manifests/step2d_prepared_dataset_metadata.json",
+  "flagged_index_path": "datasets/manifests/step2d_flagged_record_index.csv",
+  "prepared_metadata_path": "datasets/manifests/step2d_prepared_dataset_metadata.json",
   "runtime": {
     "dependencies": "Python standard library only; no ML package imported",
     "generated_at_utc": "2026-11-20T15:14:33.627269+00:00",
