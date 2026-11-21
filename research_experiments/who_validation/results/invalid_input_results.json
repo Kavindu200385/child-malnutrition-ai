@@ -1,0 +1,52 @@
+[
+  {
+    "case": "invalid_sex",
+    "error": "Gender must be one of: male, female, M, F, boy, or girl.",
+    "raises": true
+  },
+  {
+    "case": "negative_age",
+    "raises": false,
+    "result": [
+      5.0,
+      5.0,
+      0.813
+    ]
+  },
+  {
+    "case": "over_60_months",
+    "raises": false,
+    "result": [
+      -0.113,
+      0.153,
+      1.885
+    ]
+  },
+  {
+    "case": "zero_weight",
+    "raises": false,
+    "result": [
+      -5.0,
+      -0.315,
+      -5.0
+    ]
+  },
+  {
+    "case": "height_below_wfh_table",
+    "raises": false,
+    "result": [
+      -1.892,
+      -5.0,
+      5.0
+    ]
+  },
+  {
+    "case": "height_above_wfh_table",
+    "raises": false,
+    "result": [
+      -0.715,
+      2.289,
+      -0.265
+    ]
+  }
+]

@@ -82,7 +82,7 @@ export function MohHighRiskChildrenView({ onViewChild }: MohHighRiskChildrenView
         <div>
           <h2 className="text-2xl font-bold text-gray-900">High-Risk Children Under Midwife Care</h2>
           <p className="text-gray-600 mt-1">
-            MAM/SAM children in your area under midwife care. Transfer to MOH for closer monitoring.
+            Children with recorded legacy high-risk labels under midwife care. Transfers require clinical review and are not determined by this label alone.
           </p>
         </div>
         <button
@@ -106,7 +106,7 @@ export function MohHighRiskChildrenView({ onViewChild }: MohHighRiskChildrenView
         <div className="bg-white rounded-lg shadow p-10 text-center">
           <AlertTriangle className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">No high-risk children under midwife care.</p>
-          <p className="text-sm text-gray-400 mt-1">All MAM/SAM children are already with MOH or there are no cases.</p>
+          <p className="text-sm text-gray-400 mt-1">There are no children with recorded legacy high-risk labels awaiting MOH review.</p>
         </div>
       )}
 

@@ -5,6 +5,7 @@ Complete redesign with 5-level hierarchy and strict RBAC
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Optional, List
 from enum import Enum
 
@@ -20,6 +21,8 @@ from backend.services.encryption_service import (
     EncryptedJSON,
     EncryptedText,
 )
+from backend.utils.current_status import assess_current_nutritional_status
+from backend.utils.risk_status import muac_assessment, normalize_current_status, normalize_future_risk
 
 
 # ============================================================================
@@ -368,6 +371,9 @@ class Hospital(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     hospital_name = db.Column(db.String(200), nullable=False, index=True)
     hospital_code = db.Column(db.String(20), unique=True, nullable=False, index=True)  # e.g., CMBH, GMPH
+    # Canonical geography.  Text district/province values are retained as
+    # denormalized display snapshots for legacy integrations.
+    district_area_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=True, index=True)
     district = db.Column(db.String(120), nullable=True, index=True)
     province = db.Column(db.String(120), nullable=True)
     address = db.Column(db.Text, nullable=True)
@@ -382,6 +388,7 @@ class Hospital(db.Model):
 
     # Relationships
     children = relationship("Child", back_populates="hospital")
+    district_area = relationship("Area", foreign_keys=[district_area_id])
     # users relationship removed - users are linked via WorkerAreaMapping instead
 
     def to_dict(self) -> dict:
@@ -389,6 +396,7 @@ class Hospital(db.Model):
             "id": self.id,
             "hospital_name": self.hospital_name,
             "hospital_code": self.hospital_code,
+            "district_area_id": self.district_area_id,
             "district": self.district,
             "province": self.province,
             "address": self.address,
@@ -492,19 +500,129 @@ class Child(db.Model):
     measurements = relationship("Measurement", back_populates="child", lazy=True, order_by="Measurement.measurement_date.desc()")
 
     def latest_predicted_risk_next_2_months(self) -> str | None:
+        risk = self.latest_assessment_summary()["future_predicted_risk"]
+        return None if risk == "NOT AVAILABLE" else risk
+
+    def latest_assessment_summary(self) -> dict:
         candidates = []
         for measurement in self.measurements:
-            if measurement.predicted_risk_next_2_months:
-                candidates.append((measurement.measurement_date, measurement.predicted_risk_next_2_months))
+            if measurement.current_nutritional_status or measurement.risk_level or measurement.future_predicted_risk or measurement.predicted_risk_next_2_months:
+                candidates.append((measurement.measurement_date, measurement))
         for visit in self.visits:
-            if visit.predicted_risk_next_2_months:
-                candidates.append((visit.visit_date, visit.predicted_risk_next_2_months))
+            if visit.current_nutritional_status or visit.current_risk or visit.future_predicted_risk or visit.predicted_risk_next_2_months:
+                candidates.append((visit.visit_date, visit))
         if not candidates:
-            return None
+            current_status = normalize_current_status(self.current_risk_level or self.birth_risk_level)
+            return {
+                "current_nutritional_status": current_status,
+                "underweight_status": None,
+                "stunting_status": None,
+                "wasting_status": None,
+                "muac_status": "Not Recorded",
+                "edema_status": "Not Recorded",
+                "current_status_breakdown": None,
+                "future_predicted_risk": "NOT AVAILABLE",
+                "future_risk_confidence": None,
+                "prediction_timestamp": None,
+                "model_version": None,
+                "training_dataset_version": None,
+                "explanation_factors": None,
+                "clinical_action_required": current_status in {"SAM", "SEVERE STUNTING", "SEVERE UNDERWEIGHT", "NEEDS CLINICAL REVIEW"},
+                "clinical_review_reason": None,
+            }
         candidates.sort(key=lambda item: item[0] or datetime.min, reverse=True)
-        return candidates[0][1]
+        latest = candidates[0][1]
+        current_status = getattr(latest, "current_nutritional_status", None) or getattr(latest, "risk_level", None) or getattr(latest, "current_risk", None)
+        future_risk = getattr(latest, "future_predicted_risk", None) or getattr(latest, "predicted_risk_next_2_months", None)
+        confidence = getattr(latest, "future_risk_confidence", None)
+        if confidence is None:
+            confidence = getattr(latest, "model_confidence", None)
+        timestamp = getattr(latest, "prediction_timestamp", None) or getattr(latest, "measurement_date", None) or getattr(latest, "visit_date", None)
+        breakdown = getattr(latest, "current_status_breakdown", None)
+        if breakdown:
+            try:
+                breakdown = json.loads(breakdown) if isinstance(breakdown, str) else breakdown
+            except (TypeError, ValueError):
+                breakdown = None
+        explanation_factors = getattr(latest, "explanation_factors", None)
+        if explanation_factors:
+            try:
+                explanation_factors = json.loads(explanation_factors) if isinstance(explanation_factors, str) else explanation_factors
+            except (TypeError, ValueError):
+                explanation_factors = None
+
+        underweight_status = getattr(latest, "underweight_status", None)
+        stunting_status = getattr(latest, "stunting_status", None)
+        wasting_status = getattr(latest, "wasting_status", None)
+        muac_status = getattr(latest, "muac_status", None)
+        edema_status = getattr(latest, "edema_status", None)
+        derived_assessment = None
+
+        # Legacy rows may contain only risk_level/current_risk. Reconstruct the
+        # WHO rule-based breakdown from stored Z-scores or the raw measurement.
+        if not breakdown or not all((underweight_status, stunting_status, wasting_status)):
+            z_wfa = getattr(latest, "z_score_wfa", None)
+            z_hfa = getattr(latest, "z_score_hfa", None)
+            z_wfh = getattr(latest, "z_score_wfh", None)
+            if z_wfa is None:
+                z_wfa = getattr(latest, "z_wfa", None)
+            if z_hfa is None:
+                z_hfa = getattr(latest, "z_hfa", None)
+            if z_wfh is None:
+                z_wfh = getattr(latest, "z_wfh", None)
+
+            # Historical rows are immutable evidence.  Do not recompute absent
+            # scores because their original method/date provenance may be absent.
+
+            if muac_status is None:
+                muac_value = getattr(latest, "muac_cm", None)
+                muac_status = muac_assessment(muac_value)[1] if muac_value is not None else "Not Recorded"
+            if edema_status is None:
+                edema_present = getattr(latest, "edema_present", None)
+                edema_status = "Edema Present" if edema_present is True else "No Edema" if edema_present is False else "Not Recorded"
+
+            if any(value is not None for value in (z_wfa, z_hfa, z_wfh)):
+                derived_assessment = assess_current_nutritional_status(
+                    z_score_wfa=float(z_wfa) if z_wfa is not None else None,
+                    z_score_hfa=float(z_hfa) if z_hfa is not None else None,
+                    z_score_wfh=float(z_wfh) if z_wfh is not None else None,
+                    muac_status=muac_status,
+                    edema_status=edema_status,
+                )
+                current_status = derived_assessment["current_nutritional_status"]
+                underweight_status = derived_assessment["underweight_status"]
+                stunting_status = derived_assessment["stunting_status"]
+                wasting_status = derived_assessment["wasting_status"]
+                muac_status = derived_assessment["muac_status"]
+                edema_status = derived_assessment["edema_status"]
+                breakdown = derived_assessment["current_status_breakdown"]
+
+        return {
+            "current_nutritional_status": normalize_current_status(current_status),
+            "underweight_status": underweight_status,
+            "stunting_status": stunting_status,
+            "wasting_status": wasting_status,
+            "muac_status": muac_status or "Not Recorded",
+            "edema_status": edema_status or "Not Recorded",
+            "current_status_breakdown": breakdown,
+            "future_predicted_risk": normalize_future_risk(future_risk),
+            "future_risk_confidence": float(confidence) if confidence is not None else None,
+            "prediction_timestamp": timestamp.isoformat() if timestamp else None,
+            "model_version": getattr(latest, "model_version", None),
+            "training_dataset_version": getattr(latest, "training_dataset_version", None),
+            "explanation_factors": explanation_factors,
+            "clinical_action_required": bool(
+                getattr(latest, "clinical_action_required", False)
+                or (derived_assessment and derived_assessment["clinical_action_required"])
+            ),
+            "clinical_review_reason": (
+                getattr(latest, "clinical_review_reason", None)
+                or (derived_assessment and derived_assessment["clinical_review_reason"])
+            ),
+        }
 
     def to_dict(self, include_visits: bool = False, include_transfers: bool = False, include_referrals: bool = False, include_escalations: bool = False) -> dict:
+        latest_assessment = self.latest_assessment_summary()
         latest_predicted_risk = self.latest_predicted_risk_next_2_months()
         data = {
             "id": self.id,
@@ -542,8 +660,15 @@ class Child(db.Model):
             "current_assigned_area": self.current_assigned_area.to_dict() if self.current_assigned_area else None,
             "current_assigned_user_id": self.current_assigned_user_id,
             "current_risk_level": self.current_risk_level,
-            "predicted_risk_next_2_months": latest_predicted_risk,
-            "latest_predicted_risk_next_2_months": latest_predicted_risk,
+            "current_nutritional_status": latest_assessment["current_nutritional_status"],
+            "underweight_status": latest_assessment["underweight_status"],
+            "stunting_status": latest_assessment["stunting_status"],
+            "wasting_status": latest_assessment["wasting_status"],
+            "muac_status": latest_assessment["muac_status"],
+            "edema_status": latest_assessment["edema_status"],
+            "current_status_breakdown": latest_assessment["current_status_breakdown"],
+            "clinical_action_required": latest_assessment["clinical_action_required"],
+            "clinical_review_reason": latest_assessment["clinical_review_reason"],
             "last_risk_update": self.last_risk_update.isoformat() if self.last_risk_update else None,
             "is_draft": self.is_draft,
             "status": self.status,
@@ -582,16 +707,33 @@ class Measurement(db.Model):
     weight_kg = db.Column(EncryptedDecimal(scale=2), nullable=False)
     height_cm = db.Column(EncryptedDecimal(scale=1), nullable=False)
     muac_cm = db.Column(EncryptedDecimal(scale=1), nullable=True)
+    muac_status = db.Column(db.String(40), nullable=True)
+    edema_present = db.Column(db.Boolean, nullable=True)
+    edema_status = db.Column(db.String(60), nullable=True)
+    measurement_method = db.Column(db.String(32), nullable=True)
     
     # Calculated Z-scores
     z_score_wfa = db.Column(EncryptedDecimal(scale=2), nullable=True)  # Weight-for-age
     z_score_hfa = db.Column(EncryptedDecimal(scale=2), nullable=True)  # Height-for-age
     z_score_wfh = db.Column(EncryptedDecimal(scale=2), nullable=True)  # Weight-for-height
+    underweight_status = db.Column(db.String(40), nullable=True)
+    stunting_status = db.Column(db.String(40), nullable=True)
+    wasting_status = db.Column(db.String(40), nullable=True)
+    current_status_breakdown = db.Column(db.Text, nullable=True)
     
-    # AI analysis results
+    # Nutritional assessment results
     risk_level = db.Column(db.String(20), nullable=True, index=True)  # NORMAL, MAM, SAM
     predicted_risk_next_2_months = db.Column(db.String(20), nullable=True)
     model_confidence = db.Column(EncryptedDecimal(scale=2), nullable=True)
+    current_nutritional_status = db.Column(db.String(40), nullable=True, index=True)
+    future_predicted_risk = db.Column(db.String(40), nullable=True, index=True)
+    future_risk_confidence = db.Column(EncryptedDecimal(scale=2), nullable=True)
+    prediction_timestamp = db.Column(db.DateTime, nullable=True)
+    model_version = db.Column(db.String(120), nullable=True)
+    training_dataset_version = db.Column(db.String(120), nullable=True)
+    explanation_factors = db.Column(db.Text, nullable=True)
+    clinical_action_required = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    clinical_review_reason = db.Column(db.Text, nullable=True)
     
     # Measured by (midwife who collected the clinic data)
     measured_by_user_id = db.Column(db.Integer, ForeignKey("users.id"), nullable=False, index=True)
@@ -607,19 +749,40 @@ class Measurement(db.Model):
     measured_by = relationship("User", foreign_keys=[measured_by_user_id], back_populates="created_measurements")
 
     def to_dict(self) -> dict:
+        breakdown = None
+        if self.current_status_breakdown:
+            try:
+                breakdown = json.loads(self.current_status_breakdown)
+            except (TypeError, ValueError):
+                breakdown = None
+        explanation_factors = None
+        if self.explanation_factors:
+            try:
+                explanation_factors = json.loads(self.explanation_factors)
+            except (TypeError, ValueError):
+                explanation_factors = None
         return {
             "id": self.id,
             "child_id": self.child_id,
             "measurement_date": self.measurement_date.isoformat() if self.measurement_date else None,
             "weight_kg": float(self.weight_kg) if self.weight_kg else None,
             "height_cm": float(self.height_cm) if self.height_cm else None,
-            "muac_cm": float(self.muac_cm) if self.muac_cm else None,
+            "muac_cm": float(self.muac_cm) if self.muac_cm is not None else None,
+            "muac_status": self.muac_status or (muac_assessment(self.muac_cm)[1] if self.muac_cm is not None else "Not Recorded"),
+            "edema_present": self.edema_present,
+            "edema_status": self.edema_status or "Not Recorded",
+            "measurement_method": self.measurement_method,
             "z_score_wfa": float(self.z_score_wfa) if self.z_score_wfa else None,
             "z_score_hfa": float(self.z_score_hfa) if self.z_score_hfa else None,
             "z_score_wfh": float(self.z_score_wfh) if self.z_score_wfh else None,
+            "underweight_status": self.underweight_status,
+            "stunting_status": self.stunting_status,
+            "wasting_status": self.wasting_status,
             "risk_level": self.risk_level,
-            "predicted_risk_next_2_months": self.predicted_risk_next_2_months,
-            "model_confidence": float(self.model_confidence) if self.model_confidence else None,
+            "current_nutritional_status": normalize_current_status(self.current_nutritional_status or self.risk_level),
+            "current_status_breakdown": breakdown,
+            "clinical_action_required": bool(self.clinical_action_required),
+            "clinical_review_reason": self.clinical_review_reason,
             "measured_by_user_id": self.measured_by_user_id,
             "measured_by": self.measured_by.to_dict() if self.measured_by else None,
             "notes": self.notes,
@@ -1099,16 +1262,34 @@ class Visit(db.Model):
     sex = db.Column(db.String(2), nullable=False)  # 'M' | 'F'
     weight_kg = db.Column(EncryptedFloat, nullable=False)
     height_cm = db.Column(EncryptedFloat, nullable=False)
+    muac_cm = db.Column(EncryptedFloat, nullable=True)
+    muac_status = db.Column(db.String(40), nullable=True)
+    edema_present = db.Column(db.Boolean, nullable=True)
+    edema_status = db.Column(db.String(60), nullable=True)
+    measurement_method = db.Column(db.String(32), nullable=True)
 
     # Z-scores
     z_wfa = db.Column(EncryptedFloat, nullable=True)
     z_hfa = db.Column(EncryptedFloat, nullable=True)
     z_wfh = db.Column(EncryptedFloat, nullable=True)
+    underweight_status = db.Column(db.String(40), nullable=True)
+    stunting_status = db.Column(db.String(40), nullable=True)
+    wasting_status = db.Column(db.String(40), nullable=True)
+    current_status_breakdown = db.Column(db.Text, nullable=True)
 
     # Risk assessment
     current_risk = db.Column(db.String(32), nullable=True)  # NORMAL/MODERATE/HIGH/CRITICAL
     predicted_risk_next_2_months = db.Column(db.String(16), nullable=True)  # Low/Moderate/High/Severe
     model_confidence = db.Column(EncryptedFloat, nullable=True)
+    current_nutritional_status = db.Column(db.String(40), nullable=True, index=True)
+    future_predicted_risk = db.Column(db.String(40), nullable=True, index=True)
+    future_risk_confidence = db.Column(EncryptedFloat, nullable=True)
+    prediction_timestamp = db.Column(db.DateTime, nullable=True)
+    model_version = db.Column(db.String(120), nullable=True)
+    training_dataset_version = db.Column(db.String(120), nullable=True)
+    explanation_factors = db.Column(db.Text, nullable=True)
+    clinical_action_required = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    clinical_review_reason = db.Column(db.Text, nullable=True)
 
     # Additional notes
     notes = db.Column(EncryptedText, nullable=True)
@@ -1121,6 +1302,18 @@ class Visit(db.Model):
     created_by_user = relationship("User", foreign_keys=[created_by_user_id], back_populates="created_visits")
 
     def to_dict(self) -> dict:
+        breakdown = None
+        if self.current_status_breakdown:
+            try:
+                breakdown = json.loads(self.current_status_breakdown)
+            except (TypeError, ValueError):
+                breakdown = None
+        explanation_factors = None
+        if self.explanation_factors:
+            try:
+                explanation_factors = json.loads(self.explanation_factors)
+            except (TypeError, ValueError):
+                explanation_factors = None
         return {
             "id": self.id,
             "child_id": self.child_id_fk,
@@ -1129,12 +1322,22 @@ class Visit(db.Model):
             "sex": self.sex,
             "weight_kg": self.weight_kg,
             "height_cm": self.height_cm,
+            "muac_cm": self.muac_cm,
+            "muac_status": self.muac_status or (muac_assessment(self.muac_cm)[1] if self.muac_cm is not None else "Not Recorded"),
+            "edema_present": self.edema_present,
+            "edema_status": self.edema_status or "Not Recorded",
+            "measurement_method": self.measurement_method,
             "z_wfa": self.z_wfa,
             "z_hfa": self.z_hfa,
             "z_wfh": self.z_wfh,
+            "underweight_status": self.underweight_status,
+            "stunting_status": self.stunting_status,
+            "wasting_status": self.wasting_status,
             "current_risk": self.current_risk,
-            "predicted_risk_next_2_months": self.predicted_risk_next_2_months,
-            "model_confidence": self.model_confidence,
+            "current_nutritional_status": normalize_current_status(self.current_nutritional_status or self.current_risk),
+            "current_status_breakdown": breakdown,
+            "clinical_action_required": bool(self.clinical_action_required),
+            "clinical_review_reason": self.clinical_review_reason,
             "notes": self.notes,
             "created_by_user_id": self.created_by_user_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,

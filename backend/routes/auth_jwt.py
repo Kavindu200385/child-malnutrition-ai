@@ -16,15 +16,6 @@ bp = Blueprint("auth_jwt", __name__, url_prefix="/api/auth")
 
 OTP_EXPIRY_MINUTES = 5
 OTP_MAX_ATTEMPTS = 5
-OTP_ADMIN_BYPASS_ROLES = {
-    "superadmin",
-    "super_admin",
-    "system_developer",
-    "system developer",
-    "admin",
-    "administrator",
-    "health_ministry",
-}
 
 
 def _request_ip():
@@ -49,12 +40,10 @@ def _issue_login_response(user: User):
 
 
 def _can_bypass_login_otp(user: User) -> bool:
-    if getattr(user, "is_protected", False):
-        return True
-    superadmin_username = current_app.config.get("SUPERADMIN_USERNAME") or "superadmin"
-    if (user.username or "").strip().lower() == str(superadmin_username).strip().lower():
-        return True
-    return (user.role or "").strip().lower() in OTP_ADMIN_BYPASS_ROLES
+    # No production account, including protected administrators, bypasses 2FA.
+    # Keeping this helper makes the policy explicit and prevents role aliases
+    # from accidentally becoming authentication exceptions later.
+    return False
 
 
 def _generate_otp() -> str:

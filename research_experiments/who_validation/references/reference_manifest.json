@@ -1,0 +1,50 @@
+{
+  "files": [
+    {
+      "filename": "wfa_girls_0_5_zscores.xlsx",
+      "sha256": "01e9a6fda2f3723dbc74d3c86bfbfcb9f6d474367d1d7b4a804501a2debd2ef1",
+      "source_url": "https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/weight-for-age/wfa_girls_0-to-5-years_zscores.xlsx?sfvrsn=4c03b8db_7"
+    },
+    {
+      "filename": "wfa_boys_0_5_zscores.xlsx",
+      "sha256": "f8f5a77b944ff7a8c1524e76f9d33f8a93cc423d23c2e7f2b10ba6b96a428e69",
+      "source_url": "https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/weight-for-age/wfa_boys_0-to-5-years_zscores.xlsx?sfvrsn=97a05331_9"
+    },
+    {
+      "filename": "lhfa_girls_expanded.xlsx",
+      "sha256": "6aa2876319449a6b1f4d825848128902114ff53c67b92b86a0c5140846013059",
+      "source_url": "https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/length-height-for-age/expandable-tables/lhfa-girls-zscore-expanded-tables.xlsx?sfvrsn=27f1e2cb_10"
+    },
+    {
+      "filename": "lhfa_boys_expanded.xlsx",
+      "sha256": "c4b1c9029ab9751a5f0888e32f35c7c0287a16d361885cf911ecf23b3f7f6b4f",
+      "source_url": "https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/length-height-for-age/expandable-tables/lhfa-boys-zscore-expanded-tables.xlsx?sfvrsn=7b4a3428_12"
+    },
+    {
+      "filename": "wfl_girls_expanded.xlsx",
+      "sha256": "ec116b8e618ad311d34a87231346badf16c75f5c4f82222ec846e05c582bf16a",
+      "source_url": "https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/weight-for-length-height/expanded-tables/wfl-girls-zscore-expanded-table.xlsx?sfvrsn=db7b5d6b_8"
+    },
+    {
+      "filename": "wfl_boys_expanded.xlsx",
+      "sha256": "1a6e9a002d2692d038161bc6572a10f8b9fa0657163808141d2981a2132c59cc",
+      "source_url": "https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/weight-for-length-height/expanded-tables/wfl-boys-zscore-expanded-table.xlsx?sfvrsn=d307434f_8"
+    },
+    {
+      "filename": "wfh_girls_expanded.xlsx",
+      "sha256": "fca340d5f04aa1556ac410b176b65b290e1b9ff467fc854a97f9b54ad94c9b8a",
+      "source_url": "https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/weight-for-length-height/expanded-tables/wfh-girls-zscore-expanded-tables.xlsx?sfvrsn=daac732c_8"
+    },
+    {
+      "filename": "wfh_boys_expanded.xlsx",
+      "sha256": "ed3b590f9c65937a138408b13618f33684bb6406a0c56d6a2ce3fd9053a3f59f",
+      "source_url": "https://cdn.who.int/media/docs/default-source/child-growth/child-growth-standards/indicators/weight-for-length-height/expanded-tables/wfh-boys-zscore-expanded-tables.xlsx?sfvrsn=ac60cb13_8"
+    }
+  ],
+  "source_pages": {
+    "length_height_adjustment": "https://iris.who.int/bitstream/handle/10665/43601/9789241595070_B_eng.pdf?sequence=2",
+    "software_and_method": "https://www.who.int/tools/child-growth-standards/software",
+    "standards": "https://www.who.int/tools/child-growth-standards"
+  },
+  "standard": "WHO Child Growth Standards (2006); workbook URL revision token retained below"
+}

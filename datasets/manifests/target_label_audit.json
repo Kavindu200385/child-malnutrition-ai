@@ -1,0 +1,320 @@
+{
+  "datasets": [
+    {
+      "class_distributions": {
+        "Final_Decision": {
+          "MAM": 667,
+          "Mild Underweight": 212,
+          "Moderate Underweight": 39,
+          "Normal": 721,
+          "SAM": 327,
+          "Severe Stunting": 8,
+          "Severe Underweight": 1
+        },
+        "Stunting": {
+          "Moderate Stunting": 117,
+          "Normal": 1836,
+          "Severe Stunting": 22
+        },
+        "Underweight": {
+          "Mild Underweight": 443,
+          "Moderate Underweight": 90,
+          "Normal": 1432,
+          "Severe Underweight": 10
+        },
+        "Wasting": {
+          "MAM": 667,
+          "Normal": 981,
+          "SAM": 327
+        },
+        "nutrition_status": {
+          "moderate": 446,
+          "normal": 1391,
+          "severe": 138
+        }
+      },
+      "condition_overlap_patterns": {
+        "MAM | Moderate Stunting | Mild Underweight": 9,
+        "MAM | Moderate Stunting | Moderate Underweight": 1,
+        "MAM | Moderate Stunting | Normal": 37,
+        "MAM | Moderate Stunting | Severe Underweight": 1,
+        "MAM | Normal | Mild Underweight": 149,
+        "MAM | Normal | Moderate Underweight": 28,
+        "MAM | Normal | Normal": 428,
+        "MAM | Normal | Severe Underweight": 5,
+        "MAM | Severe Stunting | Mild Underweight": 2,
+        "MAM | Severe Stunting | Normal": 6,
+        "MAM | Severe Stunting | Severe Underweight": 1,
+        "Normal | Moderate Stunting | Mild Underweight": 14,
+        "Normal | Moderate Stunting | Moderate Underweight": 3,
+        "Normal | Moderate Stunting | Normal": 31,
+        "Normal | Normal | Mild Underweight": 198,
+        "Normal | Normal | Moderate Underweight": 36,
+        "Normal | Normal | Normal": 690,
+        "Normal | Normal | Severe Underweight": 1,
+        "Normal | Severe Stunting | Mild Underweight": 4,
+        "Normal | Severe Stunting | Moderate Underweight": 2,
+        "Normal | Severe Stunting | Normal": 2,
+        "SAM | Moderate Stunting | Mild Underweight": 8,
+        "SAM | Moderate Stunting | Moderate Underweight": 1,
+        "SAM | Moderate Stunting | Normal": 12,
+        "SAM | Normal | Mild Underweight": 56,
+        "SAM | Normal | Moderate Underweight": 19,
+        "SAM | Normal | Normal": 224,
+        "SAM | Normal | Severe Underweight": 2,
+        "SAM | Severe Stunting | Mild Underweight": 3,
+        "SAM | Severe Stunting | Normal": 2
+      },
+      "documented_mapping_found": false,
+      "findings": [
+        "overlapping nutritional-condition columns present",
+        "Z-score and target columns coexist; label derivation requires verification",
+        "target provenance is unverified"
+      ],
+      "path": "datasets/processed/unverified_static/birth_to_2_years_adjusted.csv",
+      "rule_derived_indicator": true,
+      "target_columns": [
+        "Final_Decision",
+        "Stunting",
+        "Underweight",
+        "Wasting",
+        "nutrition_status"
+      ]
+    },
+    {
+      "class_distributions": {
+        "Final_Decision": {
+          "MAM": 1128,
+          "Mild Underweight": 222,
+          "Moderate Underweight": 79,
+          "Normal": 470,
+          "SAM": 1081,
+          "Severe Chronic Malnutrition": 1,
+          "Severe Stunting": 33,
+          "Severe Underweight": 11
+        },
+        "Stunting": {
+          "Moderate Stunting": 561,
+          "Normal": 2309,
+          "Severe Stunting": 155
+        },
+        "Underweight": {
+          "Mild Underweight": 849,
+          "Moderate Underweight": 315,
+          "Normal": 1817,
+          "Severe Underweight": 44
+        },
+        "Wasting": {
+          "MAM": 1128,
+          "Normal": 816,
+          "SAM": 1081
+        },
+        "nutrition_status": {
+          "moderate": 654,
+          "normal": 2159,
+          "severe": 212
+        }
+      },
+      "condition_overlap_patterns": {
+        "MAM | Moderate Stunting | Mild Underweight": 60,
+        "MAM | Moderate Stunting | Moderate Underweight": 18,
+        "MAM | Moderate Stunting | Normal": 118,
+        "MAM | Moderate Stunting | Severe Underweight": 3,
+        "MAM | Normal | Mild Underweight": 253,
+        "MAM | Normal | Moderate Underweight": 87,
+        "MAM | Normal | Normal": 520,
+        "MAM | Normal | Severe Underweight": 12,
+        "MAM | Severe Stunting | Mild Underweight": 17,
+        "MAM | Severe Stunting | Moderate Underweight": 4,
+        "MAM | Severe Stunting | Normal": 35,
+        "MAM | Severe Stunting | Severe Underweight": 1,
+        "Normal | Moderate Stunting | Mild Underweight": 55,
+        "Normal | Moderate Stunting | Moderate Underweight": 10,
+        "Normal | Moderate Stunting | Normal": 82,
+        "Normal | Moderate Stunting | Severe Underweight": 3,
+        "Normal | Normal | Mild Underweight": 167,
+        "Normal | Normal | Moderate Underweight": 69,
+        "Normal | Normal | Normal": 388,
+        "Normal | Normal | Severe Underweight": 8,
+        "Normal | Severe Stunting | Mild Underweight": 6,
+        "Normal | Severe Stunting | Moderate Underweight": 3,
+        "Normal | Severe Stunting | Normal": 24,
+        "Normal | Severe Stunting | Severe Underweight": 1,
+        "SAM | Moderate Stunting | Mild Underweight": 55,
+        "SAM | Moderate Stunting | Moderate Underweight": 29,
+        "SAM | Moderate Stunting | Normal": 125,
+        "SAM | Moderate Stunting | Severe Underweight": 3,
+        "SAM | Normal | Mild Underweight": 216,
+        "SAM | Normal | Moderate Underweight": 90,
+        "SAM | Normal | Normal": 488,
+        "SAM | Normal | Severe Underweight": 11,
+        "SAM | Severe Stunting | Mild Underweight": 20,
+        "SAM | Severe Stunting | Moderate Underweight": 5,
+        "SAM | Severe Stunting | Normal": 37,
+        "SAM | Severe Stunting | Severe Underweight": 2
+      },
+      "documented_mapping_found": false,
+      "findings": [
+        "overlapping nutritional-condition columns present",
+        "Z-score and target columns coexist; label derivation requires verification",
+        "target provenance is unverified"
+      ],
+      "path": "datasets/processed/unverified_static/age_2_to_5_years_adjusted.csv",
+      "rule_derived_indicator": true,
+      "target_columns": [
+        "Final_Decision",
+        "Stunting",
+        "Underweight",
+        "Wasting",
+        "nutrition_status"
+      ]
+    },
+    {
+      "class_distributions": {
+        "current_risk": {
+          "High": 2075,
+          "Low": 4163,
+          "Moderate": 2351,
+          "Severe": 1011
+        },
+        "predicted_risk_next_2_months": {
+          "High": 2088,
+          "Low": 3744,
+          "Moderate": 2465,
+          "Severe": 1303
+        }
+      },
+      "condition_overlap_patterns": null,
+      "documented_mapping_found": false,
+      "findings": [
+        "target provenance is unverified"
+      ],
+      "path": "datasets/simulated/longitudinal/birth_to_2_years_longitudinal_improved.csv",
+      "rule_derived_indicator": false,
+      "target_columns": [
+        "current_risk",
+        "predicted_risk_next_2_months"
+      ]
+    },
+    {
+      "class_distributions": {
+        "current_risk": {
+          "High": 2135,
+          "Low": 3847,
+          "Moderate": 2559,
+          "Severe": 1059
+        },
+        "predicted_risk_next_2_months": {
+          "High": 2228,
+          "Low": 3451,
+          "Moderate": 2552,
+          "Severe": 1369
+        }
+      },
+      "condition_overlap_patterns": null,
+      "documented_mapping_found": false,
+      "findings": [
+        "target provenance is unverified"
+      ],
+      "path": "datasets/simulated/longitudinal/age_2_to_5_years_longitudinal_improved.csv",
+      "rule_derived_indicator": false,
+      "target_columns": [
+        "current_risk",
+        "predicted_risk_next_2_months"
+      ]
+    },
+    {
+      "class_distributions": {
+        "Target": {
+          "MAM": 1890,
+          "Normal": 7290,
+          "SAM": 605,
+          "Severe_Stunting": 213
+        }
+      },
+      "condition_overlap_patterns": null,
+      "documented_mapping_found": false,
+      "findings": [
+        "Z-score and target columns coexist; label derivation requires verification",
+        "target provenance is unverified"
+      ],
+      "path": "research_audit/recovered/f23476e/Dataset/birth_to_2_cleaned.csv",
+      "rule_derived_indicator": true,
+      "target_columns": [
+        "Target"
+      ]
+    },
+    {
+      "class_distributions": {
+        "Target": {
+          "MAM": 1924,
+          "Normal": 7246,
+          "SAM": 607,
+          "Severe_Stunting": 223
+        }
+      },
+      "condition_overlap_patterns": null,
+      "documented_mapping_found": false,
+      "findings": [
+        "Z-score and target columns coexist; label derivation requires verification",
+        "target provenance is unverified"
+      ],
+      "path": "research_audit/recovered/f23476e/Dataset/age_2_to_5_cleaned.csv",
+      "rule_derived_indicator": true,
+      "target_columns": [
+        "Target"
+      ]
+    },
+    {
+      "class_distributions": {
+        "Final_Decision": {
+          "SAM": 3
+        },
+        "Model_Prediction": {
+          "2": 1,
+          "SAM": 2
+        },
+        "Risk_Level": {
+          "": 2,
+          "CRITICAL": 1
+        },
+        "Stunting": {
+          "Severe Stunting": 3
+        },
+        "Underweight": {
+          "Severe Underweight": 3
+        },
+        "Wasting": {
+          "SAM": 3
+        }
+      },
+      "condition_overlap_patterns": {
+        "SAM | Severe Stunting | Severe Underweight": 3
+      },
+      "documented_mapping_found": false,
+      "findings": [
+        "overlapping nutritional-condition columns present",
+        "Z-score and target columns coexist; label derivation requires verification",
+        "target provenance is unverified"
+      ],
+      "path": "research_audit/recovered/f23476e/Data/children_records.csv",
+      "rule_derived_indicator": true,
+      "target_columns": [
+        "Final_Decision",
+        "Model_Prediction",
+        "Risk_Level",
+        "Stunting",
+        "Underweight",
+        "Wasting"
+      ]
+    }
+  ],
+  "policy": "No target labels were changed or treated as clinical ground truth.",
+  "runtime": {
+    "dependencies": "Python standard library only; no ML package imported",
+    "generated_at_utc": "2026-11-21T05:33:37.001379+00:00",
+    "git_revision": "418e951766aef74703d26f9cc7a7eed2798601c2",
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "python_version": "3.14.0 (v3.14.0:ebf955df7a8, Oct  7 2025, 08:20:14) [Clang 16.0.0 (clang-1600.0.26.6)]"
+  }
+}

@@ -1,0 +1,15 @@
+scenario,indicator,sex,age_months,age_days,measurement_method,length_height_cm,weight_kg,reference_file,reference_key,reference_point,expected_z,calculated_z,absolute_difference,status
+low/-2,WAZ,M,12,,recumbent_length,75.7488,7.7,wfa_boys_0_5_zscores.xlsx,Month,12,-2.0493380138593946,-2.0493380138593946,0.0,PASS
+high/+2,WAZ,M,12,,recumbent_length,75.7488,12.0,wfa_boys_0_5_zscores.xlsx,Month,12,2.0110406143531683,2.0110406143531683,0.0,PASS
+low/-3,WAZ,F,24,,standing_height,86.363,8.1,wfa_girls_0_5_zscores.xlsx,Month,24,-2.9621699953326903,-2.9621699953326903,0.0,PASS
+infant low/-2,HAZ,M,0,0,recumbent_length,46.098,46.098,lhfa_boys_expanded.xlsx,Day,0,-1.9999943056524703,-1.9999943056524703,0.0,PASS
+24m low/-3,HAZ,F,24,730,recumbent_length,76.725,76.725,lhfa_girls_expanded.xlsx,Day,730,-2.999930056406574,-2.999930056406574,0.0,PASS
+24m high/+2,HAZ,F,24,730,recumbent_length,92.851,92.851,lhfa_girls_expanded.xlsx,Day,730,1.9998500227199467,1.9998500227199467,0.0,PASS
+lower reference boundary,WLZ,M,0,,recumbent_length,45.0,2.043,wfl_boys_expanded.xlsx,Length,45.0,-2.0004800502370426,-2.0004800502370426,0.0,PASS
+low/-2,WLZ,M,12,,recumbent_length,65.0,6.193,wfl_boys_expanded.xlsx,Length,65.0,-1.999927133850667,-1.999927133850667,0.0,PASS
+low/-3,WLZ,F,18,,recumbent_length,80.0,7.816,wfl_girls_expanded.xlsx,Length,80.0,-2.9998875096725435,-2.9998875096725435,0.0,PASS
+high/+2,WLZ,M,12,,recumbent_length,65.0,8.608,wfl_boys_expanded.xlsx,Length,65.0,1.9998815912897694,1.9998815912897694,0.0,PASS
+low/-2,WHZ,M,36,,standing_height,90.0,11.022,wfh_boys_expanded.xlsx,Height,90.0,-2.0002350771994513,-2.0002350771994513,0.0,PASS
+low/-3,WHZ,F,48,,standing_height,100.0,11.747,wfh_girls_expanded.xlsx,Height,100.0,-2.9999976436758176,-2.9999976436758176,0.0,PASS
+high/+2,WHZ,M,36,,standing_height,90.0,15.204,wfh_boys_expanded.xlsx,Height,90.0,2.0002834826220837,2.0002834826220837,0.0,PASS
+upper reference boundary,WHZ,F,59,,standing_height,120.0,27.991,wfh_girls_expanded.xlsx,Height,120.0,2.000048658451355,2.000048658451355,0.0,PASS

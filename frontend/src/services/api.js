@@ -230,8 +230,6 @@ export const adminAPI = {
   listReferrals: (params) => api.get('/api/admin/referrals', { params }),
   /** PDHS reports sent to ministry (island-wide). Optional params: year, month */
   pdhsReportsSentToMinistry: (params) => api.get('/api/admin/pdhs-reports-sent-to-ministry', { params }),
-  /** Re-run AI predictions for all clinic measurements (fixes stale Z-score predictions) */
-  recomputeMeasurements: () => api.post('/api/admin/recompute-measurements'),
 };
 
 // Sign Page Upload API (Health Ministry / Superadmin dashboard)

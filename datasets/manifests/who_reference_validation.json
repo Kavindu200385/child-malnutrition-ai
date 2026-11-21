@@ -1,0 +1,110 @@
+{
+  "findings": {
+    "hfa_age_months": [
+      0,
+      60
+    ],
+    "limitations": [
+      "WFA/HFA reference tables are explicitly trimmed in the active implementation.",
+      "WFH height is clamped to 45\u2013110 cm.",
+      "No independently sourced official reference cases are configured."
+    ],
+    "official_case_comparison": {
+      "available": false,
+      "results": [],
+      "source": null
+    },
+    "out_of_range_behavior": {
+      "above_wfh_range": {
+        "result": [
+          1.021,
+          2.706,
+          3.319
+        ]
+      },
+      "below_wfh_range": {
+        "result": [
+          -2.755,
+          -5.0,
+          -1.968
+        ]
+      },
+      "negative_weight": {
+        "result": [
+          -5.0,
+          -0.315,
+          -5.0
+        ]
+      }
+    },
+    "sex_checks": {
+      "F": {
+        "accepted": true,
+        "scores": [
+          0.06,
+          -0.006,
+          1.103
+        ]
+      },
+      "M": {
+        "accepted": true,
+        "scores": [
+          -0.744,
+          -0.735,
+          1.037
+        ]
+      },
+      "boy": {
+        "accepted": true,
+        "scores": [
+          -0.744,
+          -0.735,
+          1.037
+        ]
+      },
+      "female": {
+        "accepted": true,
+        "scores": [
+          0.06,
+          -0.006,
+          1.103
+        ]
+      },
+      "girl": {
+        "accepted": true,
+        "scores": [
+          0.06,
+          -0.006,
+          1.103
+        ]
+      },
+      "male": {
+        "accepted": true,
+        "scores": [
+          -0.744,
+          -0.735,
+          1.037
+        ]
+      },
+      "unknown": {
+        "accepted": false,
+        "error": "Gender must be one of: male, female, M, F, boy, or girl."
+      }
+    },
+    "wfa_age_months": [
+      0,
+      60
+    ],
+    "wfh_height_cm": [
+      45.0,
+      110.0
+    ]
+  },
+  "runtime": {
+    "dependencies": "Python standard library only; no ML package imported",
+    "generated_at_utc": "2026-11-20T00:05:55.395819+00:00",
+    "git_revision": "180897bb952655753acdb285be347bac05251029",
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "python_version": "3.14.0 (v3.14.0:ebf955df7a8, Oct  7 2025, 08:20:14) [Clang 16.0.0 (clang-1600.0.26.6)]"
+  }
+}

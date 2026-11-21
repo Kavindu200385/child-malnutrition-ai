@@ -417,7 +417,7 @@ def provincial_report():
 def national_report():
     """
     Health Ministry National Dashboard
-    National summary, AI prediction analytics, province comparison
+    National summary, clinical assessment analytics, province comparison
     """
     user = get_current_user()
     if user.role != ROLE_HEALTH_MINISTRY:

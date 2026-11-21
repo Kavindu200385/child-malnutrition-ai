@@ -15,6 +15,12 @@ import {
   ReferenceArea,
   LabelList,
 } from 'recharts';
+import {
+  getClinicalActionDisplay,
+  getCurrentNutritionalStatusLabel,
+  getCurrentStatusToneClass,
+  getFutureRiskPresentation,
+} from '../../utils/statusDisplay';
 
 interface Measurement {
   ageMonths: number;
@@ -25,6 +31,10 @@ interface Measurement {
   heightForAge?: number;
   weightForHeight?: number;
   riskLevel: 'normal' | 'mam' | 'sam';
+  current_nutritional_status?: string | null;
+  future_predicted_risk?: string | null;
+  clinical_action_required?: boolean | number | null;
+  clinical_review_reason?: string | null;
 }
 
 interface WHOGrowthChartsProps {
@@ -32,12 +42,8 @@ interface WHOGrowthChartsProps {
   childGender: 'male' | 'female';
 }
 
-// Color per risk level for dots
-function dotColor(risk: string) {
-  if (risk === 'sam') return '#DC2626';
-  if (risk === 'mam') return '#F59E0B';
-  return '#2563EB';
-}
+// Measurements are plotted by indicator; colours do not represent a diagnosis.
+function dotColor() { return '#2563EB'; }
 
 export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsProps) {
   // Sort measurements by age ascending for trend lines
@@ -170,8 +176,8 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
   const nutritionalStatusData = sorted.map(m => ({
     date: m.date,
     age: m.ageMonths,
-    status: m.riskLevel === 'sam' ? 'SAM' : m.riskLevel === 'mam' ? 'MAM' : 'Normal',
-    color: m.riskLevel === 'sam' ? '#E74C3C' : m.riskLevel === 'mam' ? '#F39C12' : '#2ECC71',
+    status: 'WHO screening measurement',
+    color: '#2563EB',
     wfa: clampZ(m.weightForAge),
     hfa: clampZ(m.heightForAge),
     wfh: clampZ(m.weightForHeight),
@@ -192,6 +198,13 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
     if (delta > 0.3) growthTrend = 'improving';
     else if (delta < -0.3) growthTrend = 'declining';
   }
+  const currentStatusLabel = latestMeasurement
+    ? getCurrentNutritionalStatusLabel(latestMeasurement, latestMeasurement.riskLevel.toUpperCase())
+    : 'NOT AVAILABLE';
+  const futureRisk = getFutureRiskPresentation(latestMeasurement);
+  const clinicalAction = latestMeasurement
+    ? getClinicalActionDisplay(latestMeasurement)
+    : { label: 'NOT AVAILABLE', className: 'border-gray-200 bg-gray-50 text-gray-600' };
 
   // ── Custom Tooltip ────────────────────────────────────────────────────────
   const CustomTooltip = ({ active, payload }: any) => {
@@ -241,9 +254,7 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
         </p>
         <p className="text-xs text-gray-500 mt-1">
           {sorted.length} measurement{sorted.length !== 1 ? 's' : ''} plotted •
-          Coloured dots: <span className="text-blue-600 font-semibold">●</span> Normal &nbsp;
-          <span className="text-yellow-500 font-semibold">●</span> MAM &nbsp;
-          <span className="text-red-600 font-semibold">●</span> SAM
+          Coloured dots: <span className="text-blue-600 font-semibold">●</span> Recorded measurement. Threshold bands are screening references, not diagnoses.
         </p>
       </div>
 
@@ -589,9 +600,9 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
                     <ReferenceArea y1={-2} y2={3} fill="#BBF7D0" fillOpacity={0.2}
                       label={{ value: 'Normal Zone', position: 'insideTopRight', fill: '#059669', fontSize: 10, fontWeight: 600 }} />
                     <ReferenceArea y1={-3} y2={-2} fill="#FED7AA" fillOpacity={0.35}
-                      label={{ value: 'MAM Zone', position: 'insideTopRight', fill: '#D97706', fontSize: 10, fontWeight: 600 }} />
+                      label={{ value: 'Below −2 SD', position: 'insideTopRight', fill: '#D97706', fontSize: 10, fontWeight: 600 }} />
                     <ReferenceArea y1={-4} y2={-3} fill="#FCA5A5" fillOpacity={0.35}
-                      label={{ value: 'SAM Zone', position: 'insideTopRight', fill: '#DC2626', fontSize: 10, fontWeight: 600 }} />
+                      label={{ value: 'Below −3 SD', position: 'insideTopRight', fill: '#DC2626', fontSize: 10, fontWeight: 600 }} />
 
                     <ReferenceLine y={0} stroke="#059669" strokeWidth={1} strokeDasharray="4 4"
                       label={{ value: 'Median (0)', position: 'right', fill: '#059669', fontSize: 10 }} />
@@ -669,9 +680,8 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
             {/* Current Status */}
             <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-6 border-2 border-blue-200">
               <h4 className="text-sm font-bold text-gray-700 mb-3">Current Nutritional Status</h4>
-              <div className="text-center py-4 rounded-lg text-white font-bold text-xl shadow-md"
-                style={{ backgroundColor: latestMeasurement ? dotColor(latestMeasurement.riskLevel) : '#6B7280' }}>
-                {latestMeasurement ? latestMeasurement.riskLevel.toUpperCase() : 'No Data'}
+              <div className={`text-center py-4 rounded-lg border text-sm font-bold shadow-md ${getCurrentStatusToneClass(currentStatusLabel)}`}>
+                Current Nutritional Status: {currentStatusLabel}
               </div>
               <div className="mt-4 text-xs text-gray-600 space-y-1">
                 <div className="flex justify-between"><span>Last Visit:</span><span className="font-medium">{latestMeasurement?.date?.slice(0, 10) || 'N/A'}</span></div>
@@ -683,14 +693,15 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
 
             {/* Growth Trend */}
             <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-6 border-2 border-green-200">
-              <h4 className="text-sm font-bold text-gray-700 mb-3">Growth Trend</h4>
-              <div className={`text-center py-4 rounded-lg text-white font-bold text-xl shadow-md
-                ${growthTrend === 'improving' ? 'bg-green-500' : growthTrend === 'declining' ? 'bg-red-500' : 'bg-yellow-500'}`}>
-                {growthTrend === 'improving' ? '↑ IMPROVING' : growthTrend === 'declining' ? '↓ DECLINING' : '→ STABLE'}
+              <h4 className="text-sm font-bold text-gray-700 mb-3">2-Month Predicted Risk</h4>
+              <div className="text-center py-4 rounded-lg border text-sm shadow-md border-gray-200 bg-gray-50 text-gray-700">
+                <p className="font-bold">Future-risk prediction: {futureRisk.label}</p>
+                <p className="mt-1 text-xs font-medium">{futureRisk.message}</p>
               </div>
               <div className="mt-4 text-xs text-gray-600 space-y-1">
-                <div className="flex justify-between"><span>Direction:</span><span className="font-medium capitalize">{growthTrend}</span></div>
+                <div className="flex justify-between"><span>Growth Trend:</span><span className="font-medium capitalize">{growthTrend}</span></div>
                 <div className="flex justify-between"><span>Total Visits:</span><span className="font-medium">{sorted.length}</span></div>
+                <div className="flex justify-between"><span>Clinical Action:</span><span className="font-medium">{clinicalAction.label}</span></div>
               </div>
             </div>
 
@@ -764,11 +775,12 @@ export function WHOGrowthCharts({ measurements, childGender }: WHOGrowthChartsPr
             </ul>
           </div>
           <div>
-            <h4 className="font-semibold text-gray-900 mb-2">Action Thresholds:</h4>
+            <h4 className="font-semibold text-gray-900 mb-2">Screening Thresholds:</h4>
             <ul className="space-y-1 text-gray-700">
-              <li>• <strong className="text-red-600">SAM (&lt; −3 SD):</strong> Immediate referral</li>
-              <li>• <strong className="text-orange-600">MAM (−3 to −2 SD):</strong> Supplementary feeding</li>
-              <li>• <strong className="text-green-600">Normal (−2 to +2 SD):</strong> Routine monitoring</li>
+              <li>• <strong className="text-red-600">Below −3 SD:</strong> severe anthropometric screening threshold</li>
+              <li>• <strong className="text-orange-600">−3 to −2 SD:</strong> anthropometric screening threshold</li>
+              <li>• <strong className="text-green-600">−2 to +2 SD:</strong> reference range shown on this chart</li>
+              <li>• Screening thresholds require clinical interpretation; they do not automatically determine treatment or referral.</li>
             </ul>
           </div>
           <div>

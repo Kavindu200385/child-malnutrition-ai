@@ -2,13 +2,14 @@
 NUTRITIONIST Role Routes
 Strict specialist-level clinical reviewer:
 - View children referred from MOH only (hospital-based)
-- View full child history, add measurements, run AI, add notes
+- View full child history, add WHO assessments, and add notes
 - Return child to MOH when risk = NORMAL only
 - Dashboard with charts
 """
 from datetime import datetime, timedelta
 from decimal import Decimal
 from collections import defaultdict
+import json
 
 from flask import Blueprint, jsonify, request
 
@@ -29,8 +30,10 @@ from backend.models_hierarchical import (
     EscalationStatus,
     ReferralStatus,
 )
-from backend.ai.predictor import build_future_prediction_payload, predict_current_risk, predict_future_risk, compute_z_scores
-from backend.utils.audit import log_audit
+from backend.utils.who_growth import compute_assessment, compute_z_scores
+from backend.utils.audit import log_audit, log_clinical_decision
+from backend.utils.measurement_validation import validate_measurement_payload
+from backend.utils.current_status import assess_current_nutritional_status
 from backend.services.notification_service import (
     PRIORITY_HIGH,
     PRIORITY_NORMAL,
@@ -87,18 +90,6 @@ def _nutritionist_can_add_measurement(user, child):
         ChildReferral.status == ReferralStatus.REVIEWED.value,
     ).first()
     return ref is not None
-
-
-def _map_ai_risk(pred: str) -> str:
-    """Map AI model_prediction to RiskLevel enum value."""
-    s = (pred or "").strip().upper()
-    if s in ("NORMAL", "NORM"):
-        return RiskLevel.NORMAL.value
-    if s in ("MAM", "UNDERWEIGHT"):
-        return RiskLevel.MAM.value
-    if s in ("SAM", "SEVERE_STUNTING", "SEVERE"):
-        return RiskLevel.SAM.value
-    return RiskLevel.NORMAL.value
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +255,7 @@ def get_child(child_id: int):
 @nutritionist_required
 def add_measurement():
     """
-    Add specialist measurement. Calculates Z-scores, runs AI, updates child risk.
+    Add specialist measurement using WHO growth assessment.
     No UPDATE/DELETE of old measurements.
     """
     user = get_current_user()
@@ -283,77 +274,47 @@ def add_measurement():
             "message": "Cannot add measurement. This child has been returned to MOH and is no longer under nutritionist care."
         }), 403
 
-    weight_kg = data.get("weight_kg") or data.get("weight")
-    height_cm = data.get("height_cm") or data.get("height")
-    muac_cm = data.get("muac_cm") or data.get("muac")
-    measurement_date = data.get("measurement_date")
     specialist_notes = data.get("specialist_notes") or data.get("notes")
 
-    if not weight_kg or not height_cm:
-        return jsonify({"status": "error", "message": "weight_kg and height_cm are required"}), 400
+    validation = validate_measurement_payload(data, child)
+    if not validation["ok"]:
+        return jsonify({"status": "error", "message": validation["error"]}), 400
 
-    if not child.dob:
-        return jsonify({"status": "error", "message": "Child DOB required"}), 400
-
-    try:
-        weight_kg = float(weight_kg)
-        height_cm = float(height_cm)
-        muac_cm = float(muac_cm) if muac_cm is not None else None
-    except (TypeError, ValueError):
-        return jsonify({"status": "error", "message": "Invalid numeric values"}), 400
-
-    age_days = (datetime.now().date() - child.dob).days
-    age_months = max(0, age_days // 30)
-    sex = "M" if (child.gender or "").lower() == "male" else "F"
-
-    try:
-        z_wfa, z_hfa, z_wfh = compute_z_scores(age_months=age_months, sex=sex, weight_kg=weight_kg, height_cm=height_cm)
-    except Exception:
-        z_wfa = z_hfa = z_wfh = None
+    weight_kg = validation["weight_kg"]
+    height_cm = validation["height_cm"]
+    muac_cm = validation["muac_cm"]
+    muac_status = validation["muac_status"]
+    edema_present = validation["edema_present"]
+    edema_status = validation["edema_status"]
+    measurement_method = validation["measurement_method"]
+    m_date = validation["measurement_date"]
+    age_days = validation["age_days"]
+    age_months = int(age_days / 30.4375)
+    sex = validation["sex"]
 
     try:
-        ai_result = predict_current_risk({
-            "age_months": age_months,
-            "sex": sex,
-            "weight_kg": weight_kg,
-            "height_cm": height_cm,
-        })
-        if not ai_result.get("ok"):
-            return jsonify({"status": "error", "message": ai_result.get("error", "AI analysis failed")}), 500
-        current_risk = _map_ai_risk(ai_result.get("model_prediction", ""))
-        confidence = ai_result.get("confidence") or 0.0
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        z_wfa, z_hfa, z_wfh = compute_z_scores(age_days=age_days, sex=sex, weight_kg=weight_kg, height_cm=height_cm, measurement_method=measurement_method)
+        who_metadata = compute_assessment(age_days=age_days, sex=sex, weight_kg=weight_kg, height_cm=height_cm, measurement_method=measurement_method)
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
 
-    m_date = datetime.now()
-    if measurement_date:
-        try:
-            m_date = datetime.fromisoformat(measurement_date.replace("Z", "+00:00"))
-            if m_date.tzinfo:
-                m_date = m_date.replace(tzinfo=None)
-        except Exception:
-            pass
+    current_assessment = assess_current_nutritional_status(
+        z_score_wfa=float(z_wfa) if z_wfa is not None else None,
+        z_score_hfa=float(z_hfa) if z_hfa is not None else None,
+        z_score_wfh=float(z_wfh) if z_wfh is not None else None,
+        muac_status=muac_status,
+        edema_status=edema_status,
+    )
+    current_assessment["current_status_breakdown"]["who"] = {key: who_metadata[key] for key in ("length_height_indicator", "adjusted_length_height_cm", "reference_version", "calculation_status")}
+    current_status = current_assessment["current_nutritional_status"]
+    current_risk = current_assessment["legacy_risk_level"]
 
-    prediction_warning = None
-    prediction_history_source = None
-    try:
-        future_payload = build_future_prediction_payload(
-            child=child,
-            weight_kg=weight_kg,
-            height_cm=height_cm,
-            measurement_date=m_date,
-            history_source="measurements",
-        )
-        prediction_warning = future_payload.get("warning")
-        prediction_history_source = future_payload.get("history_source")
-        if future_payload.get("ok"):
-            future_result = predict_future_risk(future_payload["payload"])
-            predicted_risk = future_result.get("predicted_risk_next_2_months") if future_result.get("ok") else None
-        else:
-            predicted_risk = None
-    except Exception:
-        prediction_warning = "Future prediction could not be generated from child history."
-        predicted_risk = None
+    clinical_action_required = bool(current_assessment["clinical_action_required"])
+    review_reasons = [current_assessment["clinical_review_reason"]] if current_assessment["clinical_review_reason"] else []
+    if validation["clinical_review_required"]:
+        clinical_action_required = True
+        review_reasons.extend(validation["clinical_review_reasons"])
+    clinical_review_reason = " ".join(dict.fromkeys(review_reasons))
 
     measurement = Measurement(
         child_id=child.id,
@@ -361,12 +322,21 @@ def add_measurement():
         weight_kg=Decimal(str(weight_kg)),
         height_cm=Decimal(str(height_cm)),
         muac_cm=Decimal(str(muac_cm)) if muac_cm is not None else None,
+        muac_status=muac_status,
+        edema_present=edema_present,
+        edema_status=edema_status,
+        measurement_method=measurement_method,
         z_score_wfa=Decimal(str(z_wfa)) if z_wfa is not None else None,
         z_score_hfa=Decimal(str(z_hfa)) if z_hfa is not None else None,
         z_score_wfh=Decimal(str(z_wfh)) if z_wfh is not None else None,
+        underweight_status=current_assessment["underweight_status"],
+        stunting_status=current_assessment["stunting_status"],
+        wasting_status=current_assessment["wasting_status"],
+        current_status_breakdown=json.dumps(current_assessment["current_status_breakdown"]),
         risk_level=current_risk,
-        predicted_risk_next_2_months=predicted_risk,
-        model_confidence=Decimal(str(confidence)),
+        current_nutritional_status=current_status,
+        clinical_action_required=clinical_action_required,
+        clinical_review_reason=clinical_review_reason,
         measured_by_user_id=user.id,
         notes=specialist_notes,
     )
@@ -384,12 +354,22 @@ def add_measurement():
         sex=sex,
         weight_kg=weight_kg,
         height_cm=height_cm,
+        muac_cm=muac_cm,
+        muac_status=muac_status,
+        edema_present=edema_present,
+        edema_status=edema_status,
+        measurement_method=measurement_method,
         z_wfa=z_wfa,
         z_hfa=z_hfa,
         z_wfh=z_wfh,
+        underweight_status=current_assessment["underweight_status"],
+        stunting_status=current_assessment["stunting_status"],
+        wasting_status=current_assessment["wasting_status"],
+        current_status_breakdown=json.dumps(current_assessment["current_status_breakdown"]),
         current_risk=current_risk,
-        predicted_risk_next_2_months=predicted_risk,
-        model_confidence=float(confidence) if confidence else None,
+        current_nutritional_status=current_status,
+        clinical_action_required=clinical_action_required,
+        clinical_review_reason=clinical_review_reason,
         notes=specialist_notes,
         created_by_user_id=user.id,
     )
@@ -404,6 +384,20 @@ def add_measurement():
         user_id=user.id,
         description=f"Nutritionist added measurement for child {child.id}",
     )
+    log_clinical_decision(
+        child_id=child.id,
+        measurement_id=measurement.id,
+        user_id=user.id,
+        role=user.role,
+        area_id=child.current_assigned_area_id or child.moh_area_id or child.phm_area_id,
+        current_nutritional_status=current_status,
+        future_predicted_risk=None,
+        clinical_action_required=clinical_action_required,
+        clinical_review_reason=clinical_review_reason,
+        model_version=None,
+        prediction_timestamp=None,
+        created_at=datetime.utcnow(),
+    )
     send_child_event_email(
         child.guardian_email,
         child_name=child.name,
@@ -412,11 +406,11 @@ def add_measurement():
         event_title="Nutritionist Measurement Recorded",
         event_summary="A nutritionist recorded a new growth measurement for your child.",
         details={
-            "Current nutrition status": current_risk,
+            "Current nutrition status": current_status,
             "Weight": f"{weight_kg} kg",
             "Height": f"{height_cm} cm",
-            "MUAC": f"{muac_cm} cm" if muac_cm is not None else None,
-            "Future risk prediction": predicted_risk,
+            "MUAC": f"{muac_cm} cm" if muac_cm is not None else "Not Recorded",
+            "Edema": edema_status,
         },
     )
     db.session.commit()
@@ -427,9 +421,6 @@ def add_measurement():
         "measurement": measurement.to_dict(),
         "child": child.to_dict(),
         "new_risk": current_risk,
-        "confidence": confidence,
-        "future_prediction_warning": prediction_warning,
-        "future_prediction_history_source": prediction_history_source,
     }), 201
 
 
@@ -950,3 +941,4 @@ def reject_transfer_request(referral_id: int):
         "message": "Transfer request rejected.",
         "referral": referral.to_dict(),
     }), 200
+

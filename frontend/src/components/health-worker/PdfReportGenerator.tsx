@@ -417,8 +417,8 @@ export async function generateProfessionalPdf(
   pdf.text('WHO Classification Thresholds:', M + 2, ty);
   const threshW = CW / 3;
   [
-    { lbl: 'SAM (Severe Acute Malnutrition)', sub: '< -3 SD', col: [220, 38, 38] as [number, number, number] },
-    { lbl: 'MAM (Moderate Acute Malnutrition)', sub: '-3 to -2 SD', col: [245, 158, 11] as [number, number, number] },
+    { lbl: 'Below −3 SD screening threshold', sub: 'requires clinical interpretation', col: [220, 38, 38] as [number, number, number] },
+    { lbl: '−3 to −2 SD screening threshold', sub: 'requires clinical interpretation', col: [245, 158, 11] as [number, number, number] },
     { lbl: 'Normal', sub: '-2 to +2 SD', col: [22, 163, 74] as [number, number, number] },
   ].forEach((t, i) => {
     const tx = M + i * threshW;
@@ -501,10 +501,10 @@ export async function generateProfessionalPdf(
   // ══════════════════════════════════════════
   addFullChartPage(
     'CHART 1 — Weight-for-Age  (Birth to 5 Years)',
-    `${child.gender === 'male' ? 'Boys' : 'Girls'} — WHO reference curves. Coloured dots = child measurements (Blue=Normal, Orange=MAM, Red=SAM)`,
+    `${child.gender === 'male' ? 'Boys' : 'Girls'} — WHO reference curves. Coloured dots are recorded measurements; threshold bands are screening references, not diagnoses.`,
     'wfa',
     [30, 80, 160],
-    'Red zone = SAM (< -3 SD)  |  Orange zone = MAM (-3 to -2 SD)  |  Green zone = Normal (> -2 SD)',
+    'Red zone = below −3 SD screening threshold  |  Orange zone = −3 to −2 SD screening threshold  |  Green zone = reference range shown',
     'Based on WHO Child Growth Standards (2006). Reference curves are approximate values.'
   );
 
@@ -604,7 +604,7 @@ export async function generateProfessionalPdf(
   pdf.rect(M, g6y, CW, 9, 'FD');
   font(pdf, 6.5, 'bold', [...NAVY]); pdf.text('Key: ', M + 3, g6y + 4.5);
   font(pdf, 6.5, 'normal', [50, 50, 50]);
-  pdf.text('WFA=Weight-for-Age Z  |  HFA=Height-for-Age Z  |  WFH=Weight-for-Height Z  |  -2 SD = MAM  |  -3 SD = SAM', M + 14, g6y + 4.5);
+  pdf.text('WFA=Weight-for-Age Z  |  HFA=Height-for-Age Z  |  WFH=Weight-for-Height Z  |  thresholds are screening indicators, not diagnoses', M + 14, g6y + 4.5);
   font(pdf, 6.5, 'normal', [...MGRAY]);
   pdf.text('Improving trend = Z-scores moving towards 0.  Declining = Z-scores moving further below -2.', M + 3, g6y + 8);
 
@@ -1026,8 +1026,8 @@ export function HiddenPdfCharts({ measurements, gender, refs }: HiddenChartsProp
             tickCount={8}
           />
           <YAxis domain={[-4, 3]} label={{ value: 'Z-Score', angle: -90, position: 'insideLeft', offset: 14, style: { fontSize: 14, fontWeight: 600 } }} tick={{ fontSize: 12 }} ticks={[-4, -3, -2, -1, 0, 1, 2, 3]} />
-          <ReferenceLine y={-3} stroke="#DC2626" strokeWidth={2} strokeDasharray="6 3" label={{ value: '-3 SD (SAM)', fill: '#DC2626', fontSize: 12, fontWeight: 600 }} />
-          <ReferenceLine y={-2} stroke="#F59E0B" strokeWidth={2} strokeDasharray="6 3" label={{ value: '-2 SD (MAM)', fill: '#F59E0B', fontSize: 12, fontWeight: 600 }} />
+          <ReferenceLine y={-3} stroke="#DC2626" strokeWidth={2} strokeDasharray="6 3" label={{ value: '−3 SD threshold', fill: '#DC2626', fontSize: 12, fontWeight: 600 }} />
+          <ReferenceLine y={-2} stroke="#F59E0B" strokeWidth={2} strokeDasharray="6 3" label={{ value: '−2 SD threshold', fill: '#F59E0B', fontSize: 12, fontWeight: 600 }} />
           <ReferenceLine y={0} stroke="#059669" strokeWidth={1.5} label={{ value: 'Median', fill: '#059669', fontSize: 12 }} />
           <Line type="monotone" dataKey="wfa" stroke="#2563EB" strokeWidth={3} dot={{ r: 7, fill: '#2563EB', stroke: '#fff', strokeWidth: 2 }} connectNulls isAnimationActive={false} legendType="none" />
           <Line type="monotone" dataKey="hfa" stroke="#10B981" strokeWidth={3} dot={{ r: 7, fill: '#10B981', stroke: '#fff', strokeWidth: 2 }} connectNulls isAnimationActive={false} legendType="none" />

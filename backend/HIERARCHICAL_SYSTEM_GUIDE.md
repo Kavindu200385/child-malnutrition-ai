@@ -191,7 +191,7 @@ Create `backend/routes/worker_management.py`:
 Create `backend/routes/reporting.py`:
 - RDHS: District summary, worker performance, risk distribution
 - PDHS: Provincial summary, district comparison
-- Ministry: National dashboard, AI analytics, province charts
+- Ministry: National dashboard, clinical assessment analytics, province charts
 
 ## API Endpoints
 

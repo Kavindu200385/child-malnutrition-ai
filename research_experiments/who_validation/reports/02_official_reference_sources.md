@@ -1,0 +1,5 @@
+# Official Reference Sources
+
+Official WHO 2006 Child Growth Standards files were downloaded unchanged under `reference_sources/`; exact URLs and SHA-256 values are recorded in `results/official_source_manifest.json`. The standard-library reader and the local copies make the cases repeatable without modifying production reference data.
+
+WHO provides sex-specific standards through 60 completed months and separate length/height-for-age and weight-for-length/height tables. Sources: [WHO standards](https://www.who.int/tools/child-growth-standards), [WFA tables](https://www.who.int/tools/child-growth-standards/standards/weight-for-age), [LHFA tables](https://www.who.int/tools/child-growth-standards/standards/length-height-for-age), [WFL/WFH tables](https://www.who.int/toolkits/child-growth-standards/standards/weight-for-length-height), and [WHO standards methods/development report](https://www.who.int/publications/i/item/924154693X). No expected value in the validation was invented: each comes from an official-table LMS row and its published anthropometric point.

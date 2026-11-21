@@ -1,125 +1,67 @@
-# Child Malnutrition AI System
+# CMRAS — Child Malnutrition Risk Assessment System
 
-A full-stack web application for analyzing child malnutrition risk using AI/ML models.
+CMRAS is a final-year Computer Science project comprising a React frontend and Flask/MySQL backend for recording child anthropometric measurements, calculating WHO growth indicators, and supporting role-based clinical review workflows.
 
-## Project Structure
+## Important clinical and research limits
 
-```
-child-malnutrition-ai/
-├── backend/                 # Flask Backend
-│   ├── ai/                  # AI Module
-│   │   ├── child_risk_analyzing.py
-│   │   ├── data_processing.py
-│   │   └── model_training.py
-│   ├── routes/              # API Routes
-│   │   ├── analysis.py
-│   │   ├── children.py
-│   │   └── history.py
-│   ├── models/              # ML Models
-│   ├── data/                # Data storage
-│   ├── dataset/             # Training datasets
-│   ├── app.py               # Flask application
-│   └── requirements.txt
-│
-└── frontend/                # React Frontend
-    ├── src/
-    │   ├── components/      # React components
-    │   ├── pages/           # Page components
-    │   ├── services/        # API services
-    │   └── utils/           # Utilities
-    ├── package.json
-    └── vite.config.js
-```
+- WHO weight-for-age, length/height-for-age, and weight-for-length/height outputs are anthropometric screening indicators. They are not independently confirmed clinical diagnoses.
+- No clinically validated future-risk model is deployed. Historical research outputs are simulation-only and must not determine treatment, referral, or clinical prioritisation.
+- Research datasets have unverified provenance. Their model results are reproducible simulation-label results, not clinical prediction validation.
 
-## Setup Instructions
+## Repository layout
 
-### Backend Setup
+- `backend/` — Flask application, migrations, tests, and production WHO LMS assets.
+- `frontend/` — React/Vite application and Vitest tests.
+- `datasets/` — immutable research data organised as `processed/`, `simulated/`, `splits/`, and `manifests/`.
+- `research_experiments/` — reproducible scripts, configurations, notebooks, verified outputs, artifacts, and WHO/system validation evidence.
+- `research_audit/` — historical recovery and provenance audit evidence.
+- `docs/` — project and dataset documentation.
+- `repository_cleanup/` — cleanup inventory, migration, verification, and PR-preparation reports.
 
-1. Navigate to backend directory:
-```bash
-cd backend
+WHO LMS data intentionally remains at `backend/resources/who_growth_2006/`, where the backend loader expects it.
+
+## Local development
+
+Use local environment files only; do not commit credentials.
+
+```sh
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m backend.app
 ```
 
-2. Create virtual environment (recommended):
-```bash
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# Linux/Mac
-source venv/bin/activate
-```
+In a separate terminal:
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Run Flask server:
-```bash
-python app.py
-```
-
-The backend will run on `http://localhost:5000`
-
-### Frontend Setup
-
-1. Navigate to frontend directory:
-```bash
+```sh
 cd frontend
-```
-
-2. Install dependencies:
-```bash
-npm install
-```
-
-3. Run development server:
-```bash
+npm ci
 npm run dev
 ```
 
-The frontend will run on `http://localhost:3000`
+The backend health endpoint is `/health`.
 
-## API Endpoints
+## Verification
 
-### Analysis
-- `POST /api/analysis/analyze` - Analyze child malnutrition risk
-  ```json
-  {
-    "age": 18,
-    "sex": "M",
-    "weight": 8.5,
-    "height": 75
-  }
-  ```
+Run tests only against isolated local configuration, never production services:
 
-### Children Records
-- `POST /api/children/save` - Save child record
-  ```json
-  {
-    "child_id": "CH001",
-    "age": 18,
-    "sex": "M",
-    "weight": 8.5,
-    "height": 75
-  }
-  ```
+```sh
+env -u DATABASE_URL -u EMAIL_ENABLED -u EMAIL_2FA_ENABLED -u EMAIL_NOTIFICATIONS_ENABLED -u RATELIMIT_ENABLED -u CMRAS_TESTING \
+  .venv-who-test/bin/python -m pytest -q backend/tests research_experiments/who_validation/tests
 
-- `GET /api/children/history/<child_id>` - Get child history
+cd frontend && npm test && npm run build
+```
 
-### Health Check
-- `GET /health` - Health check endpoint
+Dataset and frozen-split checks:
 
-## Features
+```sh
+python research_experiments/scripts/test_step2d_preparation.py
+python research_experiments/scripts/verify_step2f_publication.py --project-root . --source-run step2e_20261120T154822Z
+```
 
-- ✅ AI-powered malnutrition risk analysis
-- ✅ WHO growth standards Z-score calculations
-- ✅ Child history tracking
-- ✅ RESTful API
-- ✅ React frontend (ready for Figma integration)
+The latter command creates a new verification package; do not run it when preserving an existing publication-output snapshot unchanged.
 
-## Next Steps
+## Research data and reproducibility
 
-1. Add your Figma frontend components to `frontend/src/components/`
-2. Create pages in `frontend/src/pages/`
-3. Connect components to API services in `frontend/src/services/api.js`
+The two longitudinal source CSVs and prepared train/validation/test partitions are explicitly classified as simulation-only/unverified. Their SHA-256 values, row counts, provenance status, and split assignments are recorded in `datasets/manifests/`.
+
+Frozen Step 2E/2F artifacts remain under `research_experiments/artifacts/` and `research_experiments/outputs/`. The Colab ZIP is a self-contained historical snapshot and intentionally retains its internal paths.

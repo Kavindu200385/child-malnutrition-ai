@@ -15,12 +15,3 @@ PyMySQL>=1.1.0
 reportlab>=4.0.0
 cryptography>=42.0.0
 
-# AI/ML Dependencies
-pandas>=1.5.0
-numpy>=1.23.0
-# Pinned to match training environment — models were trained on 1.6.1.
-# Do NOT upgrade without retraining both models (current_risk_model.joblib,
-# future_prediction_model.joblib) on the new version.
-scikit-learn==1.6.1
-joblib>=1.2.0
-xgboost>=2.0.0

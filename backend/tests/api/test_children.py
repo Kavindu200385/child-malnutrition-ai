@@ -30,6 +30,41 @@ class TestChildRegistration:
         data = rv.get_json()
         assert data["status"] == "success"
 
+    def test_gender_is_normalized_to_male_on_create(self, client, api_midwife):
+        _, headers = api_midwife
+        rv = client.post("/api/children", json={
+            "child_id": f"MCH-{uuid.uuid4().hex[:8].upper()}",
+            "name": "Gender Normalize Male",
+            "dob": "2022-06-15",
+            "gender": "M",
+            "birth_weight_kg": 3.0,
+        }, headers=headers)
+        assert rv.status_code == 201
+        assert rv.get_json()["child"]["gender"] == "male"
+
+    def test_gender_is_normalized_to_female_on_create(self, client, api_midwife):
+        _, headers = api_midwife
+        rv = client.post("/api/children", json={
+            "child_id": f"MCH-{uuid.uuid4().hex[:8].upper()}",
+            "name": "Gender Normalize Female",
+            "dob": "2022-06-15",
+            "gender": "girl",
+            "birth_weight_kg": 3.0,
+        }, headers=headers)
+        assert rv.status_code == 201
+        assert rv.get_json()["child"]["gender"] == "female"
+
+    def test_invalid_gender_returns_400(self, client, api_midwife):
+        _, headers = api_midwife
+        rv = client.post("/api/children", json={
+            "child_id": f"MCH-{uuid.uuid4().hex[:8].upper()}",
+            "name": "Invalid Gender",
+            "dob": "2022-06-15",
+            "gender": "other",
+            "birth_weight_kg": 3.0,
+        }, headers=headers)
+        assert rv.status_code == 400
+
     def test_missing_required_fields_returns_400(self, client, api_midwife):
         _, headers = api_midwife
         # child_id is required

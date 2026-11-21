@@ -30,6 +30,7 @@ from backend.services.notification_service import (
     notify_hospital_users,
 )
 from backend.services.email_service import send_child_event_email, send_child_registered_email
+from backend.utils.gender import validate_gender
 
 bp = Blueprint("hospital", __name__, url_prefix="/api/hospital")
 
@@ -74,6 +75,10 @@ def register_child():
                 "status": "error",
                 "message": f"{field} is required"
             }), 400
+
+    gender, gender_error = validate_gender(data.get("gender"))
+    if gender_error:
+        return jsonify({"status": "error", "message": gender_error}), 400
     
     # Get hospital
     hospital = db.session.get(Hospital, user.hospital_id)
@@ -124,7 +129,7 @@ def register_child():
         child_id=child_unique_id,  # Also set legacy field
         name=data["name"],
         dob=dob,
-        gender=data["gender"].lower(),
+        gender=gender,
         birth_weight_kg=Decimal(str(birth_weight)),
         birth_height_cm=Decimal(str(birth_height)) if birth_height else None,
         mother_name=data.get("mother_name"),
@@ -180,14 +185,42 @@ def register_child():
         user_id=user.id,
         description=f"Registered child {child_unique_id} at {hospital.hospital_name}",
     )
-    send_child_registered_email(
-        child.guardian_email,
-        child_name=child.name,
-        child_identifier=child.child_unique_id or child.child_id,
-        guardian_name=child.guardian_name,
-    )
-    
     db.session.commit()
+
+    # Registration is durable before an external email provider is contacted.
+    # Delivery failures must never turn a successful birth registration into 500.
+    if child.guardian_email:
+        try:
+            result = send_child_registered_email(
+                child.guardian_email,
+                child_name=child.name,
+                child_identifier=child.child_unique_id or child.child_id,
+                guardian_name=child.guardian_name,
+            )
+            log_audit(
+                action_type="CHILD_REGISTRATION_EMAIL_SENT" if result.ok else "CHILD_REGISTRATION_EMAIL_FAILED",
+                action_category="NOTIFICATIONS",
+                entity_type="child",
+                entity_id=child.id,
+                status="SUCCESS" if result.ok else "FAILED",
+                user_id=user.id,
+                description="Child registration email delivery completed." if result.ok else "Child registration email delivery failed.",
+                metadata={"recipient": child.guardian_email, "error": None if result.ok else result.message},
+            )
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            log_audit(
+                action_type="CHILD_REGISTRATION_EMAIL_FAILED",
+                action_category="NOTIFICATIONS",
+                entity_type="child",
+                entity_id=child.id,
+                status="FAILED",
+                user_id=user.id,
+                description="Child registration email delivery raised an exception.",
+                metadata={"recipient": child.guardian_email, "error": str(exc)},
+            )
+            db.session.commit()
     
     # Prepare response
     response_data = child.to_dict()

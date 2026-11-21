@@ -7,5 +7,7 @@ from flask_limiter.util import get_remote_address
 db = SQLAlchemy()
 jwt = JWTManager()
 migrate = Migrate()
-limiter = Limiter(key_func=get_remote_address, default_limits=[])
+# A limiter with an empty default leaves every undecorated endpoint unlimited.
+# Application configuration supplies the production defaults at init time.
+limiter = Limiter(key_func=get_remote_address)
 

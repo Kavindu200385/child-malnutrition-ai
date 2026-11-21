@@ -1,0 +1,31 @@
+{
+  "seed": 42,
+  "status": "simulation_only_unverified_labels",
+  "class_order": ["Low", "Moderate", "High", "Severe"],
+  "target_column": "predicted_risk_next_2_months",
+  "allowed_features": ["age_months", "weight_kg", "height_cm", "z_score", "current_risk"],
+  "blocked_features": {
+    "child_id": "identifier",
+    "visit_number": "identifier/order field without a justified clinical predictor role",
+    "visit_date": "date/identifier; no calendar effect is justified",
+    "previous_z_score": "timestamp and availability before baseline are unverified",
+    "delta_z_score": "depends on previous_z_score availability and is timestamp-unverified",
+    "predicted_risk_next_2_months": "target"
+  },
+  "datasets": [
+    {
+      "path": "datasets/simulated/longitudinal/birth_to_2_years_longitudinal_improved.csv",
+      "cohort": "birth_to_2_as_recorded",
+      "recorded_age_range_months": [0, 24],
+      "membership_file": "datasets/splits/07b8f37c9694_membership.csv",
+      "expected_source_sha256": "f6d21fde2f47ee876e82e4e805dcd87ac2ea674beee9c30879f2f2459dd19696"
+    },
+    {
+      "path": "datasets/simulated/longitudinal/age_2_to_5_years_longitudinal_improved.csv",
+      "cohort": "older_as_recorded_24_to_72_months",
+      "recorded_age_range_months": [24, 72],
+      "membership_file": "datasets/splits/5e6f73824d60_membership.csv",
+      "expected_source_sha256": "ec7421638c895248a30c62290dfc6a27438b24df724144621edcd2bdfacbf5d3"
+    }
+  ]
+}

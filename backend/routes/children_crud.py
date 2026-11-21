@@ -13,6 +13,7 @@ from backend.auth_utils import (
 )
 from backend.extensions import db
 from backend.models import Child, Visit
+from backend.utils.gender import validate_gender
 
 bp = Blueprint("children_crud", __name__, url_prefix="/api/children")
 
@@ -59,13 +60,17 @@ def create_child():
     if Child.query.filter_by(child_id=child_id).first():
         return jsonify({"status": "error", "message": "child_id already exists"}), 409
 
+    normalized_gender, gender_error = validate_gender(data.get("gender"))
+    if gender_error:
+        return jsonify({"status": "error", "message": gender_error}), 400
+
     # Get current user to set registered_by_clinic
     user = _current_user()
 
     child = Child(
         child_id=child_id,
         name=data.get("name"),
-        gender=data.get("gender"),
+        gender=normalized_gender,
         guardian_name=data.get("guardian_name"),
         guardian_phone=data.get("guardian_phone"),
         address=data.get("address"),
@@ -165,7 +170,13 @@ def update_child(child_id: str):
         return jsonify({"status": "error", "message": "No access to this child"}), 403
     data = request.get_json() or {}
 
-    for field in ["name", "gender", "guardian_name", "guardian_phone", "address"]:
+    if "gender" in data:
+        normalized_gender, gender_error = validate_gender(data.get("gender"))
+        if gender_error:
+            return jsonify({"status": "error", "message": gender_error}), 400
+        child.gender = normalized_gender
+
+    for field in ["name", "guardian_name", "guardian_phone", "address"]:
         if field in data:
             setattr(child, field, data[field])
 

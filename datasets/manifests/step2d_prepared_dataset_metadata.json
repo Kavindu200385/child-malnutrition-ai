@@ -1,0 +1,64 @@
+{
+  "blocked_features": {
+    "child_id": "identifier",
+    "delta_z_score": "depends on previous_z_score availability and is timestamp-unverified",
+    "predicted_risk_next_2_months": "target",
+    "previous_z_score": "timestamp and availability before baseline are unverified",
+    "visit_date": "date/identifier; no calendar effect is justified",
+    "visit_number": "identifier/order field without a justified clinical predictor role"
+  },
+  "feature_allowlist": [
+    "age_months",
+    "weight_kg",
+    "height_cm",
+    "z_score",
+    "current_risk"
+  ],
+  "flagged_records": 1276,
+  "prepared_files": {
+    "test": {
+      "path": "datasets/simulated/prepared/simulation_test.csv",
+      "rows": 2784,
+      "sha256": "6c4f3ad9eeb534250b9fa0ea98958029146423781939aa9629c6d01333458233"
+    },
+    "train": {
+      "path": "datasets/simulated/prepared/simulation_train.csv",
+      "rows": 13376,
+      "sha256": "564dfbc8008fc3bd8cd9c351ce30768613e0107e859f4bb4eaca6dcbf1cb3d08"
+    },
+    "validation": {
+      "path": "datasets/simulated/prepared/simulation_validation.csv",
+      "rows": 3040,
+      "sha256": "a58f3bcfe4a36f3368bbe5b2ed8fa3a4d322232eef6371381d526afe0e90f83f"
+    }
+  },
+  "runtime": {
+    "dependencies": "Python standard library only; no ML package imported",
+    "generated_at_utc": "2026-11-20T15:14:33.552426+00:00",
+    "git_revision": "180897bb952655753acdb285be347bac05251029",
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "python_version": "3.14.0 (v3.14.0:ebf955df7a8, Oct  7 2025, 08:20:14) [Clang 16.0.0 (clang-1600.0.26.6)]"
+  },
+  "source_datasets": [
+    {
+      "cohort": "birth_to_2_as_recorded",
+      "flagged": 0,
+      "membership_sha256": "4aec6adff7708c534700b8cfd6c8594aa89cb8a579e9a15074435700e0650989",
+      "path": "datasets/simulated/longitudinal/birth_to_2_years_longitudinal_improved.csv",
+      "provenance": "unverified",
+      "rows": 9600,
+      "sha256": "f6d21fde2f47ee876e82e4e805dcd87ac2ea674beee9c30879f2f2459dd19696"
+    },
+    {
+      "cohort": "older_as_recorded_24_to_72_months",
+      "flagged": 1276,
+      "membership_sha256": "d300323b1e8032cd43179ed7e1c6936637dcc9ec36e295546b00b9763c6606ea",
+      "path": "datasets/simulated/longitudinal/age_2_to_5_years_longitudinal_improved.csv",
+      "provenance": "unverified",
+      "rows": 9600,
+      "sha256": "ec7421638c895248a30c62290dfc6a27438b24df724144621edcd2bdfacbf5d3"
+    }
+  ],
+  "source_status": "simulation_only_unverified_labels",
+  "target": "predicted_risk_next_2_months"
+}

@@ -370,48 +370,60 @@ def update_area(area_id: int):
     return jsonify({"status": "success", "area": area.to_dict()}), 200
 
 
-def _cascade_delete_area(area_id: int, user_id: int) -> list:
-    """
-    Recursively soft-delete an area and all its sub-areas.
-    Also deactivates all worker mappings for each area.
-    Returns list of area IDs that have actively assigned children (blocking).
-    """
-    blocked = []
-
-    sub_areas = db.session.query(Area).filter(
-        Area.parent_id == area_id,
-        Area.is_active == True,
-    ).all()
-    for sub in sub_areas:
-        blocked.extend(_cascade_delete_area(sub.id, user_id))
-
+def _active_area_subtree(area_id: int) -> list[Area]:
+    """Return an active subtree in child-first order without changing state."""
     area = db.session.get(Area, area_id)
     if not area or not area.is_active:
-        return blocked
+        return []
+    descendants: list[Area] = []
+    for child in db.session.query(Area).filter(
+        Area.parent_id == area_id,
+        Area.is_active == True,
+    ).order_by(Area.id).all():
+        descendants.extend(_active_area_subtree(child.id))
+    descendants.append(area)
+    return descendants
 
-    if area.has_linked_children():
-        blocked.append(area.name)
-        return blocked
 
-    # Deactivate worker mappings for this area
-    db.session.query(WorkerAreaMapping).filter(
-        WorkerAreaMapping.area_id == area_id,
-        WorkerAreaMapping.is_active == True,
-    ).update({"is_active": False}, synchronize_session=False)
-
-    old_values = area.to_dict()
-    area.is_active = False
-    db.session.flush()
-    log_audit(
-        action="DELETE",
-        entity_type="area",
-        entity_id=area.id,
-        old_values=old_values,
-        new_values=area.to_dict(),
-        user_id=user_id,
-        description=f"Deleted area: {area.name}",
-    )
+def _deletion_blockers(areas: list[Area]) -> list[dict]:
+    """Provide stable, actionable blocker details before deletion begins."""
+    blocked = []
+    for area in areas:
+        child_count = db.session.query(Child).filter(
+            (Child.phm_area_id == area.id)
+            | (Child.moh_area_id == area.id)
+            | (Child.district_id == area.id)
+            | (Child.province_id == area.id)
+        ).count()
+        if child_count:
+            blocked.append({
+                "id": area.id,
+                "name": area.name,
+                "level": area.level,
+                "linked_child_count": child_count,
+            })
     return blocked
+
+
+def _cascade_delete_area(areas: list[Area], user_id: int) -> None:
+    """Soft-delete a prevalidated child-first subtree in one transaction."""
+    for area in areas:
+        db.session.query(WorkerAreaMapping).filter(
+            WorkerAreaMapping.area_id == area.id,
+            WorkerAreaMapping.is_active == True,
+        ).update({"is_active": False}, synchronize_session=False)
+        old_values = area.to_dict()
+        area.is_active = False
+        db.session.flush()
+        log_audit(
+            action="DELETE",
+            entity_type="area",
+            entity_id=area.id,
+            old_values=old_values,
+            new_values=area.to_dict(),
+            user_id=user_id,
+            description=f"Deleted area: {area.name}",
+        )
 
 
 @bp.route("/<int:area_id>", methods=["DELETE"])
@@ -426,15 +438,17 @@ def delete_area(area_id: int):
     if not area:
         return jsonify({"status": "error", "message": "Area not found"}), 404
 
-    blocked = _cascade_delete_area(area_id, user.id)
+    subtree = _active_area_subtree(area_id)
+    blocked = _deletion_blockers(subtree)
     if blocked:
-        db.session.rollback()
-        names = ", ".join(blocked)
+        names = ", ".join(item["name"] for item in blocked)
         return jsonify({
             "status": "error",
             "message": f"Cannot delete: the following areas still have assigned children — {names}. Reassign children first.",
+            "blocking_areas": blocked,
         }), 400
 
+    _cascade_delete_area(subtree, user.id)
     db.session.commit()
     return jsonify({"status": "success", "message": "Area deleted successfully"}), 200
 
@@ -510,6 +524,34 @@ def _generate_hospital_code() -> str:
     return code
 
 
+def _validated_hospital_geography(data: dict, *, required: bool) -> tuple[Area | None, list[Area] | None, tuple | None]:
+    """Resolve an RDHS and its selected MOH children, rejecting ambiguous links."""
+    district_area_id = data.get("district_area_id")
+    moh_area_ids = data.get("moh_area_ids", [])
+    if district_area_id is None:
+        if required or moh_area_ids:
+            return None, None, (jsonify({"status": "error", "message": "district_area_id is required and must reference an active RDHS area."}), 400)
+        return None, [], None
+    if isinstance(district_area_id, bool) or not isinstance(district_area_id, int):
+        return None, None, (jsonify({"status": "error", "message": "district_area_id must be an integer."}), 400)
+    if not isinstance(moh_area_ids, list) or any(isinstance(item, bool) or not isinstance(item, int) for item in moh_area_ids):
+        return None, None, (jsonify({"status": "error", "message": "moh_area_ids must be a list of integer IDs."}), 400)
+    if len(set(moh_area_ids)) != len(moh_area_ids):
+        return None, None, (jsonify({"status": "error", "message": "moh_area_ids must not contain duplicates."}), 400)
+    rdhs_area = db.session.get(Area, district_area_id)
+    if not rdhs_area or not rdhs_area.is_active or rdhs_area.level != AreaLevel.RDHS.value:
+        return None, None, (jsonify({"status": "error", "message": "district_area_id must reference an active RDHS area."}), 400)
+    province = rdhs_area.parent
+    if not province or not province.is_active or province.level != AreaLevel.PDHS.value:
+        return None, None, (jsonify({"status": "error", "message": "The selected RDHS must belong to an active PDHS area."}), 400)
+    if data.get("district") not in (None, "", rdhs_area.name) or data.get("province") not in (None, "", province.name):
+        return None, None, (jsonify({"status": "error", "message": "district and province must match the selected RDHS hierarchy."}), 400)
+    moh_areas = [db.session.get(Area, area_id) for area_id in moh_area_ids]
+    if any(not area or not area.is_active or area.level != AreaLevel.MOH.value or area.parent_id != rdhs_area.id for area in moh_areas):
+        return None, None, (jsonify({"status": "error", "message": "Each MOH area must be active and directly belong to the selected RDHS area."}), 400)
+    return rdhs_area, moh_areas, None
+
+
 @bp.route("/hospitals", methods=["GET"])
 @health_ministry_required
 def list_hospitals():
@@ -536,7 +578,9 @@ def create_hospital():
     province = data.get("province")
     address = data.get("address")
     contact_phone = data.get("contact_phone")
-    district_area_id = data.get("district_area_id")  # optional: set district from RDHS area name
+    rdhs_area, moh_areas, error = _validated_hospital_geography(data, required=True)
+    if error:
+        return error
 
     if not hospital_name:
         return jsonify({"status": "error", "message": "hospital_name is required"}), 400
@@ -546,20 +590,13 @@ def create_hospital():
     except ValueError as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-    moh_area_ids = data.get("moh_area_ids", [])
-
-    if district_area_id:
-        rdhs_area = db.session.get(Area, district_area_id)
-        if rdhs_area and rdhs_area.level == "rdhs":
-            district = rdhs_area.name
-            if rdhs_area.parent_id:
-                parent = db.session.get(Area, rdhs_area.parent_id)
-                if parent:
-                    province = parent.name
+    district = rdhs_area.name
+    province = rdhs_area.parent.name
 
     hospital = Hospital(
         hospital_name=hospital_name,
         hospital_code=hospital_code,
+        district_area_id=rdhs_area.id,
         district=district,
         province=province,
         address=address,
@@ -570,13 +607,9 @@ def create_hospital():
     db.session.flush()
 
     # Stamp district/province on selected MOH areas so escalation routing works
-    if moh_area_ids and district:
-        for moh_id in moh_area_ids:
-            moh_area = db.session.get(Area, moh_id)
-            if moh_area and moh_area.level == "moh":
-                moh_area.district = district
-                if province:
-                    moh_area.province = province
+    for moh_area in moh_areas:
+        moh_area.district = district
+        moh_area.province = province
 
     log_audit(
         action="CREATE",
@@ -602,10 +635,6 @@ def update_hospital(hospital_id: int):
     if "hospital_name" in data or "name" in data:
         hospital.hospital_name = data.get("hospital_name") or data.get("name") or hospital.hospital_name
     # hospital_code is auto-generated and cannot be changed on update
-    if "district" in data:
-        hospital.district = data["district"]
-    if "province" in data:
-        hospital.province = data["province"]
     if "address" in data:
         hospital.address = data["address"]
     if "contact_phone" in data:
@@ -613,25 +642,17 @@ def update_hospital(hospital_id: int):
     if "is_active" in data:
         hospital.is_active = bool(data["is_active"])
 
-    district_area_id = data.get("district_area_id")
-    if district_area_id:
-        rdhs_area = db.session.get(Area, district_area_id)
-        if rdhs_area and rdhs_area.level == "rdhs":
-            hospital.district = rdhs_area.name
-            if rdhs_area.parent_id:
-                parent = db.session.get(Area, rdhs_area.parent_id)
-                if parent:
-                    hospital.province = parent.name
-
-    # Stamp district/province on selected MOH areas so escalation routing works
-    moh_area_ids = data.get("moh_area_ids", [])
-    if moh_area_ids and hospital.district:
-        for moh_id in moh_area_ids:
-            moh_area = db.session.get(Area, moh_id)
-            if moh_area and moh_area.level == "moh":
-                moh_area.district = hospital.district
-                if hospital.province:
-                    moh_area.province = hospital.province
+    geography_requested = any(key in data for key in ("district_area_id", "district", "province", "moh_area_ids"))
+    if geography_requested:
+        rdhs_area, moh_areas, error = _validated_hospital_geography(data, required=True)
+        if error:
+            return error
+        hospital.district_area_id = rdhs_area.id
+        hospital.district = rdhs_area.name
+        hospital.province = rdhs_area.parent.name
+        for moh_area in moh_areas:
+            moh_area.district = hospital.district
+            moh_area.province = hospital.province
 
     db.session.flush()
     log_audit(

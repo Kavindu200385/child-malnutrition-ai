@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Bell, Brain, Database, Download, Globe, Save, Shield, Upload } from 'lucide-react';
+import { Bell, Database, Download, Globe, Save, Shield, Upload } from 'lucide-react';
 import { adminAPI } from '../../services/api';
-
-type RecomputeStatus = 'idle' | 'running' | 'done' | 'error';
 
 interface SettingsState {
   system_language: string;
@@ -67,8 +65,6 @@ export function SystemSettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  const [recomputeStatus, setRecomputeStatus] = useState<RecomputeStatus>('idle');
-  const [recomputeResult, setRecomputeResult] = useState<{ updated?: number; total?: number; errors?: number } | null>(null);
 
   const settingsPayload = useMemo(
     () => [
@@ -148,20 +144,6 @@ export function SystemSettings() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-  };
-
-  const handleRecomputePredictions = async () => {
-    setRecomputeStatus('running');
-    setRecomputeResult(null);
-    try {
-      const res = await adminAPI.recomputeMeasurements();
-      setRecomputeResult(res.data?.result ?? res.data);
-      setRecomputeStatus('done');
-      toast.success('AI predictions recomputed');
-    } catch (err: any) {
-      setRecomputeStatus('error');
-      toast.error(err.response?.data?.message || 'Failed to recompute predictions');
-    }
   };
 
   if (loading) {
@@ -344,34 +326,6 @@ export function SystemSettings() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex items-center gap-2">
-              <Brain className="w-5 h-5 text-blue-600" />
-              <h3 className="text-lg font-bold text-gray-900">AI Prediction Maintenance</h3>
-            </div>
-          </div>
-          <div className="p-6 space-y-4">
-            <p className="text-sm text-gray-600">
-              Recompute Z-scores and 2-month risk predictions for all clinic measurements if dashboard prediction counts look stale.
-            </p>
-            <button onClick={handleRecomputePredictions} disabled={recomputeStatus === 'running'} className={`${buttonBaseClass} bg-blue-600 text-white hover:bg-blue-700`}>
-              <Brain className="w-4 h-4" />
-              {recomputeStatus === 'running' ? 'Running...' : 'Re-run Predictions'}
-            </button>
-            {recomputeStatus === 'done' && recomputeResult && (
-              <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
-                Done. Updated {recomputeResult.updated ?? 0} / {recomputeResult.total ?? 0} measurements
-                {recomputeResult.errors ? ` (${recomputeResult.errors} errors)` : ''}.
-              </div>
-            )}
-            {recomputeStatus === 'error' && (
-              <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                Failed to recompute predictions. Check server logs.
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow">

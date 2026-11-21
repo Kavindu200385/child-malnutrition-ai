@@ -29,13 +29,13 @@ const CONTENT_VARIATIONS = [
       },
       {
         icon: Heart,
-        title: "Early Risk Prediction",
-        description: "AI-powered forecasting to prevent malnutrition progression"
+        title: "WHO Screening Support",
+        description: "Independent anthropometric screening indicators for clinical review"
       },
       {
         icon: Users,
-        title: "Clinical Recommendations",
-        description: "Personalized guidance for every child's nutritional needs"
+        title: "Clinical Review Support",
+        description: "Measurement records and screening indicators for responsible clinical review"
       }
     ]
   },

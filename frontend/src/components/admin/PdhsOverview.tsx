@@ -160,7 +160,7 @@ export function PdhsOverview() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-sm text-gray-600">Severe Cases (SAM)</p>
+          <p className="text-sm text-gray-600">Legacy SAM labels</p>
           <p className="text-3xl font-bold text-red-600 mt-2">{samCount}</p>
         </div>
         <div className="bg-white rounded-lg shadow p-6">
@@ -171,10 +171,10 @@ export function PdhsOverview() {
         <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg shadow p-6">
           <div className="flex items-center gap-2 mb-1">
             <Brain className="w-4 h-4 text-purple-600" />
-            <p className="text-sm font-medium text-purple-700">Future Risk Prediction (next 2 months)</p>
+            <p className="text-sm font-medium text-purple-700">Future-risk prediction</p>
           </div>
-          <p className="text-3xl font-bold text-purple-900">{predictedTotal}</p>
-          <p className="text-xs text-purple-500 mt-1">Severe risk: {predictedSam} · Moderate/High risk: {predictedMam}</p>
+          <p className="text-base font-bold text-purple-900">Unavailable</p>
+          <p className="text-xs text-purple-500 mt-1">No clinically validated prediction model is deployed.</p>
         </div>
       </div>
 

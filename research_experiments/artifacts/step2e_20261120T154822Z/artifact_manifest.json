@@ -1,0 +1,38 @@
+{
+  "artifacts": {
+    "no_current_risk__dummy_majority": {
+      "path": "no_current_risk__dummy_majority.joblib",
+      "sha256": "9ef0a69a4fae0c89b676d5d470df99bd60aa251d7dbad82c0e0e94830cff13d3"
+    },
+    "no_current_risk__logistic_regression": {
+      "path": "no_current_risk__logistic_regression.joblib",
+      "sha256": "b262ec45ee7fe2237fab9c3dd87fc9755e1536d9aafd7cdd503e4d2431d3f1dc"
+    },
+    "no_current_risk__random_forest": {
+      "path": "no_current_risk__random_forest.joblib",
+      "sha256": "a89766d2b16632851b02de532f65da64cb2b2e753370030926929bf1b31f7bc3"
+    },
+    "no_current_risk__xgboost": {
+      "path": "no_current_risk__xgboost.joblib",
+      "sha256": "554ce55ec2b72b34503f76fc79ff552d6ce0ccc5158e6b01e708eadc5940b375"
+    },
+    "with_current_risk__dummy_majority": {
+      "path": "with_current_risk__dummy_majority.joblib",
+      "sha256": "49bc270e9877dc9b41f2ead16f56b3f92261ffc74d1d6afc0b946fc13a657d17"
+    },
+    "with_current_risk__logistic_regression": {
+      "path": "with_current_risk__logistic_regression.joblib",
+      "sha256": "40f7482a2d5c9a97631501552e195fd90eed54b9b3cbf9649ee6635bb0f84d65"
+    },
+    "with_current_risk__random_forest": {
+      "path": "with_current_risk__random_forest.joblib",
+      "sha256": "dc9fa4f4cfbea5e4ee432e1ea44aebe08a9380dcf32f1250520541c5fe53f40d"
+    },
+    "with_current_risk__xgboost": {
+      "path": "with_current_risk__xgboost.joblib",
+      "sha256": "00ef5f11b1f8a23b16dd7854d91f40bdafafb5e4520b1b51236b82bde6b1003a"
+    }
+  },
+  "run_id": "step2e_20261120T154822Z",
+  "selected_model": "no_current_risk__logistic_regression"
+}

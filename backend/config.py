@@ -2,6 +2,13 @@ import os
 import re
 from datetime import timedelta
 
+from dotenv import load_dotenv
+
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
 # Default SQLite fallback location (works without MySQL for local dev)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -59,6 +66,11 @@ class Config:
     # Match your proposal env name
     JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", os.environ.get("JWT_SECRET", SECRET_KEY))
     JWT_ACCESS_TOKEN_EXPIRES = _parse_expires(os.environ.get("JWT_EXPIRES_IN"))
+    # Applied to routes without a stricter endpoint-specific limiter.
+    RATELIMIT_DEFAULT = ["200 per day", "50 per hour"]
+    RATELIMIT_ENABLED = os.environ.get("RATELIMIT_ENABLED", "true").lower() in ("1", "true", "yes")
+    # Production must not start without a bootstrap administrator credential.
+    SUPERADMIN_PASSWORD_REQUIRED = os.environ.get("NODE_ENV", "development").lower() == "production" or os.environ.get("FLASK_ENV", "").lower() == "production"
 
     # Database (MySQL recommended; fallback to SQLite for local dev)
     # Example MySQL URI:

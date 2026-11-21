@@ -97,8 +97,8 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                   <Heart className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-white mb-1">Early Risk Prediction</h3>
-                  <p className="text-sm text-blue-100">AI-powered forecasting to prevent malnutrition progression</p>
+                  <h3 className="font-bold text-white mb-1">WHO Screening Support</h3>
+                  <p className="text-sm text-blue-100">Independent anthropometric screening indicators for clinical review</p>
                 </div>
               </div>
               

@@ -1,6 +1,13 @@
 import { ReactNode } from 'react';
 import { AlertTriangle, Baby, CircleUserRound, Eye, UserRound } from 'lucide-react';
-import { getDisplayRiskLevel, getDisplayRiskLevelTyped, getRiskLabel } from '../types';
+import { getDisplayRiskLevelTyped, getRiskLabel } from '../types';
+import {
+  getClinicalActionDisplay,
+  getCurrentNutritionalStatusLabel,
+  getCurrentStatusToneClass,
+  getFutureRiskPresentation,
+  getStatusDisplayLabel,
+} from '../utils/statusDisplay';
 import boyAvatar from '../../boy.png';
 import girlAvatar from '../../girl.png';
 
@@ -63,69 +70,6 @@ function getArea(child: any, override?: string): string {
   );
 }
 
-function getRiskLabelText(child: any, risk?: string): string {
-  if (risk) return risk.toUpperCase();
-  return getRiskLabel(getDisplayRiskLevelTyped(child));
-}
-
-function getRiskClass(riskLabel: string): string {
-  const label = riskLabel.toUpperCase();
-  if (label.includes('NORMAL')) return 'border-green-200 bg-green-50 text-green-700';
-  if (label.includes('SAM') || label.includes('SEVERE') || label.includes('CRITICAL')) return 'border-red-200 bg-red-50 text-red-700';
-  if (label.includes('MAM') || label.includes('MODERATE')) return 'border-orange-200 bg-orange-50 text-orange-700';
-  if (label.includes('UNDERWEIGHT') || label.includes('STUNT')) return 'border-amber-200 bg-amber-50 text-amber-700';
-  return 'border-gray-200 bg-gray-50 text-gray-700';
-}
-
-function getPredictedRiskRaw(child: any): string | null {
-  const direct =
-    child?.predicted_risk_next_2_months ||
-    child?.latest_predicted_risk_next_2_months ||
-    child?.predictedRiskNext2Months ||
-    child?.latestPredictedRiskNext2Months ||
-    child?.future_predicted_risk ||
-    child?.futurePredictedRisk ||
-    child?.predicted_risk ||
-    child?.predictedRisk ||
-    child?.latest_measurement?.predicted_risk_next_2_months ||
-    child?.latestMeasurement?.predictedRiskNext2Months ||
-    child?.latest_visit?.predicted_risk_next_2_months ||
-    child?.latestVisit?.predictedRiskNext2Months;
-  if (direct) return String(direct);
-  const datedItems = [...(child?.measurements || []), ...(child?.visits || [])]
-    .filter((item) => item?.predicted_risk_next_2_months || item?.predictedRiskNext2Months)
-    .sort((a, b) => {
-      const aDate = new Date(a.measurement_date || a.visit_date || a.created_at || 0).getTime();
-      const bDate = new Date(b.measurement_date || b.visit_date || b.created_at || 0).getTime();
-      return bDate - aDate;
-    });
-  const latest = datedItems[0]?.predicted_risk_next_2_months || datedItems[0]?.predictedRiskNext2Months;
-  return latest ? String(latest) : null;
-}
-
-function getPredictedRiskLabel(child: any): string {
-  const raw = getPredictedRiskRaw(child);
-  if (!raw) return 'Not Available';
-  const label = raw.replace(/_/g, ' ').trim().toUpperCase();
-  if (label === 'NORMAL' || label === 'NO' || label === 'NONE' || label === 'NO RISK') return 'NO RISK';
-  if (label.includes('SEVERE') || label.includes('SAM') || label.includes('CRITICAL')) return 'SEVERE RISK';
-  if (label.includes('HIGH')) return 'HIGH RISK';
-  if (label.includes('MODERATE') || label.includes('MAM')) return 'MODERATE RISK';
-  if (label.includes('LOW')) return 'LOW RISK';
-  return label.endsWith('RISK') ? label : `${label} RISK`;
-}
-
-function getPredictedRiskClass(predictedLabel: string): string {
-  const label = predictedLabel.toUpperCase();
-  if (label.includes('NOT AVAILABLE')) return 'border-gray-200 bg-gray-50 text-gray-600';
-  if (label.includes('NO RISK')) return 'border-green-200 bg-green-50 text-green-700';
-  if (label.includes('LOW')) return 'border-sky-200 bg-sky-50 text-sky-700';
-  if (label.includes('MODERATE')) return 'border-amber-200 bg-amber-50 text-amber-700';
-  if (label.includes('HIGH')) return 'border-orange-200 bg-orange-50 text-orange-700';
-  if (label.includes('SEVERE')) return 'border-red-200 bg-red-50 text-red-700';
-  return 'border-gray-200 bg-gray-50 text-gray-700';
-}
-
 function getAvatarClass(accent: ChildProfileCardProps['accent']): string {
   if (accent === 'indigo') return 'from-indigo-700 to-indigo-500';
   if (accent === 'teal') return 'from-teal-700 to-teal-500';
@@ -151,14 +95,15 @@ export function ChildProfileCard({
   badges,
 }: ChildProfileCardProps) {
   const childId = getChildId(child);
-  const riskLabel = getRiskLabelText(child, risk || getDisplayRiskLevel(child));
-  const predictedRiskLabel = getPredictedRiskLabel(child);
+  const riskLabel = getCurrentNutritionalStatusLabel(child, risk || getRiskLabel(getDisplayRiskLevelTyped(child)));
+  const futureRisk = getFutureRiskPresentation(child);
+  const clinicalAction = getClinicalActionDisplay(child);
   const genderKey = getGenderKey(child);
   const AvatarIcon = genderKey === 'female' ? CircleUserRound : genderKey === 'male' ? UserRound : Baby;
   const avatarSrc = genderKey === 'female' ? girlAvatar : genderKey === 'male' ? boyAvatar : null;
 
   return (
-    <article className="flex h-full min-h-[390px] flex-col justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+    <article className="flex h-full min-h-[390px] flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex-1">
         <div className="mb-4 flex items-start justify-between gap-3">
           <h4 className="min-w-0 truncate text-sm font-bold text-gray-900">
@@ -219,15 +164,20 @@ export function ChildProfileCard({
         </dl>
       </div>
 
-      <div className="mt-4 flex flex-col items-center space-y-4">
+      <div className="mt-4 flex flex-col items-center gap-3">
         <div className="w-full space-y-2">
-          <div className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold ${getRiskClass(riskLabel)}`}>
+          <div className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${getCurrentStatusToneClass(riskLabel)}`}>
             <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden />
-            <span>Current Status: {riskLabel.toUpperCase()}</span>
+            <span className="flex-1 text-gray-600">Current Status</span>
+            <span className="text-right font-bold">{getStatusDisplayLabel(riskLabel)}</span>
           </div>
-          <div className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[11px] font-semibold ${getPredictedRiskClass(predictedRiskLabel)}`}>
-            <span className="text-gray-600">2-Month Predicted Risk:</span>
-            <span className="text-right font-bold">{predictedRiskLabel}</span>
+          <div className="flex min-h-9 w-full items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700">
+            <span className="text-gray-600">Future-risk prediction</span>
+            <span className="text-right font-bold">{futureRisk.label}</span>
+          </div>
+          <div className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${clinicalAction.className}`}>
+            <span className="text-gray-600">Action Required</span>
+            <span className="text-right font-bold">{getStatusDisplayLabel(clinicalAction.label)}</span>
           </div>
         </div>
         {onViewProfile && (

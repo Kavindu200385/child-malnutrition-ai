@@ -7,6 +7,8 @@ __pycache__/
 env/
 venv/
 ENV/
+.venv/
+.venv-*/
 
 # Node
 node_modules/
@@ -53,14 +55,15 @@ dist/
 build/
 *.egg-info/
 
-# ML model files (too large for git)
-*.joblib
-*.pkl
-*.h5
-*.onnx
-New models/
-backend/models/
-models_backup/
+# Local tooling and generated caches
+.claude/
+.codex/
+.cache/
+.coverage
+coverage/
+*.tmp
+*.bak
+
 
 # Credential and secret files — never commit these
 ROLE_CREDENTIALS.md

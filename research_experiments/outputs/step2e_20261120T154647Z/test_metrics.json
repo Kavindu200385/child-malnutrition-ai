@@ -1,0 +1,41 @@
+{
+  "accuracy": 0.8940373563218391,
+  "balanced_accuracy": 0.8864061705193138,
+  "high_recall": 0.8359240069084629,
+  "log_loss": 0.24050288759243393,
+  "macro_f1": 0.8880257560016871,
+  "macro_precision": 0.8897592794403633,
+  "macro_recall": 0.8864061705193138,
+  "multiclass_brier": 0.14765025433528225,
+  "partition": "test",
+  "per_class": {
+    "High": {
+      "f1": 0.8461538461538461,
+      "precision": 0.856637168141593,
+      "recall": 0.8359240069084629,
+      "support": 579
+    },
+    "Low": {
+      "f1": 0.9408842523596622,
+      "precision": 0.9348469891411648,
+      "recall": 0.947,
+      "support": 1000
+    },
+    "Moderate": {
+      "f1": 0.8657675016056519,
+      "precision": 0.8618925831202046,
+      "recall": 0.8696774193548387,
+      "support": 775
+    },
+    "Severe": {
+      "f1": 0.8992974238875878,
+      "precision": 0.9056603773584906,
+      "recall": 0.8930232558139535,
+      "support": 430
+    }
+  },
+  "selected_model": "no_current_risk__logistic_regression",
+  "severe_recall": 0.8930232558139535,
+  "test_opened_after_selection": true,
+  "weighted_f1": 0.8938487914147925
+}

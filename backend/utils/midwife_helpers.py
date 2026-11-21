@@ -57,7 +57,7 @@ def calculate_z_scores(
     """
     # This is a simplified placeholder
     # In production, use proper WHO growth reference tables
-    # For now, return None to indicate calculation needed via AI model
+    # This legacy helper is unused; WHO calculations live in who_growth.py.
     
     # TODO: Implement proper WHO Z-score calculation
     # Using WHO Anthro package or lookup tables

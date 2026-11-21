@@ -1,0 +1,12 @@
+{
+  "canonical_step2e_run": "step2e_20261120T154822Z",
+  "limitations": {
+    "persistence_raw_predictions": "not available",
+    "test_after_selection": "documented only"
+  },
+  "maximum_absolute_metric_difference": 0.0,
+  "metric_verification_status": "PASS",
+  "selected_model": "no_current_risk__logistic_regression",
+  "step2f_run": "step2f_reproducibility_verification_20261121T110500Z",
+  "test_macro_f1": 0.8880257560016871
+}
