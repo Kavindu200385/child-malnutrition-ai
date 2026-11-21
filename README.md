@@ -16,7 +16,7 @@ CMRAS is a final-year Computer Science project comprising a React frontend and F
 - `research_experiments/` — reproducible scripts, configurations, notebooks, verified outputs, artifacts, and WHO/system validation evidence.
 - `research_audit/` — historical recovery and provenance audit evidence.
 - `docs/` — project and dataset documentation.
-- `repository_cleanup/` — cleanup inventory, migration, verification, and PR-preparation reports.
+- `docs/FINAL_REPOSITORY_CLEANUP.md` — final cleanup, integrity, and verification record.
 
 WHO LMS data intentionally remains at `backend/resources/who_growth_2006/`, where the backend loader expects it.
 
