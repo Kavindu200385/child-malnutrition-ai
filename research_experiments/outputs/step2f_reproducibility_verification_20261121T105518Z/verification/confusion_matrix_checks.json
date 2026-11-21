@@ -1,0 +1,65 @@
+[
+  {
+    "experiment": "test_no_current_risk__logistic_regression",
+    "matrix_sum": 2784,
+    "row_recalls_match": true,
+    "rows": 2784,
+    "saved_matrix_matches": true
+  },
+  {
+    "experiment": "validation_no_current_risk__dummy_majority",
+    "matrix_sum": 3040,
+    "row_recalls_match": true,
+    "rows": 3040,
+    "saved_matrix_matches": true
+  },
+  {
+    "experiment": "validation_no_current_risk__logistic_regression",
+    "matrix_sum": 3040,
+    "row_recalls_match": true,
+    "rows": 3040,
+    "saved_matrix_matches": true
+  },
+  {
+    "experiment": "validation_no_current_risk__random_forest",
+    "matrix_sum": 3040,
+    "row_recalls_match": true,
+    "rows": 3040,
+    "saved_matrix_matches": true
+  },
+  {
+    "experiment": "validation_no_current_risk__xgboost",
+    "matrix_sum": 3040,
+    "row_recalls_match": true,
+    "rows": 3040,
+    "saved_matrix_matches": true
+  },
+  {
+    "experiment": "validation_with_current_risk__dummy_majority",
+    "matrix_sum": 3040,
+    "row_recalls_match": true,
+    "rows": 3040,
+    "saved_matrix_matches": true
+  },
+  {
+    "experiment": "validation_with_current_risk__logistic_regression",
+    "matrix_sum": 3040,
+    "row_recalls_match": true,
+    "rows": 3040,
+    "saved_matrix_matches": true
+  },
+  {
+    "experiment": "validation_with_current_risk__random_forest",
+    "matrix_sum": 3040,
+    "row_recalls_match": true,
+    "rows": 3040,
+    "saved_matrix_matches": true
+  },
+  {
+    "experiment": "validation_with_current_risk__xgboost",
+    "matrix_sum": 3040,
+    "row_recalls_match": true,
+    "rows": 3040,
+    "saved_matrix_matches": true
+  }
+]
