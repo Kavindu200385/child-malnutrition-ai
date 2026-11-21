@@ -203,9 +203,9 @@ export function AdminOverview() {
               <Brain className="w-6 h-6 text-purple-600" />
             </div>
             <div>
-              <p className="text-sm font-medium text-purple-700">Future Risk Prediction (next 2 months) – National</p>
-              <p className="text-3xl font-bold text-purple-900 mt-0.5">{predictedTotal}</p>
-              <p className="text-xs text-purple-500 mt-0.5">Severe risk: {predictedSam} &nbsp;·&nbsp; Moderate/High risk: {predictedMam}</p>
+              <p className="text-sm font-medium text-purple-700">Future-risk prediction — national</p>
+              <p className="text-base font-bold text-purple-900 mt-0.5">Unavailable</p>
+              <p className="text-xs text-purple-500 mt-0.5">No clinically validated prediction model is deployed.</p>
             </div>
           </div>
         </div>

@@ -16,6 +16,16 @@ import os
 import uuid
 from datetime import date, datetime
 
+# This must be set before importing backend.app: its module-level WSGI app is
+# created at import time.  Force a process-local in-memory DB and disable every
+# external delivery path, regardless of a developer's shell or .env settings.
+os.environ["CMRAS_TESTING"] = "1"
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+os.environ["EMAIL_ENABLED"] = "false"
+os.environ["EMAIL_2FA_ENABLED"] = "false"
+os.environ["EMAIL_NOTIFICATIONS_ENABLED"] = "false"
+os.environ["RATELIMIT_ENABLED"] = "false"
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import pytest
@@ -36,8 +46,7 @@ from backend.models_hierarchical import (
 
 @pytest.fixture(scope="session")
 def app():
-    application = create_app()
-    application.config.update({
+    application = create_app({
         "TESTING": True,
         "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
         "SQLALCHEMY_ENGINE_OPTIONS": {
@@ -47,6 +56,9 @@ def app():
         "JWT_SECRET_KEY": "test-secret-key-long-enough-32chars!!",
         "WTF_CSRF_ENABLED": False,
         "RATELIMIT_ENABLED": False,
+        "EMAIL_ENABLED": False,
+        "EMAIL_2FA_ENABLED": False,
+        "EMAIL_NOTIFICATIONS_ENABLED": False,
     })
     with application.app_context():
         _db.create_all()

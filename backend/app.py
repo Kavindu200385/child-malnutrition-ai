@@ -9,7 +9,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from dotenv import load_dotenv, find_dotenv  # type: ignore
-from flask import Flask
+from flask import Flask, current_app
 from flask_cors import CORS
 from sqlalchemy import inspect, text
 
@@ -514,6 +514,8 @@ def seed_superadmin() -> None:
     superadmin_password = os.environ.get("SUPERADMIN_PASSWORD", "")
 
     if not superadmin_password:
+        if current_app.config.get("SUPERADMIN_PASSWORD_REQUIRED"):
+            raise RuntimeError("SUPERADMIN_PASSWORD must be set before production startup.")
         print(
             "[WARNING] SUPERADMIN_PASSWORD env var is not set. "
             "Superadmin account will not be created or updated. "
@@ -545,7 +547,7 @@ def seed_superadmin() -> None:
     db.session.commit()
 
 
-def create_app() -> Flask:
+def create_app(config_overrides: dict | None = None) -> Flask:
     # Load env from:
     # - repo/root .env (if present)
     # - backend/.env (if present)
@@ -559,6 +561,11 @@ def create_app() -> Flask:
 
     app = Flask(__name__)
     app.config.from_object(Config)
+    if config_overrides:
+        app.config.update(config_overrides)
+
+    if app.config.get("SUPERADMIN_PASSWORD_REQUIRED") and not os.environ.get("SUPERADMIN_PASSWORD"):
+        raise RuntimeError("SUPERADMIN_PASSWORD must be set before production startup.")
 
     # Extensions
     CORS(app, resources={r"/*": {"origins": app.config.get("CORS_ORIGINS", "*")}})
@@ -621,7 +628,8 @@ def create_app() -> Flask:
             "version": "2.0.0",
         }
 
-    # Create tables + seed superadmin on startup; verify DB connection
+    # Verify the database only.  Production schemas are owned by explicit
+    # Flask-Migrate/Alembic migrations, never by application startup.
     with app.app_context():
         try:
             db.session.execute(text("SELECT 1"))
@@ -634,29 +642,35 @@ def create_app() -> Flask:
             else:
                 print("[OK] Database connected successfully")
         except Exception as e:
-            print(f"[ERROR] Database connection failed: {e}")
-            print("  Check backend/.env: DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, DB_NAME")
-            print("  For MySQL: ensure MySQL is running and the database 'cmras' exists.")
-        db.create_all()
-        _ensure_db_schema_compatible(app)
-        # Backfill missing child_unique_id from child_id (legacy rows)
-        from backend.models_hierarchical import Child
-        missing_uid = Child.query.filter(
-            Child.child_unique_id.is_(None),
-            Child.child_id.isnot(None),
-        ).all()
-        for row in missing_uid:
-            row.child_unique_id = row.child_id
-        if missing_uid:
-            db.session.commit()
-            print(f"[OK] Backfilled child_unique_id for {len(missing_uid)} child record(s)")
-        seed_superadmin()
-        # Dummy data seeding removed - system starts clean
+            if not app.config.get("TESTING"):
+                raise RuntimeError("Database connection failed; apply migrations and verify configuration before startup.") from e
+        if app.config.get("TESTING"):
+            db.create_all()
+        else:
+            tables = set(inspect(db.engine).get_table_names())
+            if "users" not in tables:
+                raise RuntimeError("Database schema is not initialized. Run Flask-Migrate migrations before startup.")
+            seed_superadmin()
 
     return app
 
 
-app = create_app()
+# Pytest sets CMRAS_TESTING before importing this module.  The module-level WSGI
+# app must observe the same isolated configuration as the factory fixture; it
+# must never initialise from an ambient DATABASE_URL during test collection.
+_module_app_overrides = None
+if os.environ.get("CMRAS_TESTING") == "1":
+    _module_app_overrides = {
+        "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+        "SQLALCHEMY_ENGINE_OPTIONS": {"connect_args": {"check_same_thread": False}},
+        "EMAIL_ENABLED": False,
+        "EMAIL_2FA_ENABLED": False,
+        "EMAIL_NOTIFICATIONS_ENABLED": False,
+        "RATELIMIT_ENABLED": False,
+        "SUPERADMIN_PASSWORD_REQUIRED": False,
+    }
+app = create_app(_module_app_overrides)
 
 
 if __name__ == "__main__":

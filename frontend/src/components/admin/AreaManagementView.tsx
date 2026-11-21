@@ -874,7 +874,7 @@ function HospitalForm({
     province: hospital?.province || '',
     address: hospital?.address || '',
     contact_phone: hospital?.contact_phone || '',
-    district_area_id: null as number | null,
+    district_area_id: hospital?.district_area_id ?? null as number | null,
     is_active: hospital ? hospital.is_active !== false : true,
   });
   const [selectedMohAreaIds, setSelectedMohAreaIds] = useState<number[]>([]);

@@ -161,7 +161,7 @@ export function MohDashboardView() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Moderate (MAM)</p>
+              <p className="text-sm text-gray-600">Legacy MAM label</p>
               <p className="text-3xl font-bold mt-2" style={{ color: '#F1C40F' }}>{data.mam_count}</p>
             </div>
             <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -172,7 +172,7 @@ export function MohDashboardView() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Severe (SAM)</p>
+              <p className="text-sm text-gray-600">Legacy SAM label</p>
               <p className="text-3xl font-bold mt-2" style={{ color: '#E74C3C' }}>{data.sam_count}</p>
             </div>
             <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
@@ -199,12 +199,12 @@ export function MohDashboardView() {
                     <Brain className="w-6 h-6 text-purple-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-purple-700">Future Risk Prediction (next 2 months)</p>
-                    <p className="text-3xl font-bold text-purple-900 mt-0.5">{predictedTotal}</p>
-                    <p className="text-xs text-purple-500 mt-0.5">Severe risk: {predictedSam} &nbsp;·&nbsp; Moderate/High risk: {predictedMam}</p>
+                    <p className="text-sm font-medium text-purple-700">Future-risk prediction</p>
+                    <p className="text-base font-bold text-purple-900 mt-0.5">Unavailable</p>
+                    <p className="text-xs text-purple-500 mt-0.5">No clinically validated prediction model is deployed.</p>
                   </div>
                 </div>
-                <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-3 py-1 rounded-full">View chart →</span>
+                <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-3 py-1 rounded-full">Research-only</span>
               </div>
             </button>
 
@@ -219,45 +219,16 @@ export function MohDashboardView() {
                 >
                   <div className="flex items-center justify-between mb-4">
                     <div>
-                      <h3 className="text-lg font-bold text-gray-900">Future Risk Prediction</h3>
-                      <p className="text-sm text-gray-500">Current WHO assessment</p>
+                      <h3 className="text-lg font-bold text-gray-900">Future-risk prediction unavailable</h3>
+                      <p className="text-sm text-gray-500">Stored research values are not for clinical use</p>
                     </div>
                     <button onClick={() => setShowPredictedChart(false)} className="text-gray-400 hover:text-gray-600">
                       <X className="w-5 h-5" />
                     </button>
                   </div>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart
-                      data={[
-                        { name: 'Severe risk', count: predictedSam },
-                        { name: 'Moderate/High risk', count: predictedMam },
-                      ]}
-                      margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="name" tick={{ fontSize: 13 }} />
-                      <YAxis allowDecimals={false} />
-                      <Tooltip formatter={(v: any) => [v, 'Children']} />
-                      <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                        {[{ fill: '#E74C3C' }, { fill: '#F1C40F' }].map((entry, i) => (
-                          <Cell key={i} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                  <div className="mt-4 flex gap-4 justify-center text-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-red-500" />
-                      <span className="text-gray-700">Severe risk: <strong>{predictedSam}</strong></span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-yellow-400" />
-                      <span className="text-gray-700">Moderate/High risk: <strong>{predictedMam}</strong></span>
-                    </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                    Historical simulation values are not clinically validated, do not represent confirmed outcomes, and must not determine referral, treatment, or prioritisation.
                   </div>
-                  {predictedTotal === 0 && (
-                    <p className="text-center text-gray-400 text-sm mt-3">No predicted risk cases at this time.</p>
-                  )}
                 </div>
               </div>
             )}
@@ -340,7 +311,7 @@ export function MohDashboardView() {
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-gray-500">No MAM/SAM children currently in your area.</p>
+            <p className="text-sm text-gray-500">No children with recorded legacy high-risk labels are currently in your area.</p>
           )}
         </div>
 

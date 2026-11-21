@@ -30,7 +30,7 @@ def _parse_float(value: Any, label: str) -> tuple[Optional[float], Optional[str]
 
 def _parse_measurement_date(value: Any) -> tuple[Optional[datetime], Optional[str]]:
     if value in (None, ""):
-        return datetime.now(), None
+        return None, "Measurement date is required for WHO Z-score calculation."
     if isinstance(value, datetime):
         return value.replace(tzinfo=None), None
     if isinstance(value, date):
@@ -82,7 +82,9 @@ def validate_measurement_payload(data: dict[str, Any], child: Any) -> dict[str, 
     age_days = (measurement_date.date() - child_dob).days if child_dob and measurement_date else None
     if age_days is not None and age_days < 0:
         errors.append("Age cannot be negative.")
-    age_months = max(0, age_days // 30) if age_days is not None else None
+    age_months = None
+    if age_days is not None and age_days > 1856:
+        errors.append("WHO growth assessment supports children through 60 completed months (1856 days).")
 
     sex = normalize_gender_to_sex(getattr(child, "gender", None))
     if sex is None:
@@ -128,7 +130,9 @@ def validate_measurement_payload(data: dict[str, Any], child: Any) -> dict[str, 
         review_reasons.append("Bilateral pitting edema recorded.")
 
     measurement_method = _first_present(data, "measurement_method", "method")
-    if measurement_method is not None:
+    if measurement_method is None:
+        errors.append("Measurement method is required for WHO Z-score calculation.")
+    else:
         measurement_method = str(measurement_method).strip()
         if measurement_method not in VALID_MEASUREMENT_METHODS:
             errors.append("Measurement method must be recumbent_length or standing_height.")

@@ -5,7 +5,7 @@ from backend.utils.current_status import assess_current_nutritional_status
 from backend.utils.risk_status import normalize_current_status
 
 
-def test_edema_has_highest_priority():
+def test_edema_requires_review_but_does_not_create_diagnosis():
     result = assess_current_nutritional_status(
         z_score_wfa=-1.0,
         z_score_hfa=-1.0,
@@ -13,10 +13,10 @@ def test_edema_has_highest_priority():
         muac_status="NORMAL",
         edema_status="Edema Present",
     )
-    assert result["current_nutritional_status"] == "SAM"
+    assert result["current_nutritional_status"] == "NORMAL"
 
 
-def test_wasting_sam_maps_to_current_sam():
+def test_severe_wasting_is_a_screening_status():
     result = assess_current_nutritional_status(
         z_score_wfa=-1.0,
         z_score_hfa=-1.0,
@@ -24,8 +24,8 @@ def test_wasting_sam_maps_to_current_sam():
         muac_status="NORMAL",
         edema_status="No Edema",
     )
-    assert result["wasting_status"] == "SAM"
-    assert result["current_nutritional_status"] == "SAM"
+    assert result["wasting_status"] == "SEVERE WASTING"
+    assert result["current_nutritional_status"] == "SEVERE WASTING"
 
 
 def test_underweight_not_merged_into_mam():
@@ -54,7 +54,7 @@ def test_severe_stunting_not_merged_into_sam():
     assert result["legacy_risk_level"] == "NORMAL"
 
 
-def test_muac_warning_can_drive_mam_without_wasting():
+def test_muac_warning_does_not_create_anthropometric_diagnosis():
     result = assess_current_nutritional_status(
         z_score_wfa=-1.0,
         z_score_hfa=-1.0,
@@ -62,7 +62,7 @@ def test_muac_warning_can_drive_mam_without_wasting():
         muac_status="MAM Warning",
         edema_status="No Edema",
     )
-    assert result["current_nutritional_status"] == "MAM"
+    assert result["current_nutritional_status"] == "NORMAL"
 
 
 def test_missing_muac_and_edema_stay_not_recorded():
@@ -96,8 +96,8 @@ def test_legacy_measurement_breakdown_is_reconstructed_from_saved_z_scores(
         z_score_wfa=-2.4,
         z_score_hfa=-1.0,
         z_score_wfh=-3.2,
-        risk_level="SAM",
-        current_nutritional_status="SAM",
+        risk_level="NORMAL",
+        current_nutritional_status="NEEDS CLINICAL REVIEW",
         measured_by_user_id=midwife_user.id,
     )
     db.session.add(measurement)
@@ -105,16 +105,16 @@ def test_legacy_measurement_breakdown_is_reconstructed_from_saved_z_scores(
 
     summary = assigned_child.latest_assessment_summary()
 
-    assert summary["current_nutritional_status"] == "SAM"
+    assert summary["current_nutritional_status"] == "NEEDS CLINICAL REVIEW"
     assert summary["underweight_status"] == "UNDERWEIGHT"
     assert summary["stunting_status"] == "NORMAL"
-    assert summary["wasting_status"] == "SAM"
+    assert summary["wasting_status"] == "SEVERE WASTING"
     assert summary["muac_status"] == "Not Recorded"
     assert summary["edema_status"] == "Not Recorded"
-    assert summary["current_status_breakdown"]["wasting_status"] == "SAM"
+    assert summary["current_status_breakdown"]["wasting_status"] == "SEVERE WASTING"
 
 
-def test_legacy_measurement_breakdown_can_be_reconstructed_from_raw_measurements(
+def test_legacy_measurement_without_scores_is_not_recalculated(
     db,
     assigned_child,
     midwife_user,
@@ -133,7 +133,6 @@ def test_legacy_measurement_breakdown_can_be_reconstructed_from_raw_measurements
 
     summary = assigned_child.latest_assessment_summary()
 
-    assert summary["underweight_status"] != "NOT AVAILABLE"
-    assert summary["stunting_status"] != "NOT AVAILABLE"
-    assert summary["wasting_status"] != "NOT AVAILABLE"
-    assert summary["current_status_breakdown"] is not None
+    assert summary["underweight_status"] is None
+    assert summary["stunting_status"] is None
+    assert summary["wasting_status"] is None

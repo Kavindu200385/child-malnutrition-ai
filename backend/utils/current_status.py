@@ -28,9 +28,9 @@ def wasting_status_from_wfh(z_score: Optional[float]) -> str:
     if z_score is None:
         return "NOT AVAILABLE"
     if z_score < -3:
-        return "SAM"
+        return "SEVERE WASTING"
     if z_score < -2:
-        return "MAM"
+        return "WASTING"
     return "NORMAL"
 
 
@@ -52,12 +52,10 @@ def assess_current_nutritional_status(
     muac_status_value = str(muac_status or "Not Recorded")
     edema_status_value = str(edema_status or "Not Recorded")
 
-    if edema_status_value == "Edema Present":
-        current_status = "SAM"
-    elif wasting_status == "SAM" or muac_status_value == "SAM Warning":
-        current_status = "SAM"
-    elif wasting_status == "MAM" or muac_status_value == "MAM Warning":
-        current_status = "MAM"
+    if wasting_status == "SEVERE WASTING":
+        current_status = "SEVERE WASTING"
+    elif wasting_status == "WASTING":
+        current_status = "WASTING"
     elif stunting_status == "SEVERE STUNTING":
         current_status = "SEVERE STUNTING"
     elif stunting_status == "STUNTING":
@@ -84,15 +82,11 @@ def assess_current_nutritional_status(
 
     reasons: list[str] = []
     if edema_status_value == "Edema Present":
-        reasons.append("Bilateral pitting edema recorded.")
-    if wasting_status == "SAM":
-        reasons.append("WFH/WFL Z-score indicates SAM.")
-    elif wasting_status == "MAM":
-        reasons.append("WFH/WFL Z-score indicates MAM.")
-    if muac_status_value == "SAM Warning":
-        reasons.append("MUAC indicates SAM warning.")
-    elif muac_status_value == "MAM Warning":
-        reasons.append("MUAC indicates MAM warning.")
+        reasons.append("Bilateral pitting edema recorded; clinical review required.")
+    if wasting_status == "SEVERE WASTING":
+        reasons.append("WFL/WFH Z-score indicates severe wasting screening result.")
+    elif wasting_status == "WASTING":
+        reasons.append("WFL/WFH Z-score indicates wasting screening result.")
     if stunting_status == "SEVERE STUNTING":
         reasons.append("HFA Z-score indicates severe stunting.")
     elif stunting_status == "STUNTING":

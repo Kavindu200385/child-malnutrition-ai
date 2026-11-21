@@ -1,7 +1,7 @@
 import React from 'react';
 import { useRef, useState, useEffect } from 'react';
 import { formatDate, formatDateTime } from '../../utils/formatDate';
-import { getRiskColor, getRiskLabel, calculateRiskLevel, RiskLevel } from '../../types';
+import { getRiskColor, getRiskLabel, RiskLevel } from '../../types';
 import { ArrowLeft, User, Phone, MapPin, Calendar, Activity, AlertTriangle, TrendingUp, Plus, Download, TrendingDown, FileText, CheckCircle, Pencil, Trash2, Mail } from 'lucide-react';
 import { WHOGrowthCharts } from './WHOGrowthCharts';
 import { HiddenPdfCharts, generateProfessionalPdf } from './PdfReportGenerator';
@@ -10,8 +10,7 @@ import {
   getClinicalActionDisplay,
   getCurrentNutritionalStatusLabel,
   getCurrentStatusToneClass,
-  getFuturePredictedRiskLabel,
-  getFutureRiskToneClass,
+  getFutureRiskPresentation,
   getStatusDisplayLabel,
   getStatusBreakdown,
   STATUS_HELPER_TEXT,
@@ -35,29 +34,6 @@ interface ChildProfileViewProps {
   user?: { role?: string } | null;
 }
 
-interface PredictionData {
-  predictedRiskLevel: RiskLevel;
-  confidence: number;
-  status: 'Early Warning' | 'Stable' | 'Improving';
-  trend: 'declining' | 'stable' | 'improving';
-  actionRequired: boolean;
-  message: string;
-}
-
-function futureRiskSeverity(label: string): number {
-  const risk = label.toUpperCase();
-  if (risk.includes('SEVERE')) return 4;
-  if (risk.includes('HIGH')) return 3;
-  if (risk.includes('MODERATE')) return 2;
-  if (risk.includes('LOW')) return 1;
-  return 0;
-}
-
-function currentRiskSeverity(riskLevel: RiskLevel): number {
-  if (riskLevel === 'sam') return 4;
-  if (riskLevel === 'mam') return 2;
-  return 0;
-}
 
 /** 
  * Simple fallback WHO Z-score approximation (for old measurements stored with null Z-scores).
@@ -358,145 +334,16 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
     );
   }
 
-  // Calculate prediction based on historical data
-  const calculatePrediction = (): PredictionData | null => {
-    if (child.measurements.length < 2) {
-      return null;
-    }
-
-    // Get recent measurements (last 3)
-    const recentMeasurements = child.measurements.slice(0, 3).reverse(); // Reverse to get chronological order
-
-    // Calculate trend (guard optional Z-score fields)
-    const avgWFATrend = recentMeasurements.length > 1
-      ? ((recentMeasurements[recentMeasurements.length - 1].weightForAge ?? 0) - (recentMeasurements[0].weightForAge ?? 0)) / recentMeasurements.length
-      : 0;
-
-    const latestMeasurement = child.measurements[0];
-
-    // Project 1-2 months ahead; skip any dimension whose current Z-score is unknown
-    const latestWFA = latestMeasurement.weightForAge;
-    const latestHFA = latestMeasurement.heightForAge;
-    const latestWFH = latestMeasurement.weightForHeight;
-
-    const predictedWFA = latestWFA != null ? latestWFA + (avgWFATrend * 2) : null;
-    const predictedHFA = latestHFA != null ? latestHFA + (avgWFATrend * 0.5) : null;
-    const predictedWFH = latestWFH != null ? latestWFH + (avgWFATrend * 1.5) : null;
-
-    const predictedRisk = calculateRiskLevel(predictedWFA, predictedHFA, predictedWFH);
-
-    // Determine confidence based on data consistency
-    const dataConsistency = recentMeasurements.length >= 2 ? 85 : 65;
-    const confidence = Math.min(95, dataConsistency + (Math.random() * 10));
-
-    // Determine status
-    let status: 'Early Warning' | 'Stable' | 'Improving' = 'Stable';
-    let trend: 'declining' | 'stable' | 'improving' = 'stable';
-
-    if (avgWFATrend < -0.2) {
-      trend = 'declining';
-      status = 'Early Warning';
-    } else if (avgWFATrend > 0.2) {
-      trend = 'improving';
-      status = 'Improving';
-    }
-
-    // Check if action required (predicted risk is worse than current)
-    const riskOrder = { 'normal': 0, 'mam': 1, 'sam': 2 };
-    const actionRequired = riskOrder[predictedRisk] > riskOrder[child.riskLevel];
-
-    // Generate message
-    let message = '';
-    if (actionRequired) {
-      if (predictedRisk === 'sam') {
-        message = 'Predicted to progress to Severe Acute Malnutrition - Early intervention required before next clinic visit';
-      } else if (predictedRisk === 'mam') {
-        message = 'Predicted to progress to Moderate Acute Malnutrition - Increased monitoring recommended';
-      }
-    } else if (trend === 'improving') {
-      message = 'Positive growth trend observed - Continue current interventions';
-    } else {
-      message = 'Status expected to remain stable - Continue routine monitoring';
-    }
-
-    return {
-      predictedRiskLevel: predictedRisk,
-      confidence: Math.round(confidence),
-      status,
-      trend,
-      actionRequired,
-      message,
-    };
-  };
-
-  const prediction = calculatePrediction();
   const currentNutritionalStatusLabel = getCurrentNutritionalStatusLabel(apiChild, getRiskLabel(child.riskLevel));
-  const futurePredictedRiskLabel = getFuturePredictedRiskLabel(apiChild);
-  const futurePredictedRiskClass = getFutureRiskToneClass(futurePredictedRiskLabel);
-  const futureRiskConfidence = apiChild?.future_risk_confidence ?? apiChild?.futureRiskConfidence ?? null;
+  const futureRisk = getFutureRiskPresentation(apiChild);
   const clinicalAction = getClinicalActionDisplay(apiChild);
   const clinicalReviewReason =
     apiChild?.clinical_review_reason ||
     apiChild?.clinicalReviewReason ||
     (clinicalAction.label === 'YES' || clinicalAction.label === 'NEEDS CLINICAL REVIEW'
-      ? 'Clinical review is recommended based on current status or future predicted risk.'
+      ? 'Clinical review is recommended based on the recorded current screening status.'
       : 'Routine monitoring recommended.');
   const statusBreakdown = getStatusBreakdown(apiChild);
-  const hasFuturePrediction = futurePredictedRiskLabel !== 'NOT AVAILABLE';
-  const futureSeverity = futureRiskSeverity(futurePredictedRiskLabel);
-  const futureRiskIsHighPriority = hasFuturePrediction && futureSeverity >= 3;
-  const futureRiskIsModeratePriority = hasFuturePrediction && futureSeverity === 2;
-  const futureRiskNeedsAction =
-    hasFuturePrediction &&
-    futureSeverity > currentRiskSeverity(child.riskLevel);
-  const forecastNeedsAttention = futureRiskIsHighPriority || futureRiskNeedsAction;
-  const forecastPanelClass = !hasFuturePrediction
-    ? 'border-gray-300 bg-gray-50'
-    : forecastNeedsAttention
-      ? 'border-orange-500 bg-gradient-to-br from-orange-50 via-orange-100/50 to-orange-50'
-      : futureRiskIsModeratePriority
-        ? 'border-amber-500 bg-gradient-to-br from-amber-50 via-amber-100/50 to-amber-50'
-        : futurePredictedRiskLabel === 'NO RISK'
-          ? 'border-green-500 bg-gradient-to-br from-green-50 via-green-100/50 to-green-50'
-          : 'border-blue-500 bg-gradient-to-br from-blue-50 via-blue-100/50 to-blue-50';
-  const forecastAccentClass = forecastNeedsAttention
-    ? 'bg-orange-600'
-    : futureRiskIsModeratePriority
-      ? 'bg-amber-600'
-      : futurePredictedRiskLabel === 'NO RISK'
-        ? 'bg-green-600'
-        : 'bg-blue-600';
-  const forecastIconBgClass = forecastNeedsAttention
-    ? 'bg-orange-200'
-    : futureRiskIsModeratePriority
-      ? 'bg-amber-200'
-      : futurePredictedRiskLabel === 'NO RISK'
-        ? 'bg-green-200'
-        : 'bg-blue-200';
-  const forecastTextClass = forecastNeedsAttention
-    ? 'text-orange-700'
-    : futureRiskIsModeratePriority
-      ? 'text-amber-700'
-      : futurePredictedRiskLabel === 'NO RISK'
-        ? 'text-green-700'
-        : 'text-blue-700';
-  const forecastMessageTitle = forecastNeedsAttention
-    ? 'Action Required:'
-    : futureRiskIsModeratePriority
-      ? 'Close Monitoring:'
-      : futurePredictedRiskLabel === 'NO RISK'
-        ? 'Positive Outlook:'
-        : 'Routine Monitoring:';
-  const forecastMessage = hasFuturePrediction
-    ? forecastNeedsAttention
-      ? `${futurePredictedRiskLabel} predicted within 2 months. Early intervention and closer follow-up are recommended.`
-      : futureRiskIsModeratePriority
-        ? `${futurePredictedRiskLabel} predicted within 2 months. Monitor growth closely and provide nutrition guidance.`
-        : futurePredictedRiskLabel === 'NO RISK'
-          ? 'No future malnutrition risk is predicted within 2 months. Continue routine growth monitoring.'
-          : `${futurePredictedRiskLabel} predicted within 2 months. Continue routine monitoring.`
-    : 'No future prediction has been saved for the latest measurement.';
-  const showPredictionAlert = forecastNeedsAttention;
   const displayRisk = child.riskLevel;
 
   // Prepare growth chart data - sort from oldest to newest (earliest date first)
@@ -842,83 +689,10 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
               </div>
             </div>
 
-            {/* Predicted Risk - Highly Distinct Future Forecast */}
-            <div className={`border-4 rounded-lg p-5 relative overflow-hidden ${forecastPanelClass}`} style={{ borderStyle: 'dashed' }}>
-              {/* Forecast Badge Corner */}
-              <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white ${forecastAccentClass}`} style={{ borderBottomLeftRadius: '8px' }}>
-                FORECAST
-              </div>
-
-              <div className="flex items-center gap-2 mb-3">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${forecastIconBgClass}`}>
-                  {hasFuturePrediction ? (
-                    forecastNeedsAttention || futureRiskIsModeratePriority ? (
-                      <TrendingDown className={`w-5 h-5 ${forecastTextClass}`} />
-                    ) : futurePredictedRiskLabel === 'NO RISK' ? (
-                      <TrendingUp className="w-5 h-5 text-green-700" />
-                    ) : (
-                      <Activity className="w-5 h-5 text-blue-700" />
-                    )
-                  ) : (
-                    <Activity className="w-4 h-4 text-gray-400" />
-                  )}
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-900">2-Month Future Risk</p>
-                  <p className={`text-xs font-bold ${forecastTextClass}`}>
-                    2-Month Predicted Risk
-                  </p>
-                </div>
-              </div>
-
-              {hasFuturePrediction ? (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`inline-block flex-1 rounded-lg border px-4 py-3 text-center text-base font-bold shadow-sm ${futurePredictedRiskClass}`}
-                    >
-                      2-Month Predicted Risk: {futurePredictedRiskLabel}
-                    </span>
-                    {forecastNeedsAttention && (
-                      <div className="w-10 h-10 bg-orange-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg animate-pulse">
-                        <AlertTriangle className="w-5 h-5 text-white" />
-                      </div>
-                    )}
-                  </div>
-                  <div className={`mt-2 p-3 rounded-lg border-2 ${forecastNeedsAttention ? 'bg-orange-50/50 border-orange-300' :
-                    futureRiskIsModeratePriority ? 'bg-amber-50/50 border-amber-300' :
-                      futurePredictedRiskLabel === 'NO RISK' ? 'bg-green-50/50 border-green-300' :
-                        'bg-blue-50/50 border-blue-300'
-                    }`}>
-                      <p className="text-xs font-bold text-gray-900 mb-1">
-                        {forecastMessageTitle}
-                      </p>
-                      <p className="text-xs font-medium text-gray-800">
-                        {forecastMessage}
-                      </p>
-                  </div>
-                  {(futureRiskConfidence != null || prediction) && (
-                    <div className="flex items-center justify-between text-xs text-gray-700 mt-1">
-                      <span className="font-medium">
-                        Future Risk Confidence: {futureRiskConfidence != null ? Math.round(Number(futureRiskConfidence) * 100) : prediction?.confidence}%
-                      </span>
-                      <span className={`font-bold ${forecastTextClass}`}>
-                        {forecastNeedsAttention ? 'Needs Attention' :
-                          futureRiskIsModeratePriority ? 'Monitor Closely' :
-                            futurePredictedRiskLabel === 'NO RISK' ? 'Improving' :
-                              'Stable'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className={`rounded-lg border px-4 py-4 text-center text-sm font-semibold ${futurePredictedRiskClass}`}>
-                  <p>2-Month Predicted Risk: Not Available</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    No future prediction has been saved for the latest measurement.
-                  </p>
-                </div>
-              )}
+            <div className="rounded-lg border-2 border-gray-300 bg-gray-50 p-5">
+              <p className="text-sm font-bold text-gray-900">2-Month Future-risk Prediction</p>
+              <p className="mt-2 text-base font-bold text-gray-700">{futureRisk.label}</p>
+              <p className="mt-2 text-xs leading-5 text-gray-600">{futureRisk.message}</p>
             </div>
           </div>
 
@@ -932,60 +706,17 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
             </div>
           </div>
 
-          {/* Alert Banner for High Priority Cases */}
-          {showPredictionAlert && (
-            <div className="mt-4 p-4 bg-orange-100 border-2 border-orange-400 rounded-lg animate-pulse">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-base font-bold text-orange-900">🚨 Early Warning Alert - Action Required</p>
-                  <p className="text-sm text-orange-800 mt-1 font-medium">
-                    {futurePredictedRiskLabel === 'SEVERE RISK'
-                      ? 'This child is predicted to progress to Severe Acute Malnutrition within 1-2 months. Early intervention required before next scheduled clinic visit.'
-                      : `This child has a ${futurePredictedRiskLabel.toLowerCase()} within 2 months. Increased monitoring and preventive measures recommended.`}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Risk Alert (hidden for Pediatric Unit) */}
+      {/* Legacy-record notice (hidden for Pediatric Unit) */}
       {!isHospitalRole && displayRisk !== 'normal' && (
-        <div
-          className={`rounded-lg p-6 border-2 ${displayRisk === 'sam'
-            ? 'bg-red-50 border-red-300'
-            : 'bg-yellow-50 border-yellow-300'
-            }`}
-        >
+        <div className="rounded-lg p-6 border-2 bg-yellow-50 border-yellow-300">
           <div className="flex items-start gap-3">
-            <AlertTriangle
-              className={`w-6 h-6 flex-shrink-0 mt-1 ${displayRisk === 'sam' ? 'text-red-600' : 'text-yellow-600'
-                }`}
-            />
+            <AlertTriangle className="w-6 h-6 flex-shrink-0 mt-1 text-yellow-600" />
             <div>
-              <h3
-                className={`text-lg font-bold ${displayRisk === 'sam' ? 'text-red-900' : 'text-yellow-900'
-                  }`}
-              >
-                {getRiskLabel(displayRisk)}
-              </h3>
-              <p
-                className={`mt-1 ${displayRisk === 'sam' ? 'text-red-800' : 'text-yellow-800'
-                  }`}
-              >
-                {displayRisk === 'sam'
-                  ? 'Immediate medical intervention and nutritional support required.'
-                  : 'Nutritional supplementation and regular monitoring recommended.'}
-              </p>
-              {showPredictionAlert && (
-                <div className="mt-2">
-                  <p className="text-sm font-medium text-gray-700">Prediction:</p>
-                  <p className="text-sm text-gray-600">{prediction.message}</p>
-                  <p className="text-sm text-gray-600">Confidence: {prediction.confidence}%</p>
-                </div>
-              )}
+              <h3 className="text-lg font-bold text-yellow-900">Recorded legacy risk label: {getRiskLabel(displayRisk)}</h3>
+              <p className="mt-1 text-yellow-800">This legacy label is not a clinically confirmed diagnosis. Use the independent WHO screening indicators and clinical assessment to determine any care or referral.</p>
             </div>
           </div>
         </div>
@@ -1162,10 +893,11 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                     </span>
                   </div>
                   <div className="rounded-lg border border-gray-200 bg-white p-4">
-                    <p className="text-sm text-gray-600">2-Month Predicted Risk</p>
-                    <span className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getFutureRiskToneClass(latestMeasurement.future_predicted_risk || futurePredictedRiskLabel)}`}>
-                      {latestMeasurement.future_predicted_risk || futurePredictedRiskLabel}
+                    <p className="text-sm text-gray-600">Future-risk prediction</p>
+                    <span className="mt-2 inline-flex rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-700">
+                      {getFutureRiskPresentation(latestMeasurement).label}
                     </span>
+                    <p className="mt-2 text-xs text-gray-500">{getFutureRiskPresentation(latestMeasurement).message}</p>
                   </div>
                   <div className="rounded-lg border border-gray-200 bg-white p-4">
                     <p className="text-sm text-gray-600">MUAC Status</p>
@@ -1330,8 +1062,8 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`inline-flex min-w-[140px] items-center justify-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-bold ${getFutureRiskToneClass(measurement.future_predicted_risk || 'NOT AVAILABLE')}`}>
-                          {getStatusDisplayLabel(measurement.future_predicted_risk || 'NOT AVAILABLE')}
+                        <span className="inline-flex min-w-[140px] items-center justify-center whitespace-nowrap rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-700">
+                          {getFutureRiskPresentation(measurement).label}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-sm text-gray-600">{(measurement as any).measuredBy || '—'}</td>
@@ -1613,7 +1345,7 @@ export function ChildProfileView({ childId, onBack, onAddMeasurement, user }: Ch
                   {getRiskLabel(child.riskLevel)}
                 </p>
                 <p className="text-xs text-orange-700 mt-1">
-                  The child's growth indicators are below −2 SD or −3 SD, indicating {riskLevel === 'sam' ? 'Severe Acute Malnutrition (SAM)' : 'Moderate Acute Malnutrition (MAM)'}.
+                  A recorded screening indicator is below a WHO threshold. State the observed measurements and request clinical review; this screen does not confirm a diagnosis.
                 </p>
               </div>
 

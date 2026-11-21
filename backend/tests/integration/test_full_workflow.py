@@ -42,12 +42,18 @@ class TestFullClinicalWorkflow:
         """Step 3: Midwife records a measurement on their assigned child."""
         _, mw_headers = api_midwife
         rv = client.post("/api/midwife/measurement/add", json={
-            "child_id": api_child, "weight_kg": 12.0, "height_cm": 87.0
+            "child_id": api_child,
+            "weight_kg": 12.0,
+            "height_cm": 87.0,
+            "measurement_date": "2023-01-01",
+            "measurement_method": "standing_height",
         }, headers=mw_headers)
         assert rv.status_code == 201
         data = rv.get_json()
         assert "measurement" in data
-        assert data.get("new_risk") in ("NORMAL", "MAM", "SAM")
+        assert data["measurement"]["underweight_status"] in ("NORMAL", "UNDERWEIGHT", "SEVERE UNDERWEIGHT")
+        assert data["measurement"]["stunting_status"] in ("NORMAL", "STUNTING", "SEVERE STUNTING")
+        assert data["measurement"]["wasting_status"] in ("NORMAL", "WASTING", "SEVERE WASTING")
 
     def test_escalation_full_cycle(self, client, app, api_midwife, api_moh, api_child):
         """

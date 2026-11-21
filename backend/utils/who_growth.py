@@ -1,170 +1,73 @@
-"""WHO growth-reference Z-score calculations."""
+"""WHO 2006 Child Growth Standards calculator (0--60 completed months)."""
 from __future__ import annotations
-
-import math
-from typing import Dict, Mapping, Tuple
-
+import hashlib, math, re, zipfile
+import xml.etree.ElementTree as ET
+from functools import lru_cache
+from pathlib import Path
 from backend.utils.gender import normalize_gender_to_sex
 
-# -----------------------------------------------------------------------------
-# WHO LMS tables (trimmed version; same as your previous analyzer)
-# -----------------------------------------------------------------------------
-WFA_BOYS = {
-    0: (1, 3.3464, 0.14602),
-    1: (1, 4.4709, 0.13395),
-    2: (1, 5.5675, 0.12385),
-    3: (1, 6.3762, 0.11727),
-    6: (1, 7.9938, 0.10315),
-    12: (1, 9.648, 0.09029),
-    24: (1, 12.227, 0.0887),
-    36: (1, 14.31, 0.09182),
-    48: (1, 16.31, 0.09403),
-    60: (1, 18.30, 0.0956),
-}
-
-WFA_GIRLS = {
-    0: (1, 3.2322, 0.14171),
-    1: (1, 4.1873, 0.13724),
-    2: (1, 5.1282, 0.13173),
-    3: (1, 5.8458, 0.1278),
-    6: (1, 7.2159, 0.11315),
-    12: (1, 8.947, 0.09894),
-    24: (1, 11.488, 0.0926),
-    36: (1, 13.88, 0.0939),
-    48: (1, 16.10, 0.0956),
-    60: (1, 18.20, 0.0969),
-}
-
-HFA_BOYS = {
-    0: (1, 49.8842, 0.03795),
-    6: (1, 67.6236, 0.0321),
-    12: (1, 75.7488, 0.0314),
-    24: (1, 87.803, 0.0329),
-    36: (1, 96.1, 0.0342),
-    48: (1, 103.3, 0.035),
-    60: (1, 110.0, 0.0355),
-}
-
-HFA_GIRLS = {
-    0: (1, 49.1477, 0.0379),
-    6: (1, 65.6795, 0.0321),
-    12: (1, 74.015, 0.0319),
-    24: (1, 86.363, 0.0331),
-    36: (1, 95.1, 0.0345),
-    48: (1, 102.7, 0.0353),
-    60: (1, 109.4, 0.0358),
-}
-
-# WHO Weight-for-Height LMS tables — indexed by height_cm (45–110 cm).
-# Source: WHO Child Growth Standards (2006), wfhbfa/wfhgfa tables.
-# L=1 for all entries (no Box-Cox skew needed for weight-for-height).
-WFH_BOYS: Dict[float, Tuple[float, float, float]] = {
-    45.0: (1, 2.441, 0.09182), 46.0: (1, 2.569, 0.09108), 47.0: (1, 2.705, 0.09047),
-    48.0: (1, 2.848, 0.08997), 49.0: (1, 2.998, 0.08956), 50.0: (1, 3.155, 0.08922),
-    51.0: (1, 3.316, 0.08895), 52.0: (1, 3.481, 0.08874), 53.0: (1, 3.653, 0.08860),
-    54.0: (1, 3.833, 0.08851), 55.0: (1, 4.024, 0.08847), 56.0: (1, 4.228, 0.08851),
-    57.0: (1, 4.448, 0.08863), 58.0: (1, 4.685, 0.08882), 59.0: (1, 4.939, 0.08907),
-    60.0: (1, 5.207, 0.08935), 61.0: (1, 5.480, 0.08963), 62.0: (1, 5.752, 0.08989),
-    63.0: (1, 6.015, 0.09013), 64.0: (1, 6.268, 0.09033), 65.0: (1, 6.510, 0.09050),
-    66.0: (1, 6.738, 0.09064), 67.0: (1, 6.953, 0.09076), 68.0: (1, 7.158, 0.09086),
-    69.0: (1, 7.353, 0.09094), 70.0: (1, 7.541, 0.09102), 71.0: (1, 7.722, 0.09109),
-    72.0: (1, 7.896, 0.09116), 73.0: (1, 8.063, 0.09122), 74.0: (1, 8.222, 0.09128),
-    75.0: (1, 8.378, 0.09134), 76.0: (1, 8.529, 0.09140), 77.0: (1, 8.679, 0.09146),
-    78.0: (1, 8.827, 0.09152), 79.0: (1, 8.975, 0.09158), 80.0: (1, 9.122, 0.09164),
-    81.0: (1, 9.268, 0.09170), 82.0: (1, 9.411, 0.09176), 83.0: (1, 9.549, 0.09182),
-    84.0: (1, 9.687, 0.09188), 85.0: (1, 9.826, 0.09195), 86.0: (1, 9.969, 0.09203),
-    87.0: (1, 10.11, 0.09213), 88.0: (1, 10.26, 0.09225), 89.0: (1, 10.41, 0.09238),
-    90.0: (1, 10.56, 0.09253), 91.0: (1, 10.72, 0.09270), 92.0: (1, 10.88, 0.09288),
-    93.0: (1, 11.04, 0.09309), 94.0: (1, 11.22, 0.09331), 95.0: (1, 11.39, 0.09356),
-    96.0: (1, 11.58, 0.09382), 97.0: (1, 11.77, 0.09410), 98.0: (1, 11.97, 0.09440),
-    99.0: (1, 12.17, 0.09471), 100.0: (1, 12.39, 0.09504), 101.0: (1, 12.61, 0.09540),
-    102.0: (1, 12.85, 0.09578), 103.0: (1, 13.09, 0.09618), 104.0: (1, 13.35, 0.09659),
-    105.0: (1, 13.61, 0.09703), 106.0: (1, 13.89, 0.09750), 107.0: (1, 14.17, 0.09798),
-    108.0: (1, 14.47, 0.09849), 109.0: (1, 14.78, 0.09901), 110.0: (1, 15.11, 0.09956),
-}
-
-WFH_GIRLS: Dict[float, Tuple[float, float, float]] = {
-    45.0: (1, 2.440, 0.09002), 46.0: (1, 2.567, 0.08912), 47.0: (1, 2.704, 0.08823),
-    48.0: (1, 2.848, 0.08737), 49.0: (1, 2.999, 0.08653), 50.0: (1, 3.158, 0.08573),
-    51.0: (1, 3.324, 0.08499), 52.0: (1, 3.498, 0.08431), 53.0: (1, 3.679, 0.08371),
-    54.0: (1, 3.869, 0.08317), 55.0: (1, 4.069, 0.08269), 56.0: (1, 4.279, 0.08228),
-    57.0: (1, 4.501, 0.08194), 58.0: (1, 4.735, 0.08164), 59.0: (1, 4.980, 0.08141),
-    60.0: (1, 5.233, 0.08121), 61.0: (1, 5.489, 0.08102), 62.0: (1, 5.745, 0.08083),
-    63.0: (1, 5.997, 0.08064), 64.0: (1, 6.244, 0.08048), 65.0: (1, 6.482, 0.08036),
-    66.0: (1, 6.711, 0.08029), 67.0: (1, 6.930, 0.08025), 68.0: (1, 7.140, 0.08024),
-    69.0: (1, 7.344, 0.08025), 70.0: (1, 7.542, 0.08026), 71.0: (1, 7.733, 0.08027),
-    72.0: (1, 7.917, 0.08027), 73.0: (1, 8.095, 0.08026), 74.0: (1, 8.268, 0.08024),
-    75.0: (1, 8.436, 0.08022), 76.0: (1, 8.600, 0.08020), 77.0: (1, 8.762, 0.08018),
-    78.0: (1, 8.922, 0.08016), 79.0: (1, 9.082, 0.08015), 80.0: (1, 9.243, 0.08015),
-    81.0: (1, 9.401, 0.08016), 82.0: (1, 9.558, 0.08018), 83.0: (1, 9.711, 0.08021),
-    84.0: (1, 9.862, 0.08026), 85.0: (1, 10.01, 0.08033), 86.0: (1, 10.15, 0.08042),
-    87.0: (1, 10.30, 0.08053), 88.0: (1, 10.45, 0.08066), 89.0: (1, 10.60, 0.08082),
-    90.0: (1, 10.75, 0.08100), 91.0: (1, 10.91, 0.08121), 92.0: (1, 11.07, 0.08145),
-    93.0: (1, 11.24, 0.08172), 94.0: (1, 11.42, 0.08201), 95.0: (1, 11.60, 0.08233),
-    96.0: (1, 11.79, 0.08268), 97.0: (1, 11.98, 0.08307), 98.0: (1, 12.19, 0.08348),
-    99.0: (1, 12.39, 0.08392), 100.0: (1, 12.61, 0.08440), 101.0: (1, 12.83, 0.08490),
-    102.0: (1, 13.07, 0.08543), 103.0: (1, 13.31, 0.08599), 104.0: (1, 13.57, 0.08659),
-    105.0: (1, 13.84, 0.08721), 106.0: (1, 14.12, 0.08787), 107.0: (1, 14.41, 0.08855),
-    108.0: (1, 14.71, 0.08926), 109.0: (1, 15.03, 0.08999), 110.0: (1, 15.37, 0.09076),
-}
-
-
-def _lms_zscore(value: float, L: float, M: float, S: float) -> float:
-    if L == 0:
-        return math.log(value / M) / S
-    return ((value / M) ** L - 1) / (L * S)
-
-
-def _interpolate_lms(point: float, table: Mapping[float, Tuple[float, float, float]]) -> Tuple[float, float, float]:
-    """Return LMS values for an age/month or height point using linear interpolation."""
-    point = float(point)
-    points = sorted(float(k) for k in table.keys())
-    if point in table:
-        return table[point]
-
-    if point <= points[0]:
-        return table[points[0]]
-    if point >= points[-1]:
-        return table[points[-1]]
-
-    lower = max(p for p in points if p <= point)
-    upper = min(p for p in points if p >= point)
-    if lower == upper:
-        return table[lower]
-
-    L1, M1, S1 = table[lower]
-    L2, M2, S2 = table[upper]
-    ratio = (point - lower) / (upper - lower)
-    return (L1 + (L2 - L1) * ratio, M1 + (M2 - M1) * ratio, S1 + (S2 - S1) * ratio)
-
-
-def compute_z_scores(*, age_months: int, sex: str, weight_kg: float, height_cm: float) -> Tuple[float, float, float]:
-    sex_u = normalize_gender_to_sex(sex)
-    if sex_u is None:
-        raise ValueError("Gender must be one of: male, female, M, F, boy, or girl.")
-
-    # Weight-for-age
-    L, M, S = _interpolate_lms(int(age_months), WFA_BOYS if sex_u == "M" else WFA_GIRLS)
-    wfa = _lms_zscore(float(weight_kg), L, M, S)
-
-    # Height-for-age
-    L, M, S = _interpolate_lms(int(age_months), HFA_BOYS if sex_u == "M" else HFA_GIRLS)
-    hfa = _lms_zscore(float(height_cm), L, M, S)
-
-    # Weight-for-height — uses WHO WFH tables indexed by height_cm (not age).
-    # Clamp height to the table range [45, 110] before lookup.
-    h_clamped = max(45.0, min(110.0, float(height_cm)))
-    L, M, S = _interpolate_lms(h_clamped, WFH_BOYS if sex_u == "M" else WFH_GIRLS)
-    wfh = _lms_zscore(float(weight_kg), L, M, S)
-
-    # Clamp to medically realistic range — no valid WHO z-score falls outside [-5, 5]
-    wfa = max(-5.0, min(5.0, wfa))
-    hfa = max(-5.0, min(5.0, hfa))
-    wfh = max(-5.0, min(5.0, wfh))
-
-    return round(wfa, 3), round(hfa, 3), round(wfh, 3)
-
-
-def _encode_sex(sex: str) -> int:
-    normalized = normalize_gender_to_sex(sex)
-
+REFERENCE_VERSION="WHO Child Growth Standards 2006"
+REFERENCE_DIR=Path(__file__).resolve().parents[1]/"resources"/"who_growth_2006"
+MAX_AGE_DAYS=1856
+NS={"m":"http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+FILES={("WFA","M"):"wfa_boys_expanded.xlsx",("WFA","F"):"wfa_girls_expanded.xlsx",("LHFA","M"):"lhfa_boys_expanded.xlsx",("LHFA","F"):"lhfa_girls_expanded.xlsx",("WFL","M"):"wfl_boys_expanded.xlsx",("WFL","F"):"wfl_girls_expanded.xlsx",("WFH","M"):"wfh_boys_expanded.xlsx",("WFH","F"):"wfh_girls_expanded.xlsx"}
+KEYS={"WFA":"Day","LHFA":"Day","WFL":"Length","WFH":"Height"}
+class WHOInputError(ValueError): pass
+def _col(ref):
+    n=0
+    for c in re.match(r"[A-Z]+",ref).group(): n=n*26+ord(c)-64
+    return n-1
+def _xlsx(path):
+    with zipfile.ZipFile(path) as z:
+        strings=[]
+        if "xl/sharedStrings.xml" in z.namelist(): strings=["".join(n.itertext()) for n in ET.fromstring(z.read("xl/sharedStrings.xml")).findall("m:si",NS)]
+        sheet=ET.fromstring(z.read("xl/worksheets/sheet1.xml"))
+    data=[]
+    for row in sheet.findall(".//m:row",NS):
+        cells={}
+        for cell in row.findall("m:c",NS):
+            raw=cell.find("m:v",NS)
+            if raw is not None: cells[_col(cell.get("r"))]=strings[int(raw.text)] if cell.get("t")=="s" else raw.text
+        if cells: data.append([cells.get(i,"") for i in range(max(cells)+1)])
+    headers=[str(v) for v in data[0]]
+    return [{headers[i]:float(v) for i,v in enumerate(row) if i<len(headers) and v!=""} for row in data[1:]]
+@lru_cache(maxsize=None)
+def _rows(indicator,sex): return {float(r[KEYS[indicator]]):r for r in _xlsx(REFERENCE_DIR/FILES[(indicator,sex)])}
+def _sex(value):
+    sex=normalize_gender_to_sex(value)
+    if sex is None: raise WHOInputError("Gender must be Male or Female for WHO calculation.")
+    return sex
+def _positive(value,name):
+    try: value=float(value)
+    except (TypeError,ValueError) as e: raise WHOInputError(f"{name} must be numeric.") from e
+    if not math.isfinite(value) or value<=0: raise WHOInputError(f"{name} must be greater than zero.")
+    return value
+def _day(value):
+    try: day=int(value)
+    except (TypeError,ValueError) as e: raise WHOInputError("age_days must be an integer from 0 to 1856.") from e
+    if isinstance(value,bool) or day!=value or not 0<=day<=MAX_AGE_DAYS: raise WHOInputError("age_days must be an integer from 0 to 1856.")
+    return day
+def _row(indicator,sex,point):
+    if indicator in {"WFL","WFH"}: point=round(point,1)
+    row=_rows(indicator,sex).get(point)
+    if row is None: raise WHOInputError(f"{indicator} reference is unavailable for this measurement.")
+    return row
+def _z(value,row):
+    l,m,s=row["L"],row["M"],row["S"]
+    z=math.log(value/m)/s if l==0 else ((value/m)**l-1)/(l*s)
+    if z>3: return 3+(value-row["SD3"])/(row["SD3"]-row["SD2"])
+    if z<-3: return -3+(value-row["SD3neg"])/(row["SD2neg"]-row["SD3neg"])
+    return z
+def _adjust(age,value,method):
+    value=_positive(value,"height_cm")
+    if method not in {"recumbent_length","standing_height"}: raise WHOInputError("measurement_method is required and must be recumbent_length or standing_height.")
+    if age<274 and method=="standing_height": raise WHOInputError("standing height is unsupported below nine months.")
+    return ((value+0.7 if method=="standing_height" else value),"WFL") if age<731 else ((value-0.7 if method=="recumbent_length" else value),"WFH")
+def compute_assessment(*,age_days,sex,weight_kg,height_cm,measurement_method):
+    age=_day(age_days); sex=_sex(sex); weight=_positive(weight_kg,"weight_kg"); adjusted,indicator=_adjust(age,height_cm,measurement_method)
+    score=_z(weight,_row(indicator,sex,adjusted))
+    return {"waz":_z(weight,_row("WFA",sex,float(age))),"haz":_z(adjusted,_row("LHFA",sex,float(age))),"wlz":score if indicator=="WFL" else None,"whz":score if indicator=="WFH" else None,"length_height_indicator":indicator,"adjusted_length_height_cm":adjusted,"reference_version":REFERENCE_VERSION,"calculation_status":"verified"}
+def compute_z_scores(*,age_days,sex,weight_kg,height_cm,measurement_method):
+    r=compute_assessment(age_days=age_days,sex=sex,weight_kg=weight_kg,height_cm=height_cm,measurement_method=measurement_method)
+    return tuple(round(v,3) for v in (r["waz"],r["haz"],r["wlz"] if r["wlz"] is not None else r["whz"]))
+def reference_manifest(): return {n:hashlib.sha256((REFERENCE_DIR/n).read_bytes()).hexdigest() for n in sorted(set(FILES.values()))}

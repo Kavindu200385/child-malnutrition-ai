@@ -5,8 +5,7 @@ import {
   getClinicalActionDisplay,
   getCurrentNutritionalStatusLabel,
   getCurrentStatusToneClass,
-  getFuturePredictedRiskLabel,
-  getFutureRiskToneClass,
+  getFutureRiskPresentation,
   getStatusDisplayLabel,
 } from '../utils/statusDisplay';
 import boyAvatar from '../../boy.png';
@@ -97,7 +96,7 @@ export function ChildProfileCard({
 }: ChildProfileCardProps) {
   const childId = getChildId(child);
   const riskLabel = getCurrentNutritionalStatusLabel(child, risk || getRiskLabel(getDisplayRiskLevelTyped(child)));
-  const predictedRiskLabel = getFuturePredictedRiskLabel(child);
+  const futureRisk = getFutureRiskPresentation(child);
   const clinicalAction = getClinicalActionDisplay(child);
   const genderKey = getGenderKey(child);
   const AvatarIcon = genderKey === 'female' ? CircleUserRound : genderKey === 'male' ? UserRound : Baby;
@@ -172,9 +171,9 @@ export function ChildProfileCard({
             <span className="flex-1 text-gray-600">Current Status</span>
             <span className="text-right font-bold">{getStatusDisplayLabel(riskLabel)}</span>
           </div>
-          <div className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${getFutureRiskToneClass(predictedRiskLabel)}`}>
-            <span className="text-gray-600">Future Risk</span>
-            <span className="text-right font-bold">{getStatusDisplayLabel(predictedRiskLabel)}</span>
+          <div className="flex min-h-9 w-full items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700">
+            <span className="text-gray-600">Future-risk prediction</span>
+            <span className="text-right font-bold">{futureRisk.label}</span>
           </div>
           <div className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${clinicalAction.className}`}>
             <span className="text-gray-600">Action Required</span>

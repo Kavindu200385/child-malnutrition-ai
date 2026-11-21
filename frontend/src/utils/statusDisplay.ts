@@ -1,5 +1,11 @@
 export const STATUS_HELPER_TEXT =
-  'Current nutritional status is calculated using WHO growth assessment rules and should be reviewed alongside clinical judgment.';
+  'These are WHO anthropometric screening indicators, not a clinically confirmed nutritional diagnosis. Review them together with the full clinical assessment.';
+
+export const FUTURE_RISK_UNAVAILABLE_TEXT =
+  'Future-risk prediction is unavailable: no clinically validated prediction model is deployed.';
+
+export const FUTURE_RISK_RESEARCH_ONLY_TEXT =
+  'Historical research simulation output only. It is not clinically validated, is not a confirmed future outcome, and must not be used alone for referral or treatment decisions.';
 
 function upperClean(value: unknown): string {
   return String(value || '').replace(/_/g, ' ').trim().toUpperCase();
@@ -62,11 +68,27 @@ export function getFuturePredictedRiskLabel(child: any): string {
   return label;
 }
 
+/**
+ * The application does not deploy a clinically validated future-risk model.
+ * A non-empty legacy value can be shown for traceability only, with an explicit
+ * research-only disclaimer; it must never drive clinical presentation logic.
+ */
+export function getFutureRiskPresentation(child: any): {
+  available: boolean;
+  label: string;
+  message: string;
+} {
+  const label = getFuturePredictedRiskLabel(child);
+  if (label === 'NOT AVAILABLE' || label === 'NOT RECORDED') {
+    return { available: false, label: 'NOT AVAILABLE', message: FUTURE_RISK_UNAVAILABLE_TEXT };
+  }
+  return { available: true, label, message: FUTURE_RISK_RESEARCH_ONLY_TEXT };
+}
+
 export function getClinicalActionDisplay(child: any): { label: string; className: string } {
-  const predicted = getFuturePredictedRiskLabel(child);
   const reviewReason = String(child?.clinical_review_reason || child?.clinicalReviewReason || '').toUpperCase();
   const required = child?.clinical_action_required ?? child?.clinicalActionRequired;
-  if (predicted === 'NEEDS CLINICAL REVIEW' || reviewReason.includes('LOW MODEL CONFIDENCE')) {
+  if (reviewReason.includes('LOW MODEL CONFIDENCE')) {
     return { label: 'NEEDS CLINICAL REVIEW', className: 'border-orange-300 bg-orange-50 text-orange-700' };
   }
   if (required === true || required === 1) {

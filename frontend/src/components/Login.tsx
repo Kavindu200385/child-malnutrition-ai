@@ -29,13 +29,13 @@ const CONTENT_VARIATIONS = [
       },
       {
         icon: Heart,
-        title: "Early Risk Prediction",
-        description: "WHO growth assessment for early clinical follow-up"
+        title: "WHO Screening Support",
+        description: "Independent anthropometric screening indicators for clinical review"
       },
       {
         icon: Users,
-        title: "Clinical Recommendations",
-        description: "Personalized guidance for every child's nutritional needs"
+        title: "Clinical Review Support",
+        description: "Measurement records and screening indicators for responsible clinical review"
       }
     ]
   },

@@ -51,7 +51,7 @@ from backend.services.notification_service import (
     notify_user,
 )
 from backend.services.email_service import send_child_event_email
-from backend.utils.who_growth import compute_z_scores
+from backend.utils.who_growth import compute_assessment, compute_z_scores
 
 bp = Blueprint("moh", __name__, url_prefix="/api/moh")
 
@@ -135,17 +135,19 @@ def add_measurement():
     edema_status = validation["edema_status"]
     measurement_method = validation["measurement_method"]
     m_date = validation["measurement_date"]
-    age_months = validation["age_months"]
+    age_days = validation["age_days"]
+    age_months = int(age_days / 30.4375)
     sex = validation["sex"]
 
     # Real WHO Z-scores
     try:
         wfa_z, hfa_z, wfh_z = compute_z_scores(
-            age_months=age_months, sex=sex,
-            weight_kg=float(weight_kg), height_cm=float(height_cm)
+            age_days=age_days, sex=sex, weight_kg=float(weight_kg),
+            height_cm=float(height_cm), measurement_method=measurement_method
         )
-    except Exception:
-        wfa_z = hfa_z = wfh_z = None
+        who_metadata = compute_assessment(age_days=age_days, sex=sex, weight_kg=float(weight_kg), height_cm=float(height_cm), measurement_method=measurement_method)
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
 
     current_assessment = assess_current_nutritional_status(
         z_score_wfa=float(wfa_z) if wfa_z is not None else None,
@@ -154,6 +156,7 @@ def add_measurement():
         muac_status=muac_status,
         edema_status=edema_status,
     )
+    current_assessment["current_status_breakdown"]["who"] = {key: who_metadata[key] for key in ("length_height_indicator", "adjusted_length_height_cm", "reference_version", "calculation_status")}
     current_status = current_assessment["current_nutritional_status"]
     current_risk = current_assessment["legacy_risk_level"]
 
@@ -241,8 +244,11 @@ def add_measurement():
         role=user.role,
         area_id=child.moh_area_id or child.current_assigned_area_id or child.phm_area_id,
         current_nutritional_status=current_status,
+        future_predicted_risk=None,
         clinical_action_required=clinical_action_required,
         clinical_review_reason=clinical_review_reason,
+        model_version=None,
+        prediction_timestamp=None,
         created_at=datetime.utcnow(),
     )
     send_child_event_email(

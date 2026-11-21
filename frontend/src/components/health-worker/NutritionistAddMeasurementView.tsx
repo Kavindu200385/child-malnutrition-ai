@@ -14,6 +14,7 @@ export function NutritionistAddMeasurementView({ selectedChildId, onBack, onSucc
   const [height, setHeight] = useState('');
   const [muac, setMuac] = useState('');
   const [measurementDate, setMeasurementDate] = useState(new Date().toISOString().split('T')[0]);
+  const [measurementMethod, setMeasurementMethod] = useState('');
   const [specialistNotes, setSpecialistNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -31,6 +32,11 @@ export function NutritionistAddMeasurementView({ selectedChildId, onBack, onSucc
       setError('Valid weight and height are required');
       return;
     }
+    if (!measurementDate || Number.isNaN(Date.parse(measurementDate))) {
+      setError('Measurement date is required');
+      return;
+    }
+    if (!measurementMethod) { setError('Measurement method is required'); return; }
     setLoading(true);
     setError('');
     try {
@@ -40,6 +46,7 @@ export function NutritionistAddMeasurementView({ selectedChildId, onBack, onSucc
         height_cm: h,
         muac_cm: muac ? parseFloat(muac) : undefined,
         measurement_date: measurementDate,
+        measurement_method: measurementMethod,
         specialist_notes: specialistNotes || undefined,
       });
       onSuccess(cid);
@@ -79,11 +86,12 @@ export function NutritionistAddMeasurementView({ selectedChildId, onBack, onSucc
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Measurement date</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Measurement date *</label>
             <input
               type="date"
               value={measurementDate}
               onChange={(e) => setMeasurementDate(e.target.value)}
+              required
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500"
             />
           </div>
@@ -110,6 +118,12 @@ export function NutritionistAddMeasurementView({ selectedChildId, onBack, onSucc
               required
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500"
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Measurement method *</label>
+            <select value={measurementMethod} onChange={(e) => setMeasurementMethod(e.target.value)} required className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+              <option value="">Select method</option><option value="recumbent_length">Recumbent length (lying)</option><option value="standing_height">Standing height</option>
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">MUAC (cm)</label>

@@ -4,6 +4,8 @@ export interface MeasurementValidationInput {
   height?: string;
   muac?: string;
   edema?: string;
+  measurementMethod?: string;
+  measurementDate?: string;
 }
 
 export interface MeasurementValidationResult {
@@ -30,6 +32,12 @@ export function validateMeasurementForm(input: MeasurementValidationInput): Meas
 
   if (!input.childId) {
     errors.push('Please select a child.');
+  }
+  if (!input.measurementDate || Number.isNaN(Date.parse(input.measurementDate))) {
+    errors.push('Measurement date is required.');
+  }
+  if (!['recumbent_length', 'standing_height'].includes(input.measurementMethod || '')) {
+    errors.push('Please select recumbent length or standing height.');
   }
 
   if (weightKg == null || Number.isNaN(weightKg)) {

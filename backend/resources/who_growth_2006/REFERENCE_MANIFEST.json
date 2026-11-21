@@ -1,0 +1,14 @@
+{
+  "reference_version": "WHO Child Growth Standards 2006",
+  "source_page": "https://www.who.int/tools/child-growth-standards",
+  "assets": {
+    "wfa_boys_expanded.xlsx": "b5b4748c6bfa5230e2eddafa1767629c349178b08d457f400b59422b8bfef86c",
+    "wfa_girls_expanded.xlsx": "ee3ae12cb96c6c5541cdf43665c03ce6c984f877859a183a5f6104eb06a49a6e",
+    "lhfa_boys_expanded.xlsx": "c4b1c9029ab9751a5f0888e32f35c7c0287a16d361885cf911ecf23b3f7f6b4f",
+    "lhfa_girls_expanded.xlsx": "6aa2876319449a6b1f4d825848128902114ff53c67b92b86a0c5140846013059",
+    "wfl_boys_expanded.xlsx": "1a6e9a002d2692d038161bc6572a10f8b9fa0657163808141d2981a2132c59cc",
+    "wfl_girls_expanded.xlsx": "ec116b8e618ad311d34a87231346badf16c75f5c4f82222ec846e05c582bf16a",
+    "wfh_boys_expanded.xlsx": "ed3b590f9c65937a138408b13618f33684bb6406a0c56d6a2ce3fd9053a3f59f",
+    "wfh_girls_expanded.xlsx": "fca340d5f04aa1556ac410b176b65b290e1b9ff467fc854a97f9b54ad94c9b8a"
+  }
+}

@@ -202,6 +202,21 @@ def request_transfer(child_id: str):
                 "status": "error",
                 "message": f"Target user must have role {to_role}"
             }), 400
+        if not to_user.is_active:
+            return jsonify({"status": "error", "message": "Target user is inactive"}), 400
+        if to_user.id not in {candidate.id for candidate in users_for_area(to_area_id, [to_role])}:
+            return jsonify({"status": "error", "message": "Target user is not assigned to the target area"}), 400
+        target_users = [to_user]
+    else:
+        target_users = users_for_area(to_area_id, [to_role])
+
+    # A transfer without an active responsible recipient is not actionable.
+    # Check this before writing the transfer, assignment, notification, or audit.
+    if not target_users:
+        return jsonify({
+            "status": "error",
+            "message": "No active eligible recipient is assigned to the target area.",
+        }), 422
     
     # MOH/AMOH → Midwife: auto-complete immediately so the child appears in the
     # midwife's list without requiring a separate approval step.
@@ -230,29 +245,6 @@ def request_transfer(child_id: str):
     if moh_direct:
         _apply_child_assignment(child, transfer, approving_user=user)
 
-    if moh_direct:
-        notify_users(
-            _transfer_target_users(transfer),
-            title="Child transferred to your area",
-            message=f"{child.child_id or child.child_unique_id} was assigned to your PHM area.",
-            type="child_transferred",
-            priority=PRIORITY_NORMAL,
-            actor_user_id=user.id,
-            related_child_id=child.id,
-            related_transfer_id=transfer.id,
-        )
-    else:
-        notify_users(
-            _transfer_target_users(transfer),
-            title="Child transfer requires action",
-            message=f"Transfer request for {child.child_id or child.child_unique_id} needs review.",
-            type="transfer_requested",
-            priority=PRIORITY_HIGH,
-            actor_user_id=user.id,
-            related_child_id=child.id,
-            related_transfer_id=transfer.id,
-        )
-
     log_audit(
         action="TRANSFER_REQUEST",
         entity_type="child_transfer",
@@ -263,6 +255,38 @@ def request_transfer(child_id: str):
     )
 
     db.session.commit()
+
+    # The transfer is durable before notification work begins.  Notification
+    # failures are auditable but never roll back a valid transfer.
+    try:
+        notify_users(
+            target_users,
+            title="Child transferred to your area" if moh_direct else "Child transfer requires action",
+            message=(
+                f"{child.child_id or child.child_unique_id} was assigned to your PHM area."
+                if moh_direct
+                else f"Transfer request for {child.child_id or child.child_unique_id} needs review."
+            ),
+            type="child_transferred" if moh_direct else "transfer_requested",
+            priority=PRIORITY_NORMAL if moh_direct else PRIORITY_HIGH,
+            actor_user_id=user.id,
+            related_child_id=child.id,
+            related_transfer_id=transfer.id,
+        )
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        log_audit(
+            action_type="TRANSFER_NOTIFICATION_FAILED",
+            action_category="NOTIFICATIONS",
+            entity_type="child_transfer",
+            entity_id=transfer.id,
+            status="FAILED",
+            user_id=user.id,
+            description="Transfer was created but notification delivery failed.",
+            metadata={"error": str(exc), "target_user_ids": [recipient.id for recipient in target_users]},
+        )
+        db.session.commit()
 
     return jsonify({
         "status": "success",

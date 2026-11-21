@@ -237,38 +237,52 @@ def create_child():
     db.session.commit()
 
     if child.guardian_email:
-        result = send_child_registered_email(
-            child.guardian_email,
-            child_name=child.name,
-            child_identifier=child.child_unique_id or child.child_id,
-            guardian_name=child.guardian_name,
-        )
-        log_audit(
-            action_type="CHILD_REGISTRATION_EMAIL_SENT" if result.ok else "CHILD_REGISTRATION_EMAIL_FAILED",
-            action_category="NOTIFICATIONS",
-            entity_type="child",
-            entity_id=child.id,
-            status="SUCCESS" if result.ok else "FAILED",
-            user_id=user.id if user else None,
-            description=f"Child registration email {'sent' if result.ok else 'failed'} for {child.child_unique_id or child.child_id}.",
-            metadata={"recipient": child.guardian_email, "error": None if result.ok else result.message},
-        )
-        if user and user.role == ROLE_MIDWIFE and child.current_assigned_area_id:
-            assigned_area = db.session.get(Area, child.current_assigned_area_id)
-            send_child_event_email(
+        try:
+            result = send_child_registered_email(
                 child.guardian_email,
                 child_name=child.name,
                 child_identifier=child.child_unique_id or child.child_id,
                 guardian_name=child.guardian_name,
-                event_title="Child Assigned to Midwife Area",
-                event_summary="Your child has been assigned to a PHM/midwife area for follow-up care.",
-                details={
-                    "Assigned area": assigned_area.name if assigned_area else str(child.current_assigned_area_id),
-                    "Assigned role": "Midwife",
-                    "Status": "Active follow-up",
-                },
             )
-        db.session.commit()
+            log_audit(
+                action_type="CHILD_REGISTRATION_EMAIL_SENT" if result.ok else "CHILD_REGISTRATION_EMAIL_FAILED",
+                action_category="NOTIFICATIONS",
+                entity_type="child",
+                entity_id=child.id,
+                status="SUCCESS" if result.ok else "FAILED",
+                user_id=user.id if user else None,
+                description=f"Child registration email {'sent' if result.ok else 'failed'} for {child.child_unique_id or child.child_id}.",
+                metadata={"recipient": child.guardian_email, "error": None if result.ok else result.message},
+            )
+            if user and user.role == ROLE_MIDWIFE and child.current_assigned_area_id:
+                assigned_area = db.session.get(Area, child.current_assigned_area_id)
+                send_child_event_email(
+                    child.guardian_email,
+                    child_name=child.name,
+                    child_identifier=child.child_unique_id or child.child_id,
+                    guardian_name=child.guardian_name,
+                    event_title="Child Assigned to Midwife Area",
+                    event_summary="Your child has been assigned to a PHM/midwife area for follow-up care.",
+                    details={
+                        "Assigned area": assigned_area.name if assigned_area else str(child.current_assigned_area_id),
+                        "Assigned role": "Midwife",
+                        "Status": "Active follow-up",
+                    },
+                )
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            log_audit(
+                action_type="CHILD_REGISTRATION_EMAIL_FAILED",
+                action_category="NOTIFICATIONS",
+                entity_type="child",
+                entity_id=child.id,
+                status="FAILED",
+                user_id=user.id if user else None,
+                description="Child registration completed but email delivery raised an exception.",
+                metadata={"recipient": child.guardian_email, "error": str(exc)},
+            )
+            db.session.commit()
     return jsonify({"status": "success", "child": child.to_dict()}), 201
 
 

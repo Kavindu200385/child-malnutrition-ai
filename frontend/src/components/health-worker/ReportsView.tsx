@@ -442,7 +442,7 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
               <span style={{ fontWeight: 600 }}>{r.total_children_seen ?? '—'}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6' }}>
-              <span style={{ color: '#6B7280' }}>Normal / MAM / SAM</span>
+              <span style={{ color: '#6B7280' }}>Legacy recorded risk labels (not clinical diagnoses)</span>
               <span style={{ fontWeight: 600 }}>
                 <span style={{ color: '#16a34a' }}>{r.normal_count ?? 0}</span>
                 {' / '}
@@ -616,8 +616,8 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
               >
                 <option value="all">All Children</option>
-                <option value="sam">SAM Cases Only</option>
-                <option value="mam">MAM Cases Only</option>
+                <option value="sam">Legacy SAM label only</option>
+                <option value="mam">Legacy MAM label only</option>
                 <option value="normal">Normal Only</option>
               </select>
             </div>
@@ -820,7 +820,7 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
                     Submit monthly aggregated clinic report to MOH office with statistics and case summaries
                   </p>
                   <div className="text-xs text-gray-500">
-                    Includes: Total children seen, Risk distribution (Normal/MAM/SAM), Escalated cases, Monthly trends
+                    Includes: Total children seen, legacy risk-label distribution, escalated cases, and monthly trends. Individual WHO screening indicators remain independent.
                   </div>
                 </div>
               </div>
@@ -846,7 +846,7 @@ export function ReportsView({ user: userProp }: ReportsViewProps = {}) {
             <div className="flex items-start gap-3 mb-2">
               <FileCheck className="w-5 h-5 text-red-600 mt-0.5" />
               <div className="flex-1">
-                <h4 className="font-medium text-gray-900 mb-2">SAM/MAM Case Report</h4>
+                <h4 className="font-medium text-gray-900 mb-2">Legacy MAM/SAM Label Report</h4>
                 <p className="text-sm text-gray-600 mb-3">
                   Detailed report of all malnutrition cases requiring intervention
                 </p>

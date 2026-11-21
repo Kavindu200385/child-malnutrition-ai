@@ -19,6 +19,7 @@ def test_assessment_works_without_muac_and_edema():
             "weight_kg": 10.5,
             "height_cm": 80.0,
             "measurement_date": "2023-01-01",
+            "measurement_method": "recumbent_length",
         },
         child,
     )
@@ -35,6 +36,8 @@ def test_missing_muac_does_not_block_submission_or_trigger_review():
         {
             "weight_kg": 10.5,
             "height_cm": 80.0,
+            "measurement_date": "2023-01-01",
+            "measurement_method": "recumbent_length",
         },
         child,
     )
@@ -52,6 +55,8 @@ def test_missing_edema_returns_not_recorded_without_blocking():
         {
             "weight_kg": 9.8,
             "height_cm": 78.0,
+            "measurement_date": "2023-01-01",
+            "measurement_method": "recumbent_length",
         },
         child,
     )
@@ -68,6 +73,8 @@ def test_edema_yes_triggers_clinical_review_and_sam():
             "weight_kg": 9.8,
             "height_cm": 78.0,
             "edema": "yes",
+            "measurement_date": "2023-01-01",
+            "measurement_method": "recumbent_length",
         },
         child,
     )
@@ -83,14 +90,14 @@ def test_edema_yes_triggers_clinical_review_and_sam():
     assert validation["edema_status"] == "Edema Present"
     assert validation["clinical_review_required"] is True
     assert "Bilateral pitting edema recorded." in validation["clinical_review_reasons"]
-    assert assessment["current_nutritional_status"] == "SAM"
+    assert assessment["current_nutritional_status"] == "NORMAL"
     assert assessment["clinical_action_required"] is True
 
 
 def test_invalid_gender_returns_validation_error():
     child = make_child(gender="unknown")
     result = validate_measurement_payload(
-        {"weight_kg": 10.0, "height_cm": 78.0},
+        {"weight_kg": 10.0, "height_cm": 78.0, "measurement_date": "2023-01-01", "measurement_method": "recumbent_length"},
         child,
     )
 
@@ -101,7 +108,7 @@ def test_invalid_gender_returns_validation_error():
 def test_negative_weight_is_rejected():
     child = make_child()
     result = validate_measurement_payload(
-        {"weight_kg": -1, "height_cm": 78.0},
+        {"weight_kg": -1, "height_cm": 78.0, "measurement_date": "2023-01-01", "measurement_method": "recumbent_length"},
         child,
     )
 
@@ -112,7 +119,7 @@ def test_negative_weight_is_rejected():
 def test_negative_height_is_rejected():
     child = make_child()
     result = validate_measurement_payload(
-        {"weight_kg": 10.0, "height_cm": -5},
+        {"weight_kg": 10.0, "height_cm": -5, "measurement_date": "2023-01-01", "measurement_method": "recumbent_length"},
         child,
     )
 
@@ -123,11 +130,11 @@ def test_negative_height_is_rejected():
 def test_negative_muac_is_rejected_only_when_provided():
     child = make_child()
     missing_muac = validate_measurement_payload(
-        {"weight_kg": 10.0, "height_cm": 78.0},
+        {"weight_kg": 10.0, "height_cm": 78.0, "measurement_date": "2023-01-01", "measurement_method": "recumbent_length"},
         child,
     )
     negative_muac = validate_measurement_payload(
-        {"weight_kg": 10.0, "height_cm": 78.0, "muac_cm": -1},
+        {"weight_kg": 10.0, "height_cm": 78.0, "muac_cm": -1, "measurement_date": "2023-01-01", "measurement_method": "recumbent_length"},
         child,
     )
 
@@ -139,7 +146,7 @@ def test_negative_muac_is_rejected_only_when_provided():
 def test_future_dob_is_rejected():
     child = make_child(dob=date.today() + timedelta(days=2))
     result = validate_measurement_payload(
-        {"weight_kg": 10.0, "height_cm": 78.0},
+        {"weight_kg": 10.0, "height_cm": 78.0, "measurement_date": date.today().isoformat(), "measurement_method": "standing_height"},
         child,
     )
 
@@ -154,6 +161,7 @@ def test_measurement_date_before_dob_is_rejected():
             "weight_kg": 10.0,
             "height_cm": 78.0,
             "measurement_date": "2023-12-01",
+            "measurement_method": "recumbent_length",
         },
         child,
     )

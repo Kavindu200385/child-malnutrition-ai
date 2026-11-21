@@ -307,8 +307,8 @@ function NationalReportView({ data }: { data: any }) {
           <p className="text-xs text-green-700 mt-1">Visits + midwife measurements</p>
         </div>
         <div className="bg-purple-50 rounded-lg p-4">
-          <p className="text-sm text-purple-600 font-medium">AI Predictions</p>
-          <p className="text-2xl font-bold text-purple-900">{ai.total_predictions ?? 0}</p>
+          <p className="text-sm text-purple-600 font-medium">Future-risk prediction</p>
+          <p className="text-sm font-bold text-purple-900">Unavailable — no deployed clinically validated model</p>
         </div>
       </div>
       {nat.risk_distribution && (
@@ -519,17 +519,12 @@ function NationalReportViewWithCharts({ data }: { data: any }) {
     High: p.risk_distribution?.HIGH || 0,
     SAM: (p.risk_distribution?.CRITICAL || 0) + (p.risk_distribution?.SAM || 0),
   }));
-  const aiPieData = [
-    { name: 'Low', value: ai.prediction_distribution?.Low || 0, color: '#22c55e' },
-    { name: 'Moderate', value: ai.prediction_distribution?.Moderate || 0, color: '#f59e0b' },
-    { name: 'High', value: ai.prediction_distribution?.High || 0, color: '#f97316' },
-    { name: 'Severe', value: ai.prediction_distribution?.Severe || 0, color: '#ef4444' },
-  ].filter(d => d.value > 0);
+  const aiPieData: Array<{ name: string; value: number; color: string }> = [];
   return (
     <div className="space-y-8">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-blue-50 rounded-xl p-4"><p className="text-sm text-blue-600 font-medium">Total Children</p><p className="text-2xl font-bold text-blue-900">{nat.total_children ?? 0}</p></div>
-        <div className="bg-purple-50 rounded-xl p-4"><p className="text-sm text-purple-600 font-medium">AI Predictions</p><p className="text-2xl font-bold text-purple-900">{ai.total_predictions ?? 0}</p></div>
+        <div className="bg-purple-50 rounded-xl p-4"><p className="text-sm text-purple-600 font-medium">Future-risk prediction</p><p className="text-sm font-bold text-purple-900">Unavailable — no deployed clinically validated model</p></div>
         <div className="bg-green-50 rounded-xl p-4"><p className="text-sm text-green-600 font-medium">Normal</p><p className="text-2xl font-bold text-green-900">{nat.risk_distribution?.NORMAL ?? 0}</p></div>
         <div className="bg-red-50 rounded-xl p-4"><p className="text-sm text-red-600 font-medium">SAM/Critical</p><p className="text-2xl font-bold text-red-900">{(nat.risk_distribution?.CRITICAL || 0) + (nat.risk_distribution?.SAM || 0)}</p></div>
       </div>

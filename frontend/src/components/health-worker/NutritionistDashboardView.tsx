@@ -151,7 +151,7 @@ export function NutritionistDashboardView() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Moderate (MAM)</p>
+              <p className="text-sm text-gray-600">Legacy MAM label</p>
               <p className="text-3xl font-bold mt-2" style={{ color: COLORS.mam }}>{data.mam_count ?? 0}</p>
             </div>
             <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -162,7 +162,7 @@ export function NutritionistDashboardView() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Severe (SAM)</p>
+              <p className="text-sm text-gray-600">Legacy SAM label</p>
               <p className="text-3xl font-bold mt-2" style={{ color: COLORS.sam }}>{data.sam_count ?? 0}</p>
             </div>
             <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">

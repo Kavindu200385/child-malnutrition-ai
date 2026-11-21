@@ -371,6 +371,9 @@ class Hospital(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     hospital_name = db.Column(db.String(200), nullable=False, index=True)
     hospital_code = db.Column(db.String(20), unique=True, nullable=False, index=True)  # e.g., CMBH, GMPH
+    # Canonical geography.  Text district/province values are retained as
+    # denormalized display snapshots for legacy integrations.
+    district_area_id = db.Column(db.Integer, ForeignKey("areas.id"), nullable=True, index=True)
     district = db.Column(db.String(120), nullable=True, index=True)
     province = db.Column(db.String(120), nullable=True)
     address = db.Column(db.Text, nullable=True)
@@ -385,6 +388,7 @@ class Hospital(db.Model):
 
     # Relationships
     children = relationship("Child", back_populates="hospital")
+    district_area = relationship("Area", foreign_keys=[district_area_id])
     # users relationship removed - users are linked via WorkerAreaMapping instead
 
     def to_dict(self) -> dict:
@@ -392,6 +396,7 @@ class Hospital(db.Model):
             "id": self.id,
             "hospital_name": self.hospital_name,
             "hospital_code": self.hospital_code,
+            "district_area_id": self.district_area_id,
             "district": self.district,
             "province": self.province,
             "address": self.address,
@@ -566,23 +571,8 @@ class Child(db.Model):
             if z_wfh is None:
                 z_wfh = getattr(latest, "z_wfh", None)
 
-            if z_wfa is None or z_hfa is None or z_wfh is None:
-                measurement_date = getattr(latest, "measurement_date", None) or getattr(latest, "visit_date", None)
-                weight_kg = getattr(latest, "weight_kg", None)
-                height_cm = getattr(latest, "height_cm", None)
-                if self.dob and measurement_date and weight_kg is not None and height_cm is not None:
-                    try:
-                        from backend.utils.who_growth import compute_z_scores
-
-                        age_months = max(0, (measurement_date.date() - self.dob).days // 30)
-                        z_wfa, z_hfa, z_wfh = compute_z_scores(
-                            age_months=age_months,
-                            sex=self.gender,
-                            weight_kg=float(weight_kg),
-                            height_cm=float(height_cm),
-                        )
-                    except Exception:
-                        pass
+            # Historical rows are immutable evidence.  Do not recompute absent
+            # scores because their original method/date provenance may be absent.
 
             if muac_status is None:
                 _, muac_status, _, _ = muac_assessment(getattr(latest, "muac_cm", None))

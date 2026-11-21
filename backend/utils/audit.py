@@ -257,6 +257,11 @@ class AuditLogger:
                 audit_session.flush()
             else:
                 audit_session.commit()
+                # The private audit session is closed below.  Refresh and
+                # detach the returned row so callers can safely read its ID
+                # without triggering a lazy load on a closed session.
+                audit_session.refresh(audit_log)
+                audit_session.expunge(audit_log)
             return audit_log
         except Exception as e:
             if audit_session and not use_current_session:
